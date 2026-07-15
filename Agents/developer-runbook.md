@@ -266,10 +266,10 @@ Current installer behavior:
 The installed app uses `electron-updater` with the public GitHub provider. A release must contain:
 
 - `latest.yml`
-- `Crossline-CSCA-Practice-Setup.exe`
-- `Crossline-CSCA-Practice-Setup.exe.blockmap`
+- `Crossline-CSCA-Practice-Setup-<version>.exe`
+- `Crossline-CSCA-Practice-Setup-<version>.exe.blockmap`
 
-The filenames intentionally contain no spaces. `electron-updater` uses the blockmap for differential downloads when possible and falls back to the complete installer when required.
+The filenames intentionally contain no spaces and include the version so `electron-updater` can resolve both the old and new blockmaps. It uses those blockmaps for differential downloads when possible and falls back to the complete installer when required.
 
 Configure the repository once:
 

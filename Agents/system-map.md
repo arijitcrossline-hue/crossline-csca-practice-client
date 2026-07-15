@@ -91,7 +91,7 @@ Typical public URLs:
 - `https://media.crosslinecscatest.com/downloads/Crossline-CSCA-Practice-Setup.exe`
 - `https://media.crosslinecscatest.com/updates/latest.json`
 
-Each GitHub Release contains `latest.yml`, the NSIS installer, and its `.blockmap` file.
+Each GitHub Release contains `latest.yml`, a versioned NSIS installer, and its versioned `.blockmap` file.
 
 ## High-Level Student Flow
 

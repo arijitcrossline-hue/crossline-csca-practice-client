@@ -13,6 +13,7 @@ const packageJson = JSON.parse(await fsp.readFile(path.join(root, "package.json"
 const version = packageJson.version;
 const zipName = `Crossline-CSCA-Practice-Patch-${version}.zip`;
 const zipPath = path.join(release, zipName);
+const versionedInstallerPath = path.join(release, `Crossline-CSCA-Practice-Setup-${version}.exe`);
 const installerPath = path.join(release, "Crossline-CSCA-Practice-Setup.exe");
 const zip = new AdmZip();
 const files = [];
@@ -50,6 +51,10 @@ queuedFiles.forEach(({ source, relative }) => {
 zip.addFile("patch-manifest.json", Buffer.from(JSON.stringify({ version, files }, null, 2)));
 zip.writeZip(zipPath);
 
+// The website keeps a stable URL while GitHub uses versioned filenames so the
+// differential updater can resolve the previous release's blockmap.
+await fsp.copyFile(versionedInstallerPath, installerPath);
+
 const archiveEntries = new Map(new AdmZip(zipPath).getEntries().map((entry) => [entry.entryName, entry]));
 for (const file of files) {
   const parts = `payload/${file}`.split("/");
@@ -61,7 +66,7 @@ for (const file of files) {
 
 const bytes = await fsp.readFile(zipPath);
 const patchSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-const installerBytes = await fsp.readFile(installerPath);
+const installerBytes = await fsp.readFile(versionedInstallerPath);
 const installerSha256 = crypto.createHash("sha256").update(installerBytes).digest("hex");
 const latestPath = path.join(release, "latest.json");
 let latest = {};

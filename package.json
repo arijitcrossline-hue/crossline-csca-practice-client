@@ -46,7 +46,7 @@
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Crossline-CSCA-Practice-Setup.${ext}"
+      "artifactName": "Crossline-CSCA-Practice-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
