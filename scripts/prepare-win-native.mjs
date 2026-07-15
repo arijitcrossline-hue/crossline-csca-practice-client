@@ -8,6 +8,7 @@ const child = spawn(npmCommand, [
   "@napi-rs/canvas-win32-x64-msvc@0.1.80"
 ], {
   stdio: "inherit",
+  shell: process.platform === "win32",
   env: {
     ...process.env,
     npm_config_platform: "win32",
