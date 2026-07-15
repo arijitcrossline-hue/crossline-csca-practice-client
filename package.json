@@ -21,7 +21,7 @@
     "worker:migrate:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/schema.sql",
     "worker:seed:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/seed.sql",
     "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
-    "prepare:win-native": "npm_config_platform=win32 npm_config_arch=x64 npm install --no-save --force @napi-rs/canvas-win32-x64-msvc@0.1.80",
+    "prepare:win-native": "node scripts/prepare-win-native.mjs",
     "configure:github": "node scripts/configure-github-repository.mjs",
     "dist:win": "npm run prepare:win-native && electron-builder --win nsis --x64 --publish never && node scripts/build-update-patch.mjs",
     "release:github": "npm run prepare:win-native && electron-builder --win nsis --x64 --publish always"
