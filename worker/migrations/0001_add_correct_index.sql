@@ -1,0 +1,1 @@
+ALTER TABLE questions ADD COLUMN correct_index INTEGER NOT NULL DEFAULT 0;

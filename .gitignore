@@ -1,0 +1,16 @@
+node_modules/
+media-server/node_modules/
+release/
+dist/
+.wrangler/
+worker/.wrangler/
+outputs/
+*-check.png
+eng.traineddata
+.DS_Store
+npm-debug.log*
+.env
+.env.*
+!.env.example
+.google-oauth-credential.tmp.json
+.facebook-oauth-credential.tmp.json

@@ -1,0 +1,21 @@
+name = "crossline-mocks-api"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+routes = [
+  { pattern = "api.crosslinecscatest.com", custom_domain = true }
+]
+
+[vars]
+APP_ORIGIN = "https://exam.crosslinecscatest.com"
+CONNECT_ORIGIN = "https://api.crosslinecscatest.com"
+VERIFY_FROM = "Crossline Education <verify@crosslinecscatest.com>"
+ADMIN_EMAIL = "admin@crosslinecscatest.com"
+ADMIN_EMAILS = "admin@crosslinecscatest.com,arijitsumit123@gmail.com"
+GLM_API_URL = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
+GLM_MODEL = "glm-5.2"
+OPENCODE_RELAY_URL = "https://media.crosslinecscatest.com/admin-ai"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "crossline-mocks"
+database_id = "9819fed8-22de-4110-954e-97829da12247"

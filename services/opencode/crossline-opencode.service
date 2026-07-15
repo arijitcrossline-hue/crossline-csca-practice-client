@@ -1,0 +1,24 @@
+[Unit]
+Description=Crossline restricted OpenCode server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crossline-ai
+Group=crossline-ai
+EnvironmentFile=/etc/crossline-opencode.env
+Environment=HOME=/var/lib/crossline-opencode
+WorkingDirectory=/opt/crossline-opencode/workspace
+ExecStart=/usr/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/crossline-opencode
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

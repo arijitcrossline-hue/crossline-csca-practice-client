@@ -1,0 +1,12 @@
+{
+  "name": "crossline-download-server",
+  "version": "0.1.0",
+  "description": "VPS download service for the Crossline mock exam Windows client.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

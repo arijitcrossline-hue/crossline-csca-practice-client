@@ -1,0 +1,23 @@
+[Unit]
+Description=Crossline OpenCode API relay
+After=network-online.target crossline-opencode.service
+Wants=network-online.target
+Requires=crossline-opencode.service
+
+[Service]
+Type=simple
+User=crossline-ai
+Group=crossline-ai
+EnvironmentFile=/etc/crossline-opencode.env
+WorkingDirectory=/opt/crossline-opencode
+ExecStart=/usr/bin/node /opt/crossline-opencode/relay.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
