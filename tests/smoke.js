@@ -328,6 +328,11 @@ function adminFlow() {
   assert.ok(chunks.every((chunk) => /^Question \d+:/.test(chunk.trim())));
   const deduped = window.eval(`dedupeDraftQuestions([{ text: "Same  Q", answers: ["a", "b", "c", "d"] }, { text: "same q", answers: ["A", "B", "C", "D"] }, { text: "other", answers: ["a", "b", "c", "d"] }])`);
   assert.equal(deduped.length, 2);
+  const htmlExplanation = window.eval(`contentHtml(${JSON.stringify("<b>Step 1 - Energy.</b><br>Use $E=mc^2$ with care.<script>bad</script>")})`);
+  assert.match(htmlExplanation, /<b>Step 1 - Energy\.<\/b>/);
+  assert.match(htmlExplanation, /\$E=mc\^2\$/);
+  assert.doesNotMatch(htmlExplanation, /script/i);
+  assert.match(window.eval(`contentHtml(${JSON.stringify("Plain $x^2$ line")})`), /Plain \$x\^2\$ line/);
   window.close();
 }
 
