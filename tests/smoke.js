@@ -189,7 +189,10 @@ async function studentFlow() {
   click(window, "#confirm-submit");
   await waitFor(window, ".result-option");
   assert.match(window.document.body.textContent, /Result review/);
-  assert.match(window.document.body.textContent, /Selected option/);
+  assert.match(window.document.body.textContent, /You chose/);
+  assert.ok(window.document.querySelector(".result-status"));
+  assert.doesNotMatch(window.document.querySelector(".answer-review").className, /border-left/);
+  assert.ok(!window.document.querySelector(".answer-review").style.borderLeftWidth);
   click(window, "#side-dashboard");
   await waitFor(window, "#start-exam-dashboard");
   assert.match(window.document.body.textContent, /Welcome back/);
