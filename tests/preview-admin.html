@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin preview harness (local demo mode)</title>
+    <script>
+      window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["\\[", "\\]"], ["$$", "$$"]] }, svg: { fontCache: "global" } };
+      window.examRuntime = {
+        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: true }),
+        enterKiosk: async () => true,
+        leaveKiosk: async () => true,
+        installDownloadedUpdate: async () => ({ installing: true }),
+        onIntegrityEvent: () => () => {}
+      };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+    <link rel="stylesheet" href="../src/styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="../src/config.js"></script>
+    <script>window.CROSSLINE_API_BASE = "";</script>
+    <script src="../src/api.js"></script>
+    <script src="../src/vendor/marked.umd.js"></script>
+    <script src="../src/app.js"></script>
+  </body>
+</html>

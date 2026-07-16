@@ -308,6 +308,18 @@ function adminFlow() {
   click(window, "#parse-import-locally");
   assert.equal(window.document.querySelector("#add-imported-questions").disabled, false);
   assert.match(window.document.querySelector("#import-results").textContent, /Correct: B/);
+  assert.ok(window.document.querySelector(".import-steps li.active"));
+  assert.ok(window.document.querySelector("#autopilot-mode"));
+  assert.ok(window.document.querySelector("#auto-build"));
+  assert.match(window.document.querySelector("#autopilot-mode").textContent, /One exam per source file/);
+  assert.match(window.document.querySelector("#autopilot-mode").textContent, /Combine everything into one exam/);
+  const bigSource = Array.from({ length: 40 }, (_, index) => `Question ${index + 1}: sample ${"x".repeat(500)}\nA. 1\nB. 2\nC. 3\nD. 4\nAnswer: B`).join("\n");
+  const chunks = window.eval(`splitSourceIntoChunks(${JSON.stringify(bigSource)}, 5000)`);
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => chunk.length <= 5000));
+  assert.ok(chunks.every((chunk) => /^Question \d+:/.test(chunk.trim())));
+  const deduped = window.eval(`dedupeDraftQuestions([{ text: "Same  Q", answers: ["a", "b", "c", "d"] }, { text: "same q", answers: ["A", "B", "C", "D"] }, { text: "other", answers: ["a", "b", "c", "d"] }])`);
+  assert.equal(deduped.length, 2);
   window.close();
 }
 

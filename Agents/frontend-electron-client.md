@@ -1,132 +1,122 @@
 # Frontend and Electron Client
 
-The frontend is a vanilla JavaScript single-page app inside `src/app.js`. It uses direct DOM rendering instead of a framework.
+## Frontend Architecture
 
-## Main Files
+The frontend is a framework-free single-page application. `src/app.js` renders each screen by replacing `#app.innerHTML`, then attaches listeners with `bind()`. Shared state is held in module-level variables and localStorage.
 
-- `src/index.html`: page shell, loads MathJax, config, API wrapper, and app script.
-- `src/config.js`: sets the production API base URL.
-- `src/api.js`: wraps backend API calls and token storage.
-- `src/app.js`: most UI screens and business flow.
-- `src/styles.css`: all visual styling and animations.
-- `electron/main.js`: creates the app window, kiosk behavior, blocked shortcuts, permissions, updater IPC.
-- `electron/preload.js`: exposes safe APIs to the frontend as `window.examRuntime`.
-- `electron/github-updater.js`: adapts `electron-updater` events to the existing in-app update panel.
+There are two runtime modes:
 
-## How Screens Are Rendered
+- Browser: landing page, website registration/verification, legal pages, installer link.
+- Electron: student and administrator application.
 
-Most screens are functions in `src/app.js` that replace the root `#app` element:
+The final branch at the bottom of `src/app.js` selects the mode using `window.examRuntime`, which exists only when `electron/preload.js` has run.
 
-```js
-app.innerHTML = `...html...`;
+## Public Website
+
+`showDownloadLanding()` renders the marketing page and Windows dashboard preview. `hydrateDownloadLinks()` sends a `HEAD` request to the stable VPS installer and enables download buttons only when the file exists.
+
+The website can create and verify an account with `showWebsiteRegister()` and `showWebsiteVerification()`. It does not expose exam-taking screens. Legal routes are selected from `window.location.pathname`:
+
+- `/privacy`
+- `/terms`
+- `/data-deletion`
+
+## Student Application
+
+Main flow functions:
+
+- `restoreStudentSession()`: calls `/auth/me` when a stored token exists.
+- `showAuth()`: email login/registration and Google sign-in.
+- `showPasswordReset()`: request and confirm one-time recovery code.
+- `showStudentDashboard()`: profile, metrics, trend graphs, weaknesses, recent mistakes, notifications, and navigation.
+- `showExamList()`: all published exams; all currently return `canStart: true`.
+- `showStudentResults()` and `showStudentResultDetail()`: marks-based history and answer review.
+- `showWeaknessAnalysis()`: subject/chapter/topic aggregation from result details.
+- `showLeaderboard()`: latest-exam and last-five-average rankings.
+- `showStudentSettings()`: profile and update settings.
+
+Profile fields are synchronized through `PATCH /auth/profile`. Local mode uses per-email localStorage keys.
+
+## Setup and Exam Flow
+
+`showEquipmentCheck()` enters kiosk mode and manages three checks:
+
+- camera preview using the selected `videoinput`
+- microphone recording test using Web Audio analyser bars
+- network test against API/media endpoints
+
+`enumerateDevices()` initially sees limited labels until permission is granted. `scanAvailableDevices()` opens camera/microphone permission, enumerates again, and fills device selectors. Device-change events can refresh the list.
+
+Next screens:
+
+```text
+showEquipmentCheck()
+  -> showFacialRecognition()
+  -> showPhonePairing()
+  -> showRoomScan()
+  -> showPrivacyTerms()
+  -> startExam()
 ```
 
-Then each screen binds event handlers using the helper:
+The facial-recognition screen is a simulation: it checks that a face is positioned for the practice flow, not biometric identity matching. The room scan is a user confirmation, not a recorded upload.
 
-```js
-function bind(id, event, handler) {
-  const element = document.getElementById(id);
-  if (element) element.addEventListener(event, handler);
-}
-```
+`startExam()` stops all media streams before rendering questions. `renderExamShell()` and `renderQuestion()` provide timer, previous/next, text zoom, flagging, option selection, and question grid. Answers are keyed by backend question ID. `submitExamAndExit()` asks for confirmation, submits, records an event, leaves kiosk, and returns to the dashboard.
 
-For a frontend refactor, this file is the main thing to split up. The highest-value cleanup would be separating:
+## Electron Security Boundary
 
-- auth screens
-- dashboard/results screens
-- setup/preflight screens
-- exam-taking screen
-- admin screens
-- update panel
-- shared rendering helpers
+`electron/main.js` creates a BrowserWindow with:
 
-## Student UI Flow
+- `contextIsolation: true`
+- `nodeIntegration: false`
+- `sandbox: true`
+- no menu
+- denied new-window and navigation attempts
+- content-protection hint
+- restricted local-file CSP
 
-Important functions:
+Kiosk begins only when setup begins. While active, the main process:
 
-- `showAuth()`: login/register page.
-- `showVerification()`: six-digit email verification page.
-- `showStudentDashboard()`: student home page after login.
-- `showExamList()`: choose an exam.
-- `showEquipmentCheck()`: camera, microphone, and network checks.
-- `showFacialRecognition()`: simulated facial recognition step.
-- `showPhonePairing()`: QR pairing for secondary phone camera.
-- `showRoomScan()`: 360-degree room scan instruction screen.
-- `showPrivacyTerms()`: setup privacy terms before the exam starts.
-- `startExam()`: starts the timed exam and stops device streams.
-- `renderExamShell()` and `renderQuestion()`: exam UI and question navigation.
-- `submitExamAndExit()`: saves/submits answers and returns to dashboard.
-- `showStudentResults()` and `showStudentResultDetail()`: result list and full answer review.
+- enables kiosk, fullscreen, and always-on-top
+- focuses the window every second
+- blocks close and minimize
+- blocks common reload, DevTools, navigation, Alt+Tab, and Alt+F4 shortcuts where Electron/Windows permits
+- prevents display sleep
+- emits integrity events for blocked actions/focus loss
 
-## Kiosk and Fullscreen Behavior
+This does not make Alt+Tab universally impossible at the Windows security boundary. A truly locked exam machine requires managed Windows policies outside Electron.
 
-The app intentionally does not go fullscreen immediately on login. It enters kiosk mode when the user starts the exam setup:
+## Preload IPC API
 
-```js
-showExamList() -> showEquipmentCheck() -> ensureKiosk()
-```
+`window.examRuntime` exposes:
 
-`ensureKiosk()` calls `window.examRuntime.enterKiosk()`, which is implemented in `electron/main.js`.
+- runtime/version information
+- check/download/install/reset update
+- start OAuth
+- open the allowlisted Discord link
+- extract one or more question sources
+- subscribe to source-import, OAuth, update, and integrity events
+- enter/leave kiosk
+- pause focus guard briefly for native dropdown interaction
+- exit the app
 
-Electron kiosk controls include:
+No generic filesystem, shell, or arbitrary URL API is exposed.
 
-- `mainWindow.setKiosk(true)`
-- `mainWindow.setFullScreen(true)`
-- `mainWindow.setAlwaysOnTop(true, "screen-saver")`
-- periodic focus enforcement
-- global shortcut registration
-- close/minimize prevention while kiosk is active
+## OAuth Window
 
-The app leaves kiosk on login/dashboard/results screens using `leaveKiosk()`.
+`startOAuth("google")` asks the main process to open a modal child BrowserWindow. The Worker performs OAuth. When navigation reaches the allowlisted `/auth/oauth/complete` URL, the main process extracts token/user data, emits `oauth-complete`, and closes the child window.
 
-## Device Checks
+## Rendering and Content
 
-The equipment check has three required checks before moving forward:
-
-- camera
-- microphone
-- network
-
-The microphone check uses the Web Audio API. `startMicrophoneRecordingTest()` opens the selected mic, connects it to an analyser, and animates the wave bars. `stopMicrophoneRecordingTest(true)` stops the stream and marks the check passed.
-
-The camera and facial recognition steps use `navigator.mediaDevices.getUserMedia`. After setup is complete, `startExam()` calls `stopMedia()`, so the camera and microphone are not kept active during the question section.
-
-## Update UI
-
-Update controls are only exposed on login and dashboard, not everywhere.
-
-Frontend functions:
-
-- `checkForUpdates()`
-- `installUpdateNow()`
-- `restartUpdateNow()`
-- `registerUpdateProgressEvents()`
-- `updatePanelHtml()`
-
-Electron functions:
-
-- `check-for-updates`
-- `download-update`
-- `install-downloaded-update`
-
-`electron-updater` checks the latest public GitHub Release, reads `latest.yml`, and uses the installer blockmap for differential downloading when possible. It can fall back to the full installer if a differential update cannot be used. Download progress and errors are sent to the renderer over IPC, so update controls stay inside the app instead of opening a modal behind the kiosk window. The downloaded NSIS update is installed on quit or when the student clicks Restart and install.
-
-```js
-autoUpdater.disableDifferentialDownload = false;
-```
-
-Because NSIS updates the existing installation, desktop and Start menu shortcuts remain valid.
-
-## Browser Landing Page
-
-If the app runs in a normal browser, there is no `window.examRuntime`, so the frontend shows `showDownloadLanding()`. That landing page does not allow taking exams. It only checks whether the Windows setup file exists and activates the download link.
+- `escapeHtml()` escapes ordinary UI values.
+- `mathHtml()` preserves line breaks and lets MathJax process LaTeX afterward.
+- `markdownHtml()` sanitizes AI Markdown through an element allowlist.
+- `renderMath()` calls MathJax after question/result/admin screens render.
+- `uiIcon()` loads local SVG icons; dashboard illustrations and fonts are local assets.
 
 ## Local Prototype Mode
 
-If `window.CrosslineApi.enabled()` is false, the app falls back to localStorage demo data:
+If `window.CrosslineApi.enabled()` is false, auth, exams, and results use localStorage demo data. This is useful for UI tests but does not exercise email, D1, phone pairing, or production authorization.
 
-- demo student: `student@example.com` / `demo123`
-- demo verification code: `246810`
-- demo admin: `admin@crossline.test` / `admin123`
+## Main Maintenance Risk
 
-Production should use the Worker API.
+`src/app.js` combines rendering, state, and orchestration in one large file. A future refactor should preserve behavior while splitting by domain: public site, auth, dashboard/results, setup/exam, admin/import, update UI, and shared helpers.

@@ -1,192 +1,72 @@
 # Developer Runbook
 
-This file is for the next developer who needs to run, test, build, or deploy the app.
-
-## Install
+## Install and Run
 
 ```bash
 npm install
-```
-
-## Run Locally on macOS
-
-Normal windowed development:
-
-```bash
 npm start
 ```
 
-Kiosk/fullscreen preview:
+`npm start` passes `--windowed`, so kiosk capability is disabled for ordinary development. To exercise the full setup lock behavior:
 
 ```bash
 npm run start:kiosk
 ```
 
-The app behaves differently depending on whether it runs in Electron or a browser:
+Browser-only landing page:
 
-- Electron: full student/admin app.
-- Browser: landing page with Windows download link.
-
-## API Config
-
-Default API is set in:
-
-```text
-src/config.js
+```bash
+npm run serve
 ```
 
-Production:
+Open `http://localhost:4173/src/` if serving from the repository root. The browser never shows exam-taking UI.
 
-```text
-https://api.crosslinecscatest.com
-```
+## API Configuration
 
-Temporary override from browser/devtools:
+Default: `https://api.crosslinecscatest.com` in `src/config.js`.
+
+Temporary override:
 
 ```js
-localStorage.setItem("crossline-api-base", "https://your-test-api.example.com");
+localStorage.setItem("crossline-api-base", "http://127.0.0.1:8787");
 ```
 
-## Run Smoke Tests
+Remove the key to return to production.
+
+## Test Suite
 
 ```bash
 npm test
 ```
 
-The smoke test uses JSDOM and checks:
+This runs source parsing, compatibility ZIP extraction, GitHub updater adapter, and JSDOM UI flows.
 
-- browser landing page does not show student login
-- student login and dashboard
-- no Chinese text
-- no `[object PointerEvent]` in dashboard
-- kiosk starts only after exam setup begins
-- equipment check flow
-- facial recognition flow
-- phone pairing to room scan
-- privacy terms
-- exam submit confirmation
-- registration username
-- admin create/edit question flow
-- public privacy, terms, and data-deletion routes
-
-Public legal routes required by the OAuth providers:
-
-- `https://exam.crosslinecscatest.com/privacy`
-- `https://exam.crosslinecscatest.com/terms`
-- `https://exam.crosslinecscatest.com/data-deletion`
-
-## Production Migrations
-
-The base schema command is appropriate for a new database. For the existing production D1 database, apply each new migration once, in order:
+Syntax-check focused files when editing large scripts:
 
 ```bash
-npm run worker:migrate:0007
-npm run worker:migrate:0008
-npm run worker:migrate:0009
+node --check electron/main.js
+node --check electron/source-import.js
+node --check worker/src/index.js
 ```
 
-Then deploy the Worker:
+## Local Worker and D1
 
 ```bash
-npm run worker:deploy
-```
-
-Configure Google sign-in and the model secrets only when ready:
-
-```bash
-npx wrangler secret put OAUTH_STATE_SECRET --config worker/wrangler.toml
-npx wrangler secret put GOOGLE_CLIENT_ID --config worker/wrangler.toml
-npx wrangler secret put GOOGLE_CLIENT_SECRET --config worker/wrangler.toml
-npx wrangler secret put GLM_API_KEY --config worker/wrangler.toml
-npx wrangler secret put OPENCODE_RELAY_SECRET --config worker/wrangler.toml
-```
-
-Provider callback URLs:
-
-```text
-Google: https://api.crosslinecscatest.com/auth/oauth/google/callback
-```
-
-After adding credentials, verify the Google start route returns an OAuth redirect rather than HTTP 503:
-
-```bash
-curl -I https://api.crosslinecscatest.com/auth/oauth/google/start
-```
-
-`GLM_API_URL`, `GLM_MODEL`, and `OPENCODE_RELAY_URL` are set in `worker/wrangler.toml`. Production requests prefer the private OpenCode relay and use direct GLM only as an emergency fallback.
-
-## OpenCode Service
-
-Versioned production files are in `services/opencode/`. The Tencent VPS runs:
-
-- `crossline-opencode.service`: OpenCode 1.17.18 on `127.0.0.1:4096`
-- `crossline-opencode-relay.service`: authenticated relay on `127.0.0.1:8090`
-- Caddy route `https://media.crosslinecscatest.com/admin-ai/*`
-
-Secrets live only in `/etc/crossline-opencode.env` and the matching `OPENCODE_RELAY_SECRET` Worker secret. OpenCode permits only the `glm` provider and denies file, shell, editing, web, task, skill, and other tools. The relay creates and deletes one short-lived session per request.
-
-Check service health without printing secrets:
-
-```bash
-sudo systemctl status crossline-opencode crossline-opencode-relay
-sudo bash -c 'set -a; . /etc/crossline-opencode.env; set +a; curl -fsS -H "x-crossline-relay-secret: $OPENCODE_RELAY_SECRET" http://127.0.0.1:8090/health'
-```
-
-The Tencent VPS pings the Worker `/health` endpoint every five minutes. Submission queues email immediately; the health ping provides a retry sweep if an earlier email attempt failed. The cron file is `/etc/cron.d/crossline-result-sweep` on the VPS.
-
-## Stress Test the API
-
-Health-only test:
-
-```bash
-npm run stress:api
-```
-
-To simulate 100 clients without writes:
-
-```bash
-STRESS_USERS=100 STRESS_CONCURRENCY=25 STRESS_REPEAT=1 npm run stress:api
-```
-
-To include authenticated administrator login and exam-library reads, set `STRESS_ALLOW_AUTH=true`, `STRESS_ADMIN_EMAIL`, and `STRESS_ADMIN_PASSWORD`. Credentials are read from the environment and must never be committed.
-
-An authenticated production test is intentionally opt-in. Run it during a quiet window and start with a small number of users:
-
-```bash
-STRESS_ALLOW_AUTH=true STRESS_USERS=25 STRESS_CONCURRENCY=10 \
-STRESS_EMAIL="student@example.com" STRESS_PASSWORD="..." npm run stress:api
-```
-
-The optional session-creation test writes practice sessions, so it needs `STRESS_ALLOW_WRITES=true` as well. Never use the stress tool as a public-load test or point it at an unrelated service.
-
-Authenticated test:
-
-```bash
-STRESS_EMAIL=student@example.com \
-STRESS_PASSWORD=demo123 \
-STRESS_USERS=100 \
-STRESS_CONCURRENCY=30 \
-npm run stress:api
-```
-
-The script prints p50/p95/p99 latency and status counts per route.
-
-Production administrator/OpenCode and batch-import verification is opt-in because it logs in and briefly creates a temporary exam:
-
-```bash
-CROSSLINE_ADMIN_EMAIL="admin@example.com" \
-CROSSLINE_ADMIN_PASSWORD="..." \
-npm run test:production
-```
-
-The script verifies `runtime=opencode`, model `glm-5.2`, imports two questions in one batch, reads them back, and deletes the temporary exam in a `finally` cleanup.
-
-## Cloudflare Worker Dev
-
-Local Worker:
-
-```bash
+npm run worker:migrate:local
+npm run worker:seed:local
 npm run worker:dev
+```
+
+Use a local API override in the UI. Email/model secrets may be absent; their routes will log/fail in controlled ways.
+
+## Production Worker Deployment
+
+For a new D1 database, apply `worker/schema.sql`. For an existing database, apply only unapplied numbered migrations in order. Do not rerun `ALTER TABLE ADD COLUMN` migrations.
+
+Current package scripts expose selected migration shortcuts; missing ones can be applied explicitly:
+
+```bash
+npx wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0010_password_resets.sql
 ```
 
 Deploy:
@@ -195,113 +75,110 @@ Deploy:
 npm run worker:deploy
 ```
 
-Apply schema to remote D1:
+Required or feature-specific secrets:
 
-```bash
-npm run worker:migrate
+```text
+ADMIN_PASSWORD
+PASSWORD_PEPPER
+RESEND_API_KEY
+OAUTH_STATE_SECRET
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+OPENCODE_RELAY_SECRET
+GLM_API_KEY
 ```
 
-Seed sample data:
+`GLM_API_KEY` is needed by the VPS provider and is also the Worker's emergency direct fallback when configured there. Never commit secret values.
 
-```bash
-npm run worker:seed
-```
+## Website Deployment
 
-For existing production data, prefer migration files in `worker/migrations/` over destructive schema resets.
-
-## Deploy the Website
-
-The landing page and public legal pages are hosted by the `crossline-mocks` Cloudflare Pages project. Deploy the current `src/` directory with:
+Cloudflare Pages project: `crossline-mocks`.
 
 ```bash
 npx wrangler pages deploy src --project-name crossline-mocks --branch main
 ```
 
-The production custom domain is `https://exam.crosslinecscatest.com`.
+Verify:
 
-## Worker Secrets
+- landing page and responsive layout
+- website registration/verification
+- `/privacy`, `/terms`, `/data-deletion`
+- stable installer link returns 200
+- cache-busting query strings in `src/index.html` reflect major frontend deployments
 
-Set secrets with Wrangler:
+## OpenCode VPS Operations
+
+Versioned service files are in `services/opencode/`. Production services:
+
+- OpenCode on `127.0.0.1:4096`
+- authenticated relay on `127.0.0.1:8090`
+- Caddy `/admin-ai/*` reverse proxy
+
+Secrets are loaded from `/etc/crossline-opencode.env`. Health check without printing secrets:
 
 ```bash
-npx wrangler secret put ADMIN_PASSWORD --config worker/wrangler.toml
-npx wrangler secret put PASSWORD_PEPPER --config worker/wrangler.toml
-npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml
+sudo systemctl status crossline-opencode crossline-opencode-relay
+sudo bash -c 'set -a; . /etc/crossline-opencode.env; set +a; curl -fsS -H "x-crossline-relay-secret: $OPENCODE_RELAY_SECRET" http://127.0.0.1:8090/health'
 ```
 
-Important vars are in `worker/wrangler.toml`:
+After changing `relay.mjs` or service files, deploy to `/opt/crossline-opencode`, reload systemd when units changed, restart the affected service, and check logs with `journalctl`.
 
-- `APP_ORIGIN`
-- `CONNECT_ORIGIN`
-- `VERIFY_FROM`
-- `ADMIN_EMAILS`
+## Production Verification
+
+The production test logs in as admin, calls the real assistant, imports source with marks/image markers, atomically creates a temporary exam, verifies it, and deletes it:
+
+```bash
+CROSSLINE_ADMIN_EMAIL="..." \
+CROSSLINE_ADMIN_PASSWORD="..." \
+npm run test:production
+```
+
+Run only with an approved test admin account.
+
+## Bounded Stress Test
+
+Health-only:
+
+```bash
+npm run stress:api
+```
+
+One hundred health scenarios:
+
+```bash
+STRESS_USERS=100 STRESS_CONCURRENCY=25 STRESS_REPEAT=1 npm run stress:api
+```
+
+Authenticated production testing requires `STRESS_ALLOW_AUTH=true`. Session creation additionally requires `STRESS_ALLOW_WRITES=true` and an exam ID. Start small during a quiet window. The script refuses more than 100 simulated users unless `--allow-over-100` is explicit.
+
+It reports count, status distribution, failures, and p50/p95/p99 latency by route.
 
 ## Build Windows Installer
-
-The build target is NSIS through electron-builder:
 
 ```bash
 npm run dist:win
 ```
 
-Output goes to:
+Artifacts go to `release/`. The important outputs are the versioned installer and blockmap plus the stable installer copy. `prepare-win-native` handles native Windows packaging dependencies.
 
-```text
-release/
-```
+Interactive installer behavior is controlled by `package.json` and `build/installer.nsh`.
 
-Installer config is in `package.json` and `build/installer.nsh`.
+## Publish a GitHub Update
 
-Current installer behavior:
-
-- asks for install location
-- asks whether to create Desktop shortcut
-- asks whether to create Start Menu shortcut/uninstall shortcut
-- closes old Crossline app processes before install
-- preserves shortcuts during silent updates
-- includes an uninstaller shortcut when Start Menu option is selected
-
-## GitHub Releases and Updates
-
-The installed app uses `electron-updater` with the public GitHub provider. A release must contain:
-
-- `latest.yml`
-- `Crossline-CSCA-Practice-Setup-<version>.exe`
-- `Crossline-CSCA-Practice-Setup-<version>.exe.blockmap`
-
-The filenames intentionally contain no spaces and include the version so `electron-updater` can resolve both the old and new blockmaps. It uses those blockmaps for differential downloads when possible and falls back to the complete installer when required.
-
-Configure the repository once:
+See [Updates and Releases](updates-and-releases.md). Minimal sequence:
 
 ```bash
-npm run configure:github -- OWNER/crossline-csca-practice-client
-git remote add origin https://github.com/OWNER/crossline-csca-practice-client.git
-```
-
-For a release, update the version in `package.json`, commit it, and create a pure semver tag without `v`:
-
-```bash
+npm test
+git push origin main
 git tag 0.1.36
-git push origin main --tags
+git push origin 0.1.36
 ```
 
-`.github/workflows/release.yml` builds on Windows and publishes a normal GitHub Release using the repository's built-in `GITHUB_TOKEN`. A manual local publish is also available when `GH_TOKEN` is set:
+Use the version actually present in `package.json`; never copy the example blindly. Verify the GitHub Actions run and release assets before updating the VPS stable installer.
 
-```bash
-npm run release:github
-```
+## VPS Download Service
 
-The first GitHub-enabled release is also built by `npm run dist:win`. Its generated ZIP and `latest.json` are uploaded to the existing VPS once so installed `0.1.34` clients can cross over. Releases after that use GitHub only.
-
-## VPS Download Server
-
-Server code:
-
-```text
-media-server/server.js
-```
-
-Run:
+Application root: `media-server/`. Production storage is typically `/var/crossline-media/downloads`.
 
 ```bash
 cd media-server
@@ -312,21 +189,30 @@ PORT=8080 \
 npm start
 ```
 
-Current purpose:
+Verify `/health`, installer `HEAD`, content length, checksum, and Caddy TLS after replacing files.
 
-- serve `/downloads/Crossline-CSCA-Practice-Setup.exe`
-- serve `/updates/latest.json`
-- serve the one-time GitHub migration ZIP for pre-GitHub installations
+## Deployment Order for a Full Release
+
+1. Update source and documentation.
+2. Run `npm test`.
+3. Deploy Worker if backend changed; apply migration first if required.
+4. Deploy OpenCode relay/service if AI backend changed.
+5. Deploy Pages if `src/` changed.
+6. Bump package version and push the matching release tag for Electron changes.
+7. Verify GitHub release assets.
+8. Replace the stable VPS installer.
+9. Test website registration, Windows login, one setup flow, one submission/result, admin import, and update check.
 
 ## Common Gotchas
 
-- `src/app.js` is large and stateful. When changing flows, search for the screen function and also check which helper updates shared variables.
-- The frontend uses both visible question numbers and backend question IDs. Answer saving must use backend IDs.
-- Result details are available when `result_released_at` is set during submission.
-- Admin image uploads are data URLs and can hit the Worker 128 KB JSON limit.
-- Profile pictures are compressed in the client and sync through `PATCH /auth/profile` when API mode is enabled.
-- PDF and image question extraction runs in Electron through `electron/source-import.js`. macOS cross-builds run `npm run prepare:win-native` so the Windows PDF renderer is included.
-- HTML imports support embedded images and relative image files located inside the HTML file's directory. Remote image URLs are deliberately not fetched. Export self-contained HTML or transfer its companion image folder with it.
-- `npm run test:production` verifies assistant attachments and structured HTML-style metadata, including duration, decimal marks, correct answer, and image-marker preservation.
-- Kiosk protection is best-effort Electron behavior, not OS-level lockdown.
-- The browser website is intentionally not the exam app.
+- `src/app.js` is stateful; changing a render function without its globals/listeners causes subtle regressions.
+- Browser and Electron share `src/`; guard native calls with `window.examRuntime`.
+- HTML relative images require the real file path, which is why there is a special HTML IPC method.
+- Model chat does not receive image binaries; it sees OCR text and markers.
+- Batch imports can be large, while normal API requests cannot.
+- Results are immediately visible; email status is separate.
+- Answer maps use question UUIDs, not visible positions.
+- Kiosk is best-effort, not Windows policy enforcement.
+- Differential updates may legally fall back to a full installer.
+- GitHub filenames and `latest.yml` must stay in sync.
+- Never run destructive D1 schema commands against production to apply one migration.

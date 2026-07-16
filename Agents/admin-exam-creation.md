@@ -1,224 +1,101 @@
 # Admin Dashboard and Exam Creation
 
-The admin dashboard is built in `src/app.js` and backed by admin endpoints in `worker/src/index.js`.
+The administrator UI lives in `src/app.js`; all production writes are authenticated Worker routes.
 
-## Main Frontend Functions
+## Navigation
 
-- `showAdminLogin()`
-- `showAdminDashboard()`
-- `showAdminOverview()`
-- `showAdminAssistant()`
-- `showQuestionImport()`
-- `showAdminNotifications()`
-- `showCreateExam()`
-- `showQuestionEditor(examId)`
-- `showQuestionEdit(examId, questionIndex)`
-- `deleteExam(examId)`
-- `showAdminSubmissions()`
-- `showAdminSubmissionDetail(submissionId)`
-
-## Admin Navigation
-
-After login, `adminShell()` creates the admin layout with these sections:
+`adminShell()` provides:
 
 - Overview
 - GLM assistant
 - Exam library
-- Question import
+- Import questions
 - Student attempts
 - Notifications
 
-The old "view as student" style option has been removed. Admins manage papers and review submissions.
+`bindAdminShell()` owns navigation and logout. Admin logout clears the admin token.
 
-## Creating an Exam
+## Exam Library
 
-Frontend screen:
+`showAdminDashboard()` renders every exam from `GET /admin/exams`. Cards show title, description, duration, question count, total marks, and free access.
 
-```js
-showCreateExam()
-```
+`showCreateExam()` collects title, description, and duration. `POST /admin/exams` creates a published exam with zero price.
 
-Fields:
+`deleteExam()` requires confirmation and calls `DELETE /admin/exams/:id`. This permanently removes the exam, questions, linked attempts, and attempt events.
 
-- exam title
-- description
-- duration in minutes
+## Question Editor
 
-Every published exam is free for every registered student. Pricing, purchase controls, premium limits, and paid analysis gates are not part of the current product.
+`showQuestionEditor(examId)` displays existing questions and a form for a new one. `showQuestionEdit(examId, index)` loads one question into an edit form. After saving, the app reloads the admin exam library from the API.
 
-API call:
+Question fields:
 
-```js
-window.CrosslineApi.createExam(exam)
-```
-
-Backend endpoint:
-
-```http
-POST /admin/exams
-```
-
-The Worker creates an exam ID using a slug plus timestamp.
-
-## Editing an Exam's Questions
-
-Frontend screen:
-
-```js
-showQuestionEditor(examId)
-```
-
-This page shows:
-
-- total number of questions
-- total marks
-- add-question form
-- existing question list
-- edit button per question
-- delete button per question
-
-## Question Fields
-
-Each question supports:
-
+- type and instruction
 - subject, chapter, and topic
 - question text
-- four options
-- correct answer index
-- marks
+- exactly four options
+- explicit correct option
+- decimal marks
 - optional question image
-- answer explanation
+- explanation text
 - optional explanation image/graph
+- built-in diagram flag
 
-## Importing Questions
+The editor uses `FileReader` for manually selected images. `bindImageInput()` updates the preview and stores a data URL in renderer state.
 
-The assistant and import workspace accept files through a normal file picker or drag and drop. Supported sources are ZIP question banks plus HTML, PDF, Markdown, text, JSON, CSV, PNG, JPG, WebP, BMP, and TIFF files. Individual sources may be up to 25 MB; ZIP banks may be up to 100 MB and can contain multiple supported files with companion images. `electron/source-import.js` extracts selectable PDF text directly. If a PDF is scanned, it renders each page and runs Tesseract OCR locally. Images also use local OCR.
+API methods:
 
-HTML uses `node-html-parser` and `node-html-markdown`. Scripts and styles are removed. Images embedded as data URLs or stored beside the HTML are loaded locally, OCRed, resized when needed, and replaced with stable `CROSSLINE_IMAGE_n` markers in the model text. The original image data stays in the client and is restored to the question matching the returned marker. Remote web image URLs are not downloaded; export a self-contained HTML file or keep its image folder beside it.
+- `createQuestion()`
+- `updateQuestion()`
+- `deleteQuestion()`
+- `importQuestions()`
 
-Loose ZIP or multi-select images named `Q19.png`, `Question-19.jpg`, or `19.webp` are automatically bound to question 19. The structured AI JSON carries `questionNumber`, `imageRef`, and `imageFilename`; immediately before saving, the client adds an image object containing the filename, MIME type, and Base64 data URL. The Worker stores the validated data URL in `questions.image_url`.
+The Worker validates and normalizes every saved question. Deleting a question does not renumber the remaining `position` values, but fetch order remains by position.
 
-The importer detects explicit exam titles and minute-based duration labels. The administrator can create a new exam using those values or select an existing exam. Marks remain per-question and support decimals such as `2.5`.
+## Math and LaTeX
 
-Only extracted text and optional taxonomy instructions are sent to `POST /admin/ai/import`; source files and images are never sent to the model. The Worker prompt requires lossless transcription, forbids invented questions or answers, and omits questions whose correct answer is not explicit. It sends the request through the private OpenCode relay. AI output remains an editable draft and must be reviewed before adding it to an exam.
+MathJax is loaded by `src/index.html`. Question text, options, and explanations may contain inline or display LaTeX, for example `\(x^2 + y^2\)`. Screens call `renderMath()` after inserting content.
 
-After review, drafts added to an existing exam use `window.CrosslineApi.importQuestions(examId, questions)`. A new exam uses `window.CrosslineApi.deployExam(exam, questions)`, which validates and writes the exam plus all questions atomically.
+## Import Workspace
 
-## GLM Assistant
+`showQuestionImport()` supports file picker, drag/drop, direct text paste, local JSON/text parsing, and OpenCode structuring. A step indicator (Add sources → Structure with GLM → Review drafts → Deploy exams) tracks progress through the screen.
 
-The Overview and **GLM assistant** pages provide a conversational drafting workspace. Administrators can attach HTML, PDF, Markdown, JSON, text, CSV, or image sources; discuss the locally extracted content; then send the same attachment into the structured import workflow. They can also ask for an original four-option MCQ, verify answer logic, plan an exam, improve subject/chapter/topic labels, or format mathematics as LaTeX.
+Admin chooses either:
 
-Conversation history stays in the running client and only a bounded copy is sent to the authenticated Worker endpoint for each reply. The Worker forwards it to a private OpenCode 1.17.18 server using GLM 5.2. OpenCode runs with every file, shell, editing, web, and auxiliary tool denied. Replies render as Markdown. Deployment happens only after administrator review through the authenticated deploy action.
+- create a new exam from source metadata
+- append questions to an existing exam
+
+### Exam auto-builder
+
+The auto-builder on the same screen handles bulk dumps. Extraction keeps one source group per dropped file. `runAutoExamBuild()` splits each group into batches under the Worker's 220,000-character import limit at question boundaries (`splitSourceIntoChunks()`), calls `POST /admin/ai/import` once per batch with a progress bar, rebinds local images (`bindDraftImages()`), and de-duplicates repeated questions (`dedupeDraftQuestions()`). Grouping is selectable: one exam per source file, or everything combined into one exam. Each resulting exam draft card has an editable title, duration, and description plus an expandable question review. **Deploy all reviewed exams** iterates `POST /admin/ai/deploy` per group; each deployment stays atomic and per-exam status chips report ready/deploying/deployed/failed.
+
+Draft cards show question text, optional image, options, correct answer, marks, taxonomy, and image-to-question mapping. The admin must click **Save reviewed drafts** before any write occurs.
+
+The complete extraction/model/image flow is documented in [AI Assistant and File Import](ai-assistant-and-file-import.md).
+
+## AI Assistant
+
+`showAdminAssistant()` keeps a bounded in-memory conversation and one locally extracted attachment. The assistant can discuss or draft, but cannot save. **Prepare questions from files** transfers the existing attachment object into the structured import screen without rereading the file.
+
+## Marks and Free Access
+
+Scoring uses each question's real-number `marks`. Exactly 48 imported questions receive the fixed schedule described in the API guide. All exam create/import/deploy paths set price to zero, and every authenticated student can start every published exam.
 
 ## Notifications
 
-`showAdminNotifications()` publishes concise broadcast messages through the Worker. Students see them from the dashboard bell and can mark them as read.
+`showAdminNotifications()` lists broadcasts and creates a new one through `/admin/notifications`. Notifications have title, body, kind, audience, creator, and timestamp. Student read receipts are separate rows.
 
-The frontend sends question data to:
+## Student Attempts
 
-```js
-window.CrosslineApi.createQuestion(examId, question)
-window.CrosslineApi.importQuestions(examId, questions)
-window.CrosslineApi.updateQuestion(examId, questionId, question)
-window.CrosslineApi.deleteQuestion(examId, questionId)
-```
+`showAdminSubmissions()` loads recent attempts. `showAdminSubmissionDetail()` shows:
 
-Backend endpoints:
+- student and exam
+- submission/release/email timestamps
+- marks-based score
+- answer review with selected/correct option and explanation
+- phone pairing/setup/integrity event log
 
-```http
-POST /admin/exams/:examId/questions
-POST /admin/exams/:examId/questions/import
-PUT /admin/exams/:examId/questions/:questionId
-DELETE /admin/exams/:examId/questions/:questionId
-```
+No webcam, microphone, phone-camera, room-scan, screen recording, or video player exists because media is not captured.
 
-## Marks
+## Current Image Storage Constraint
 
-Each question has a `marks` value. Results use marks-based scoring, not just "number of correct questions."
-
-Example:
-
-- Question 1: 2 marks
-- Question 2: 5 marks
-- Student gets Question 2 correct only
-- Score: 5 / 7
-
-Frontend helpers:
-
-- `normalizeMarks()`
-- `formatScore()`
-
-Backend helpers:
-
-- `normalizeMarks()`
-- `roundScore()`
-- `formatScore()`
-
-## LaTeX and MathJax
-
-`src/index.html` loads MathJax from jsDelivr. The admin UI tells admins they can write LaTeX in:
-
-- question text
-- options
-- explanations
-
-Example:
-
-```text
-\(x^2 + y^2\)
-```
-
-The frontend renders text using `mathHtml()` and then calls `renderMath()`.
-
-## Images and Graphs
-
-Current image support is simple:
-
-1. Admin selects an image file.
-2. Browser reads it with `FileReader`.
-3. The app stores a base64 data URL in the question object.
-4. The Worker stores that string in `image_url` or `explanation_image_url`.
-
-This is easy but not ideal for large files. The Worker rejects JSON bodies over 128 KB. For serious content authoring, add a proper upload endpoint and store images in R2 or another object store.
-
-## Deleting Exams
-
-Frontend:
-
-```js
-deleteExam(examId)
-```
-
-Backend:
-
-```http
-DELETE /admin/exams/:examId
-```
-
-The backend deletes:
-
-- session events linked to that exam's attempts
-- exam sessions
-- questions
-- the exam itself
-
-This is permanent. Add a soft-delete or archive flag if admins need safer production behavior.
-
-## Student Submissions in Admin
-
-Admin submissions show:
-
-- student email
-- exam title
-- created/submitted times
-- result email status
-- event count
-
-Submission detail shows:
-
-- score
-- started/submitted timestamps
-- phone camera connection time
-- result email status
-- answer review
-- security/event log
+Manual and imported images are saved directly in question rows as data URLs. Local import compresses images; backend validation limits each encoded image. This works for small diagrams but should eventually move to R2 with signed admin uploads and stored object URLs.

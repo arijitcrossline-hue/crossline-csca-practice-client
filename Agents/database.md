@@ -1,195 +1,158 @@
 # Database
 
-The production database is Cloudflare D1. The main schema lives in `worker/schema.sql`, with incremental migrations in `worker/migrations/`.
+Production uses Cloudflare D1. `worker/schema.sql` is the complete schema for a new database; `worker/migrations/` are incremental changes for an existing database.
+
+## Relationship Map
+
+```mermaid
+erDiagram
+  USERS ||--o{ SESSIONS : owns
+  USERS ||--o{ OAUTH_ACCOUNTS : links
+  USERS ||--o{ EXAM_SESSIONS : attempts
+  USERS ||--o{ NOTIFICATION_RECEIPTS : reads
+  USERS ||--o{ NOTIFICATIONS : creates
+  EXAMS ||--o{ QUESTIONS : contains
+  EXAMS ||--o{ EXAM_SESSIONS : attempted_as
+  EXAM_SESSIONS ||--o{ SESSION_EVENTS : logs
+  NOTIFICATIONS ||--o{ NOTIFICATION_RECEIPTS : has
+```
+
+Email verification and password reset rows are keyed by email rather than user ID.
 
 ## Tables
 
 ### `users`
 
-Stores student and admin user records.
+Account and profile data:
 
-Important columns:
+- UUID `id`
+- unique normalized `email`
+- `username`, `first_name`, `last_name`
+- `avatar_url`, either provider HTTPS URL or compressed data URL
+- `password_hash`
+- `verified_at`
+- `created_at`
+- compatibility `is_premium`, currently unused by product behavior
 
-- `id`: UUID primary key.
-- `email`: unique login email.
-- `username`: display name shown in the dashboard.
-- `first_name`, `last_name`: student profile fields.
-- `avatar_url`: provider URL or compressed profile image.
-- `password_hash`: SHA-256 hash of `PASSWORD_PEPPER:password`.
-- `verified_at`: null until email verification succeeds.
-- `created_at`: ISO timestamp.
+Admin users have a row so admin sessions can reference a user ID. Admin credential checking still comes from Worker environment settings.
 
-Admin accounts also get rows in this table, but admin login is checked against environment variables, not this table's password hash.
+### `oauth_accounts`
+
+Maps `(provider, provider_subject)` to one user. It prevents a provider identity from creating duplicate users and allows profile refresh on later sign-ins.
 
 ### `email_verifications`
 
-Stores pending email verification codes.
-
-Important columns:
-
-- `email`: primary key.
-- `code_hash`: hashed six-digit code.
-- `expires_at`: verification expiry.
-- `created_at`: timestamp.
-
-Codes currently expire after 15 minutes.
-
-### `sessions`
-
-Stores login tokens.
-
-Important columns:
-
-- `token`: Bearer token used by the frontend.
-- `user_id`: linked user.
-- `role`: either `student` or `admin`.
-- `expires_at`: token expiry.
-- `created_at`: timestamp.
-
-Tokens currently last 30 days.
-
-### `exams`
-
-Stores exam papers.
-
-Important columns:
-
-- `id`: slug plus timestamp.
-- `title`
-- `description`
-- `duration_minutes`
-- `is_published`
-- `created_at`
+One hashed six-digit verification code per email with expiry and creation time. Registration upserts this row; verification consumes it.
 
 ### `password_resets`
 
-Temporary hashed password recovery codes keyed by email. Each row has an expiry timestamp and is deleted after a successful reset.
-- `updated_at`
+One hashed six-digit reset code per email. Successful reset deletes it and revokes all sessions for that user.
 
-Student exam lists only return published exams. Admin lists return all exams.
+### `sessions`
+
+Opaque Bearer tokens:
+
+- token primary key
+- user ID
+- exact `student` or `admin` role
+- expiry and creation time
+
+Current TTL is 30 days. Expired rows are rejected but are not automatically swept from the table.
+
+### `exams`
+
+Exam metadata:
+
+- string ID generated from title slug plus timestamp
+- title and description
+- `duration_minutes`
+- `is_published`
+- created/updated timestamps
+- compatibility `price_cents` and `currency`
+
+All current create/update paths force `price_cents = 0`. The student API does not expose price fields.
 
 ### `questions`
 
-Stores MCQ questions.
+Ordered MCQ content:
 
-Important columns:
+- UUID and parent exam ID
+- integer `position`
+- type, subject, chapter, topic, instruction
+- question text
+- `answers_json`, exactly four strings after validation
+- `correct_index`, 0-3
+- real-number marks
+- explanation text and optional explanation image
+- optional question image
+- built-in `diagram` flag
+- timestamps
 
-- `id`: UUID.
-- `exam_id`: parent exam.
-- `position`: order in the exam.
-- `type`: currently usually `Single choice`.
-- `subject`, `chapter`, `topic`: taxonomy fields used by weakness analysis.
-- `instruction`: instruction text shown above the question.
-- `text`: question body.
-- `answers_json`: JSON array of four answer options.
-- `correct_index`: number from 0 to 3.
-- `marks`: score value for this question.
-- `explanation_text`: answer explanation.
-- `explanation_image_url`: optional explanation image.
-- `image_url`: optional question image.
-- `diagram`: boolean integer for the built-in disk diagram.
-
-Current admin image upload uses browser `FileReader` data URLs, so these image fields may contain base64 data URLs. This works only for small images because the Worker limits JSON request size.
+Question/explanation images are currently stored directly as HTTPS URLs or Base64 data URLs. This is convenient but object storage such as R2 is better for large-scale media.
 
 ### `exam_sessions`
 
-Stores one student's attempt at one exam.
+One student attempt:
 
-Important columns:
+- attempt UUID, exam ID, and user ID
+- unique six-character pairing code
+- phone connected, started, submitted timestamps
+- result email due/sent timestamps
+- result release timestamp
+- stored earned/total score
+- answers and flags JSON
+- created/updated timestamps
 
-- `id`: UUID session/attempt id.
-- `exam_id`
-- `user_id`
-- `pairing_code`: code shown in the phone QR flow.
-- `phone_connected_at`: set when the phone page calls `/pair-phone`.
-- `started_at`: currently present but not heavily used by the frontend.
-- `submitted_at`: set when the exam is submitted.
-- `result_released_at`: the immediate result-release timestamp.
-- `result_email_after`: the email queue timestamp, set to submission time for immediate delivery attempts.
-- `result_emailed_at`: set when the result email is sent/released.
-- `answers_json`: object of question id to selected option index.
-- `flags_json`: array of flagged question ids.
-- `created_at`
-- `updated_at`
-
-The Worker prunes old sessions and keeps only the latest 10 attempts globally. That matched an earlier lightweight-retention idea. If Crossline needs long-term student history, increase or remove `MAX_STORED_EXAM_SESSIONS` in `worker/src/index.js`.
+There is no recording/media table. Migration `0006` removed the old unused `media_objects` table.
 
 ### `session_events`
 
-Stores attempt events.
+Timestamped attempt events with a bounded `event_type` and JSON payload. Examples include setup completion, phone connection, exam start/submission, focus loss, and blocked shortcuts. These are audit/simulation events, not recordings.
 
-Examples:
+### `notifications`
 
-- `phone_connected`
-- `room_scan_completed`
-- `exam_started`
-- `exam_submitted`
-- `integrity_event`
+Admin-created broadcasts with title, body, kind, audience, creator, and timestamp.
 
-This is useful for admin review and for reconstructing the setup timeline of an attempt.
+### `notification_receipts`
 
-## Migrations
+Composite key `(notification_id, user_id)` with `read_at`. This lets the API return per-student read state without copying notifications.
 
-Existing migrations are in `worker/migrations/`. Apply only the migrations needed for the target database, and do not reset production data just to match a fresh schema file.
+## JSON Fields
 
-The `worker/schema.sql` file represents the current full schema for a fresh database. For an existing production DB, use migrations carefully instead of blindly resetting data.
+The application uses JSON strings in D1 for arrays/maps that are naturally loaded as one value:
 
-## Data Relationships
+- `questions.answers_json`: four options
+- `exam_sessions.answers_json`: question UUID -> selected option index
+- `exam_sessions.flags_json`: array of flagged question UUIDs
+- `session_events.payload_json`: small event metadata
 
-```mermaid
-erDiagram
-  USERS ||--o{ SESSIONS : owns
-  USERS ||--o{ EXAM_SESSIONS : attempts
-  EXAMS ||--o{ QUESTIONS : contains
-  EXAMS ||--o{ EXAM_SESSIONS : taken_as
-  EXAM_SESSIONS ||--o{ SESSION_EVENTS : logs
+Worker helper `parseJson()` always supplies a safe fallback.
 
-  USERS {
-    text id
-    text email
-    text username
-    text password_hash
-    text verified_at
-  }
+## Deletion and Retention
 
-  EXAMS {
-    text id
-    text title
-    integer duration_minutes
-  }
+- Deleting a user cascades OAuth accounts and notification receipts. Other user relationships are not uniformly configured with cascade and should be deleted deliberately in a future account-deletion implementation.
+- Deleting an exam through the API first removes linked events and attempts, then questions and exam.
+- Creating a new attempt prunes attempts older than the newest 50 for that user.
+- Result lists return the newest 50 submitted attempts.
+- Notification and expired-token retention currently has no scheduled cleanup.
 
-  QUESTIONS {
-    text id
-    text exam_id
-    integer position
-    integer correct_index
-    real marks
-  }
+## Indexes
 
-  EXAM_SESSIONS {
-    text id
-    text exam_id
-    text user_id
-    text pairing_code
-    text submitted_at
-    text result_emailed_at
-  }
-```
+Important indexes support question ordering, session authentication, attempt ordering, leaderboard score lookup, OAuth user lookup, and notification ordering.
 
-## Practical Notes for Frontend Work
+## Migration History
 
-- `answers_json` uses backend question IDs, not just visible question numbers.
-- The frontend normalizes backend question `id` into `backendId` and uses `id: index + 1` for display.
-- Results can be pending. Do not assume every submitted exam has question details available.
-- Admin-created images are currently inline data URLs. Keep them small or build a real image-upload path.
-### `oauth_accounts`
+- `0001`: correct answer index
+- `0002`: result email schedule
+- `0003`: marks
+- `0004`: explanations and explanation image
+- `0005`: usernames
+- `0006`: remove unused media table
+- `0007`: profile, OAuth, notifications, taxonomy
+- `0008`: stored analytics scores and leaderboard index
+- `0009`: notification kind
+- `0010`: password resets
+- `0011`: immediate result release plus compatibility monetization columns
+- `0012`: force every existing exam free
 
-Links a Google or Facebook provider subject ID to a `users` record.
-
-### `notifications` and `notification_receipts`
-
-Admins create broadcast notifications for students. A receipt records whether a student has read each notification.
-
-### `exam_sessions`
-
-In addition to answers, timing, and pairing data, a submitted session stores `score_earned` and `score_total`. This avoids recalculating a full paper for common results and leaderboard requests. Retention is capped at 50 attempts per student, not globally.
+For production, never rerun an `ALTER TABLE ADD COLUMN` migration. Track which numbered migration has already been applied.

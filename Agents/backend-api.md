@@ -1,341 +1,172 @@
 # Backend API
 
-The backend is a Cloudflare Worker in `worker/src/index.js`. It exposes JSON endpoints for accounts, exams, attempts, phone pairing, and results. All published exams are available to every authenticated student; the API does not expose prices or enforce purchase, premium, or completed-exam limits.
+The production backend is the Cloudflare Worker in `worker/src/index.js`. The renderer calls it through `window.CrosslineApi` in `src/api.js`.
 
-The frontend calls these endpoints through `src/api.js`, which exposes `window.CrosslineApi`.
+## Shared Request Behavior
 
-## Base URL
+Production base URL: `https://api.crosslinecscatest.com`.
 
-Production:
+The API wrapper:
 
-```text
-https://api.crosslinecscatest.com
-```
+1. JSON-encodes request bodies.
+2. Reads the correct token from localStorage.
+3. Adds `Authorization: Bearer <token>`.
+4. Parses JSON responses.
+5. Throws the server's `error` string for non-2xx responses.
 
-Configured in:
+Token keys:
 
-```text
-src/config.js
-```
+- student: `crossline-api-token`
+- admin: `crossline-admin-api-token`
 
-## Shared API Behavior
+The Worker adds CORS and security headers through `json()`/`cors()`. The allowed browser origin comes from `APP_ORIGIN`.
 
-The Worker:
+## Body Limits
 
-- returns JSON for API routes
-- handles CORS with `APP_ORIGIN`
-- sets security headers like `x-content-type-options`, `x-frame-options`, and `referrer-policy`
-- applies request size protection with `MAX_JSON_BODY_BYTES = 128 * 1024`
-- rate-limits requests per IP and route group
-- triggers result email sweeps in the background at most once per minute
+- Normal JSON routes: 128 KiB.
+- AI chat/import: 2 MiB.
+- Single question create/update: 2 MiB.
+- Batch question import and atomic AI deployment: 64 MiB.
 
-Authentication uses Bearer tokens:
+`readJson()` checks `content-length` and streamed text size before parsing.
 
-```http
-Authorization: Bearer <token>
-```
+## Rate Limits
 
-Student tokens and admin tokens are separate in frontend localStorage.
+The in-memory per-Worker-instance limiter groups requests by client IP for a one-minute window:
 
-The AI import route is allowed a 2 MiB request body for extracted source text. Source files and images never reach the Worker. Other JSON routes retain the 128 KiB limit.
+| Group | Limit/minute |
+| --- | ---: |
+| Health | 600 |
+| Login/register/verify/admin login | 180 |
+| Other auth | 900 |
+| Admin | 240 |
+| Session status polling | 6000 |
+| Phone pair | 300 |
+| Other session routes | 5000 |
+| Other writes | 300 |
+| Other reads | 600 |
 
-## Public/Health
+This protects normal accidental bursts but is not a globally consistent distributed rate limiter. Cloudflare edge/WAF rate limiting is the stronger production layer for DDoS control.
 
-### `GET /health`
+## Route Reference
 
-Returns basic service status:
+### Public
 
-```json
-{ "ok": true, "service": "crossline-mocks-api" }
-```
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Service health JSON. |
+| GET | `/connect?code=...` | Phone camera pairing HTML. |
+| POST | `/pair-phone` | Mark a pairing code connected. |
 
-Used by stress tests and health checks.
+### Student authentication and profile
 
-## Student Auth
+| Method | Route | Purpose |
+| --- | --- | --- |
+| POST | `/auth/register` | Create/reset an unverified account and email a code. |
+| POST | `/auth/verify` | Verify code and return a student token. |
+| POST | `/auth/login` | Password login for a verified account. |
+| POST | `/auth/password-reset/request` | Send a generic response and, when valid, a reset code. |
+| POST | `/auth/password-reset/confirm` | Replace password and revoke old sessions. |
+| GET | `/auth/me` | Restore the current student. |
+| PATCH | `/auth/profile` | Update username, names, and avatar. |
+| GET | `/auth/oauth/:provider/start` | Start Google/Facebook OAuth server flow. |
+| GET | `/auth/oauth/:provider/callback` | Exchange provider code and upsert account. |
+| GET | `/auth/oauth/complete` | Desktop OAuth completion page. |
 
-### `POST /auth/register`
+The current UI exposes Google and intentionally hides Facebook.
 
-Request:
+### Student exams, attempts, and dashboard
 
-```json
-{
-  "email": "student@example.com",
-  "password": "secret123",
-  "username": "Arijit"
-}
-```
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/exams` | Return all published exams with questions; all are free/startable. |
+| POST | `/sessions` | Create an attempt and phone pairing code. |
+| GET | `/sessions/:id/status` | Poll phone connection state. |
+| POST | `/sessions/:id/events` | Store a bounded event type/payload. |
+| POST | `/sessions/:id/answers` | Autosave answers/flags or submit and score. |
+| GET | `/results` | List up to 50 submitted attempts. |
+| GET | `/results/:id` | Full released answer breakdown for the owner. |
+| GET | `/leaderboard` | Exam or last-five-average ranking. |
+| GET | `/notifications` | Student notifications with read state/unread count. |
+| POST | `/notifications/:id/read` | Record a notification receipt. |
 
-The request can also include `firstName`, `lastName`, and `avatarUrl`.
+### Administrator
 
-### `GET /auth/me` and `PATCH /auth/profile`
+| Method | Route | Purpose |
+| --- | --- | --- |
+| POST | `/admin/login` | Environment-backed admin authentication. |
+| GET | `/admin/exams` | All exams, including unpublished. |
+| POST | `/admin/exams` | Create a free published exam. |
+| PATCH | `/admin/exams/:id` | Compatibility update that forces price to zero. |
+| DELETE | `/admin/exams/:id` | Delete exam, questions, attempts, and events. |
+| POST | `/admin/exams/:id/questions` | Create one validated question. |
+| POST | `/admin/exams/:id/questions/import` | Validate and batch-insert up to 100 questions. |
+| PUT | `/admin/exams/:id/questions/:questionId` | Replace editable question fields. |
+| DELETE | `/admin/exams/:id/questions/:questionId` | Delete one question. |
+| GET | `/admin/submissions` | Recent attempts with student/exam/email/event summary. |
+| GET | `/admin/submissions/:id` | Full answer and event review. |
+| GET | `/admin/notifications` | Broadcast history. |
+| POST | `/admin/notifications` | Create a student broadcast. |
+| POST | `/admin/ai/chat` | Bounded Markdown assistant reply. |
+| POST | `/admin/ai/import` | Structured draft from extracted text. |
+| POST | `/admin/ai/deploy` | Atomically create exam and reviewed questions. |
 
-Restores a signed-in student and updates first name, last name, username, or avatar.
+## Authentication Enforcement
 
-### OAuth
+`requireAuth(request, env, role)` looks up the opaque token in `sessions`, checks expiry, and requires the exact role. Tokens last 30 days. A student token cannot access admin routes, and an admin token cannot be used as a student token.
 
-- `GET /auth/oauth/google/start`
-- `GET /auth/oauth/google/callback`
+## Exam and Question Normalization
 
-These Google routes are used by Electron's social sign-in child window. Facebook sign-in is intentionally not exposed in the current client.
+Every saved question must have:
 
-## Student Dashboard
+- non-empty text
+- exactly four non-empty answer strings
+- explicit integer `correctIndex` from 0 to 3
 
-- `GET /leaderboard?mode=exam&examId=...`: latest-attempt ranking for one exam.
-- `GET /leaderboard?mode=average&subject=...`: last-five average ranking, recalculated from questions in the selected subject.
-- `GET /notifications`: student broadcast notifications and unread count.
-- `POST /notifications/:id/read`: records a read receipt.
+Optional fields include type, subject, chapter, topic, instruction, marks, explanation, explanation image, question image, filename, and built-in diagram flag.
 
-## Admin Additions
+For exactly 48 imported/deployed questions, marks are forced by position:
 
-- `GET` / `POST /admin/notifications`
-- `POST /admin/ai/import`
-- `POST /admin/ai/chat`
-- `POST /admin/exams/:examId/questions/import`
+- 1-12: 1.5 marks
+- 13-38: 2 marks
+- 39-48: 3 marks
 
-The AI import endpoint sends extracted source text through an authenticated HTTPS relay to a restricted OpenCode 1.17.18 server using GLM 5.2. ZIP expansion, PDF parsing, HTML parsing, and Tesseract OCR happen locally in the Windows client. AI output remains an editable draft.
+Physics, Chemistry, and Mathematics are canonicalized and mapped to fixed chapter catalogs. Exact valid chapter names win; otherwise keyword matching chooses the closest catalog chapter.
 
-The chat endpoint accepts a bounded administrator conversation plus optional locally extracted attachment text and returns Markdown. The OpenCode runtime has file, shell, editing, web, and tool access denied. Reviewed drafts are deployed only through the separate authenticated `POST /admin/ai/deploy` endpoint.
+Images can be HTTPS URLs or PNG/JPEG/WebP Base64 data URLs no longer than about 1 MiB each. Batch endpoints are intentionally larger to carry complete reviewed banks.
 
-The batch question endpoint validates every question first and saves up to 100 questions with one D1 batch. `POST /admin/ai/deploy` atomically creates a new exam and all reviewed questions.
+## Attempt Submission
 
-What it does:
+Autosave writes `answers_json`, `flags_json`, and `updated_at`. Submission additionally:
 
-- normalizes email and username
-- hashes password with `PASSWORD_PEPPER`
-- creates or resets the user
-- creates a six-digit email verification code
-- sends the code through Resend if `RESEND_API_KEY` is configured
+- sets `submitted_at` once
+- sets `result_released_at` immediately
+- queues `result_email_after` immediately
+- computes and stores `score_earned` and `score_total`
+- schedules an asynchronous email sweep
 
-### `POST /auth/verify`
+Answer keys never rely on visible question numbers; the JSON object is keyed by D1 question UUID.
 
-Request:
+## Result Email Processing
 
-```json
-{
-  "email": "student@example.com",
-  "code": "123456"
-}
-```
+`sendDueResultEmails()` processes up to 25 due attempts. It uses Resend when configured and marks `result_emailed_at` only after a successful send. It runs:
 
-What it does:
+- immediately in `ctx.waitUntil()` after submission
+- in a background sweep at most once per minute during normal requests
+- from the Worker's scheduled handler when a trigger invokes it
 
-- checks the code hash
-- checks expiry
-- marks the user as verified
-- deletes the verification row
-- creates a student session token
+Result visibility does not wait for email; `result_released_at` makes it available immediately.
 
-Returns:
+## Error Shape
 
-```json
-{
-  "user": { "email": "student@example.com", "username": "Arijit" },
-  "token": "..."
-}
-```
-
-### `POST /auth/login`
-
-Checks verified user credentials and returns a student token.
-
-### `POST /auth/password-reset/request`
-
-Accepts an email address and returns a generic success response. For a verified account, the Worker creates a hashed six-digit code, stores it for 15 minutes, and sends it through Resend. The generic response reduces account discovery.
-
-### `POST /auth/password-reset/confirm`
-
-Accepts the email, six-digit code, and new password. A successful reset updates the password hash, deletes the one-time code, and revokes every existing session for that user.
-
-## Admin Auth
-
-### `POST /admin/login`
-
-Admin credentials are not stored as normal user passwords. The Worker checks:
-
-- `ADMIN_EMAILS` or `ADMIN_EMAIL`
-- `ADMIN_PASSWORD`
-
-If the admin email does not already exist in `users`, the Worker creates a verified admin user record for token ownership.
-
-## Exams
-
-### `GET /exams`
-
-Requires student token.
-
-Returns published exams with questions:
+Expected errors return JSON such as:
 
 ```json
-{
-  "exams": [
-    {
-      "id": "math-physics",
-      "title": "...",
-      "description": "...",
-      "duration": 90,
-      "questions": []
-    }
-  ]
-}
+{ "error": "Unauthorized" }
 ```
 
-### `GET /admin/exams`
+Unexpected exceptions are logged server-side and returned as `Server error` with status 500. Rate-limit responses include `retryAfter` and a `Retry-After` header.
 
-Requires admin token.
+## Scaling Notes
 
-Returns all exams, published or not.
-
-### `POST /admin/exams`
-
-Requires admin token.
-
-Creates an exam with title, description, and duration.
-
-### `DELETE /admin/exams/:examId`
-
-Requires admin token.
-
-Deletes the exam, its questions, related exam sessions, and related session events.
-
-## Questions
-
-### `POST /admin/exams/:examId/questions`
-
-Requires admin token.
-
-Creates one MCQ question. Current shape:
-
-```json
-{
-  "text": "Question text",
-  "answers": ["A", "B", "C", "D"],
-  "correctIndex": 1,
-  "marks": 2.5,
-  "explanation": "Why B is correct",
-  "explanationImage": "data:image/png;base64,...",
-  "image": "data:image/png;base64,..."
-}
-```
-
-Important: images are currently sent as data URLs inside JSON. Because the Worker has a 128 KB JSON body limit, large images will fail. A future production improvement should upload images to object storage and store URLs instead.
-
-### `PUT /admin/exams/:examId/questions/:questionId`
-
-Requires admin token.
-
-Updates the question fields.
-
-### `DELETE /admin/exams/:examId/questions/:questionId`
-
-Requires admin token.
-
-Deletes a question. It does not currently re-number remaining question positions.
-
-## Exam Sessions and Answers
-
-### `POST /sessions`
-
-Requires student token.
-
-Creates an `exam_sessions` row and returns:
-
-```json
-{
-  "sessionId": "...",
-  "pairingCode": "ABC123",
-  "pairingUrl": "https://api.crosslinecscatest.com/connect?code=ABC123"
-}
-```
-
-The desktop app turns `pairingUrl` into a QR code.
-
-### `GET /sessions/:sessionId/status`
-
-Requires student token.
-
-Used by the desktop app while waiting for the phone to connect.
-
-Returns whether `phoneConnectedAt` is set.
-
-### `POST /sessions/:sessionId/events`
-
-Requires student token.
-
-Stores event logs such as:
-
-- integrity events
-- room scan completed
-- exam started
-- exam submitted
-
-### `POST /sessions/:sessionId/answers`
-
-Requires student token.
-
-Saves answers and flags throughout the exam. When `submitted` is true, the Worker also sets:
-
-- `submitted_at`
-- `result_released_at`, set at submission
-- `result_email_after`, set at submission so email delivery is queued immediately
-
-## Phone Pairing
-
-### `GET /connect?code=ABC123`
-
-Returns the phone camera pairing page as HTML.
-
-This page:
-
-- asks the phone to use landscape mode
-- uses the front camera
-- calls `/pair-phone` when the user clicks the check button
-
-### `POST /pair-phone`
-
-Request:
-
-```json
-{ "code": "ABC123" }
-```
-
-What it does:
-
-- finds the matching exam session by `pairing_code`
-- sets `phone_connected_at`
-- writes a `phone_connected` event
-
-## Results
-
-### `GET /results`
-
-Requires student token.
-
-Lists the student's submitted attempts. Pending results show `ready: false`. Released results include score.
-
-### `GET /results/:id`
-
-Requires student token.
-
-Before release, returns no questions. After release, returns:
-
-- score
-- all questions
-- all options
-- selected answer
-- correct answer
-- marks
-- explanation text/image
-
-## Admin Submissions
-
-### `GET /admin/submissions`
-
-Requires admin token.
-
-Returns recent exam attempts, result email status, and event counts.
-
-### `GET /admin/submissions/:sessionId`
-
-Requires admin token.
-
-Returns full answer review and event log for a specific attempt.
+Cloudflare Worker and D1 remove the single-VPS bottleneck from student login/exam traffic. The VPS AI relay is separate and admin-only. The Worker prunes attempts beyond the newest 50 per student when a new session is created, which bounds ordinary account growth but is not a full archival policy.

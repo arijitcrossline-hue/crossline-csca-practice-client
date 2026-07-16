@@ -2029,6 +2029,9 @@ function showAdminLogin(message = "") {
     showAdminDashboard();
   });
 }
+function adminSkeleton(rows = 3) {
+  return `<section class="admin-skeleton" aria-hidden="true">${Array.from({ length: rows }, () => `<div class="skeleton-card"><div class="skeleton-line w35"></div><div class="skeleton-line w70"></div><div class="skeleton-line w55"></div></div>`).join("")}</section>`;
+}
 function adminShell(content, active = "exams") {
   return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Log out</button>`))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>CSCA practice</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
@@ -2114,7 +2117,10 @@ function bindAdminAssistant() {
     if (send) send.disabled = true;
     if (status) status.textContent = "GLM is preparing a draft...";
     const thread = document.getElementById("admin-assistant-thread");
-    if (thread) thread.innerHTML = adminAssistantMessages.map((message) => `<article class="assistant-message ${message.role}"><b>${message.role === "user" ? "You" : "GLM"}</b><div class="assistant-markdown">${markdownHtml(message.content)}</div></article>`).join("");
+    if (thread) {
+      thread.innerHTML = `${adminAssistantMessages.map((message) => `<article class="assistant-message ${message.role}"><b>${message.role === "user" ? "You" : "GLM"}</b><div class="assistant-markdown">${markdownHtml(message.content)}</div></article>`).join("")}<article class="assistant-message assistant"><b>GLM</b><div class="typing-dots" aria-label="GLM is typing"><span></span><span></span><span></span></div></article>`;
+      thread.scrollTop = thread.scrollHeight;
+    }
     try {
       if (!apiEnabled()) throw new Error("The assistant requires the deployed API.");
       const attachment = adminAssistantAttachment ? { name: adminAssistantAttachment.name, method: adminAssistantAttachment.method, text: adminAssistantAttachment.text, metadata: adminAssistantAttachment.metadata || {} } : null;
@@ -2123,6 +2129,7 @@ function bindAdminAssistant() {
       showAdminAssistant();
     } catch (error) {
       adminAssistantMessages.pop();
+      document.querySelector("#admin-assistant-thread .typing-dots")?.closest("article")?.remove();
       if (send) send.disabled = false;
       if (status) status.textContent = error.message || "The assistant could not respond.";
     }
@@ -2180,23 +2187,103 @@ async function extractImportSourceFiles(fileList) {
   const files = [...fileList];
   if (!files.length) throw new Error("Choose at least one question source or image.");
   if (files.length > 64) throw new Error("Attach no more than 64 files at once. A ZIP question bank is faster for large sets.");
-  if (files.length === 1) return { ...(await extractImportSourceFile(files[0])), name: files[0].name };
+  if (files.length === 1) {
+    const single = await extractImportSourceFile(files[0]);
+    return { ...single, name: files[0].name, sources: [{ name: files[0].name, text: single.text || "", images: single.images || [], metadata: single.metadata || {} }] };
+  }
   const parts = [];
   const images = [];
+  const sources = [];
   let metadata = {};
   let nextImageNumber = 1;
   for (const file of files) {
     const result = await extractImportSourceFile(file);
     let text = result.text || "";
+    const sourceImages = [];
     for (const image of result.images || []) {
       const ref = `CROSSLINE_IMAGE_${nextImageNumber++}`;
       text = text.replaceAll(image.ref, ref);
       images.push({ ...image, ref });
+      sourceImages.push({ ...image, ref });
     }
     parts.push(`# Source file: ${file.name}\n\n${text}`);
+    sources.push({ name: file.name, text, images: sourceImages, metadata: result.metadata || {} });
     if (!metadata.title && result.metadata?.title) metadata = { ...metadata, ...result.metadata };
   }
-  return { name: `${files.length} attached files`, text: parts.join("\n\n"), method: "bundle", pages: files.length, images, metadata };
+  return { name: `${files.length} attached files`, text: parts.join("\n\n"), method: "bundle", pages: files.length, images, metadata, sources };
+}
+
+function splitSourceIntoChunks(text, maxChars = 150000) {
+  const source = String(text || "");
+  if (source.length <= maxChars) return source.trim() ? [source] : [];
+  const blocks = source.split(/\n\s*(?=(?:Question|Q)\s*\d+[:.)\s])/i);
+  const chunks = [];
+  let current = "";
+  for (const block of blocks) {
+    if (current && current.length + block.length + 1 > maxChars) { chunks.push(current); current = block; }
+    else current = current ? `${current}\n${block}` : block;
+    while (current.length > maxChars) { chunks.push(current.slice(0, maxChars)); current = current.slice(maxChars); }
+  }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
+function bindDraftImages(questions, images) {
+  const imageMap = new Map((images || []).map((image) => [image.ref, image]));
+  const imageByQuestion = new Map((images || []).filter((image) => image.questionNumber).map((image) => [Number(image.questionNumber), image]));
+  return (questions || []).map((question, index) => {
+    const questionNumber = Number(question.questionNumber || index + 1);
+    const asset = imageMap.get(question.imageRef) || imageByQuestion.get(questionNumber) || null;
+    return { ...question, questionNumber, imageRef: asset?.ref || question.imageRef || "", image: asset?.dataUrl || "", imageFilename: asset?.name || question.imageFilename || "", imageMimeType: asset?.mimeType || "" };
+  });
+}
+
+function dedupeDraftQuestions(questions) {
+  const seen = new Set();
+  return questions.filter((question) => {
+    const key = `${String(question.text || "").replace(/\s+/g, " ").trim().toLowerCase()}::${(question.answers || []).map((answer) => String(answer).replace(/\s+/g, " ").trim().toLowerCase()).join("|")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function examTitleFromSourceName(name) {
+  const base = String(name || "").replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!base) return "Imported CSCA mock";
+  return base.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+async function runAutoExamBuild({ groups, instructions, onProgress }) {
+  const plans = groups.map((group) => ({ group, chunks: splitSourceIntoChunks(group.text) })).filter((plan) => plan.chunks.length);
+  if (!plans.length) throw new Error("There is no extracted question text to structure yet. Add sources first.");
+  const totalSteps = plans.reduce((sum, plan) => sum + plan.chunks.length, 0);
+  let step = 0;
+  const built = [];
+  for (let index = 0; index < plans.length; index++) {
+    const { group, chunks } = plans[index];
+    let exam = null;
+    const questions = [];
+    for (const chunk of chunks) {
+      step += 1;
+      onProgress?.({ step, totalSteps, sourceName: group.name, groupIndex: index + 1, groupCount: plans.length });
+      const payload = await window.CrosslineApi.aiImport({ sourceText: chunk, instructions });
+      if (!exam && payload.exam) exam = payload.exam;
+      questions.push(...(payload.questions || []));
+    }
+    const drafts = dedupeDraftQuestions(bindDraftImages(questions, group.images));
+    built.push({
+      name: group.name,
+      exam: {
+        title: exam?.title || group.metadata?.title || examTitleFromSourceName(group.name),
+        description: exam?.description || `Imported from ${group.name}.`,
+        duration: Math.max(1, Math.min(480, Number(exam?.duration || group.metadata?.duration || 60) || 60))
+      },
+      questions: drafts,
+      status: drafts.length ? "ready" : "empty"
+    });
+  }
+  return built;
 }
 
 function bindSourceDropZone({ zoneId, inputId, triggerId, onFiles }) {
@@ -2263,7 +2350,15 @@ function showQuestionImport(message = "") {
   const examOptions = `<option value="__create__" ${createSelected ? "selected" : ""}>Create a new exam from this source</option>${exams.map((exam, index) => `<option value="${escapeHtml(exam.id)}" ${!createSelected && index === 0 ? "selected" : ""}>Add to ${escapeHtml(exam.title)}</option>`).join("")}`;
   app.innerHTML = adminShell(`
     <div class="admin-toolbar"><div><p class="admin-kicker">Question intake</p><h1>Import questions</h1><p class="muted">Turn a ZIP question bank, HTML, PDF, image, Markdown, text, JSON, or CSV paper into reviewable drafts.</p></div><button id="back-admin" class="ghost-button">Back to exams</button></div>
+    <ol class="import-steps" aria-label="Import progress"><li class="active" data-step="sources"><span>1</span>Add sources</li><li data-step="structure"><span>2</span>Structure with GLM</li><li data-step="review"><span>3</span>Review drafts</li><li data-step="deploy"><span>4</span>Deploy exams</li></ol>
     <section class="admin-card import-guide"><h2>Local extraction, then OpenCode structuring</h2><p>HTML structure, related images, PDF text, and Tesseract OCR are processed on this computer. Only extracted text and image markers go to GLM 5.2. Original images stay local and are restored onto the matching question after structuring.</p><p class="form-note">Correct answers must be explicit in the source. Review every draft before publishing.</p></section>
+    <section class="admin-card autopilot-card"><div class="autopilot-heading"><div><p class="admin-kicker">Exam auto-builder</p><h2>Dump everything, let GLM build the exams</h2><p class="muted">Drop all your papers at once. Big sources are split into batches automatically, each file can become its own exam, and you deploy everything after one review.</p></div><span>${uiIcon("star")}</span></div>
+      <div class="autopilot-controls"><div class="field"><label>Grouping</label><select id="autopilot-mode"><option value="per-source">One exam per source file</option><option value="combined">Combine everything into one exam</option></select></div><div class="autopilot-actions"><button id="auto-build" type="button" class="primary-button autopilot-build-button">${uiIcon("star")} Auto-build exams with GLM</button></div></div>
+      <div id="autopilot-progress" class="autopilot-progress hidden"><div class="autopilot-progress-track"><div id="autopilot-progress-fill" class="autopilot-progress-fill"></div></div><p id="autopilot-progress-text" class="form-note"></p></div>
+      <div id="autopilot-results" class="autopilot-results"></div>
+      <div id="autopilot-deploy-row" class="admin-card-actions hidden"><button id="deploy-all-exams" type="button" class="primary-button">Deploy all reviewed exams</button><button id="autopilot-clear" type="button" class="ghost-button">Discard drafts</button></div>
+      <p id="autopilot-message" class="form-message"></p>
+    </section>
     <section class="panel"><form id="question-import-form" class="editor-grid">
       <div class="field wide"><label>Import destination</label><select id="import-exam">${examOptions}</select></div>
       <div class="field"><label>New exam title</label><input id="import-exam-title" value="${escapeHtml(initialMetadata.title || "Imported CSCA mock")}" /></div>
@@ -2280,6 +2375,18 @@ function showQuestionImport(message = "") {
   let drafts = [];
   let sourceImages = initial?.images || [];
   let sourceMetadata = initialMetadata;
+  let sourceGroups = initial?.sources || (initial?.text ? [{ name: initial.name || "Pasted source", text: initial.text, images: initial.images || [], metadata: initialMetadata }] : []);
+  let autoExamGroups = [];
+  const setImportStep = (step) => {
+    const order = ["sources", "structure", "review", "deploy"];
+    const reached = order.indexOf(step);
+    document.querySelectorAll(".import-steps li").forEach((item) => {
+      const index = order.indexOf(item.dataset.step);
+      item.classList.toggle("active", index === reached);
+      item.classList.toggle("done", index < reached);
+    });
+  };
+  if (sourceGroups.length) setImportStep("structure");
   sourceImportProgressUnsubscribe?.();
   sourceImportProgressUnsubscribe = window.examRuntime?.onSourceImportProgress?.((progress) => { const box = document.getElementById("import-message"); if (box) box.textContent = sourceImportProgressText(progress); }) || null;
   const handleImportFiles = async (fileList) => {
@@ -2291,16 +2398,126 @@ function showQuestionImport(message = "") {
       const result = await extractImportSourceFiles(files);
       sourceImages = result.images || [];
       sourceMetadata = result.metadata || {};
+      sourceGroups = result.sources || [{ name: result.name, text: result.text || "", images: sourceImages, metadata: sourceMetadata }];
       const source = document.getElementById("import-source");
       if (source) source.value = result.text || "";
       if (sourceMetadata.title) document.getElementById("import-exam-title").value = sourceMetadata.title;
       if (sourceMetadata.duration) document.getElementById("import-exam-duration").value = sourceMetadata.duration;
+      setImportStep("structure");
       if (messageBox) messageBox.textContent = `${result.method.includes("ocr") ? "OCR" : "Extraction"} complete${result.pages > 1 ? ` for ${result.pages} pages` : ""}${sourceImages.length ? ` with ${sourceImages.length} preserved image${sourceImages.length === 1 ? "" : "s"}` : ""}. Review the text, then structure it.`;
     } catch (error) {
       if (messageBox) messageBox.textContent = error.message || "The selected source could not be read.";
     }
   };
   bindSourceDropZone({ zoneId: "import-drop-zone", inputId: "import-file", triggerId: "import-attach-trigger", onFiles: handleImportFiles });
+  const autoStatusLabel = { ready: "Ready to deploy", empty: "No usable questions", deploying: "Deploying...", deployed: "Deployed", failed: "Deploy failed" };
+  const renderAutoExamGroups = () => {
+    const holder = document.getElementById("autopilot-results");
+    const deployRow = document.getElementById("autopilot-deploy-row");
+    if (!holder) return;
+    holder.innerHTML = autoExamGroups.map((group, index) => `<article class="admin-card exam-group-card ${group.status}"><div class="exam-group-head"><div><p class="admin-kicker">${escapeHtml(group.name)}</p><span class="status-chip ${group.status}">${autoStatusLabel[group.status] || group.status}</span></div><button type="button" class="ghost-button remove-exam-group" data-index="${index}" ${group.status === "deploying" ? "disabled" : ""}>Remove</button></div>
+      <div class="editor-grid exam-group-fields"><div class="field wide"><label>Exam title</label><input class="group-title" data-index="${index}" value="${escapeHtml(group.exam.title)}" ${group.status === "deployed" ? "disabled" : ""} /></div><div class="field"><label>Duration in minutes</label><input class="group-duration" data-index="${index}" type="number" min="1" max="480" step="1" value="${escapeHtml(group.exam.duration)}" ${group.status === "deployed" ? "disabled" : ""} /></div><div class="field wide"><label>Description</label><input class="group-description" data-index="${index}" value="${escapeHtml(group.exam.description)}" ${group.status === "deployed" ? "disabled" : ""} /></div></div>
+      <div class="exam-meta"><span>${group.questions.length} question${group.questions.length === 1 ? "" : "s"}</span><span>${formatScore(group.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${group.questions.filter((question) => question.image).length} images</span></div>
+      ${group.error ? `<p class="form-message">${escapeHtml(group.error)}</p>` : ""}
+      ${group.questions.length ? `<details class="exam-group-review"><summary>Review ${group.questions.length} draft question${group.questions.length === 1 ? "" : "s"}</summary>${renderImportedQuestionDrafts(group.questions)}</details>` : ""}
+    </article>`).join("");
+    const deployable = autoExamGroups.some((group) => group.status === "ready" && group.questions.length);
+    if (deployRow) deployRow.classList.toggle("hidden", !autoExamGroups.length);
+    const deployButton = document.getElementById("deploy-all-exams");
+    if (deployButton) deployButton.disabled = !deployable;
+    holder.querySelectorAll(".remove-exam-group").forEach((button) => button.addEventListener("click", () => { autoExamGroups.splice(Number(button.dataset.index), 1); renderAutoExamGroups(); }));
+    holder.querySelectorAll(".group-title, .group-duration, .group-description").forEach((input) => input.addEventListener("input", () => {
+      const group = autoExamGroups[Number(input.dataset.index)];
+      if (!group) return;
+      if (input.classList.contains("group-title")) group.exam.title = input.value;
+      else if (input.classList.contains("group-duration")) group.exam.duration = Number(input.value);
+      else group.exam.description = input.value;
+    }));
+    renderMath();
+  };
+  bind("auto-build", "click", async () => {
+    const statusBox = document.getElementById("autopilot-message");
+    const progress = document.getElementById("autopilot-progress");
+    const progressFill = document.getElementById("autopilot-progress-fill");
+    const progressText = document.getElementById("autopilot-progress-text");
+    const buildButton = document.getElementById("auto-build");
+    const instructions = document.getElementById("import-instructions").value.trim();
+    const pastedText = document.getElementById("import-source").value.trim();
+    try {
+      if (!apiEnabled()) throw new Error("The exam auto-builder needs the production API.");
+      let groups = sourceGroups.filter((group) => String(group.text || "").trim());
+      if (!groups.length && pastedText) groups = [{ name: "Pasted source", text: pastedText, images: sourceImages, metadata: sourceMetadata }];
+      if (!groups.length) throw new Error("Add source files or paste question text first.");
+      if (document.getElementById("autopilot-mode").value === "combined") {
+        groups = [{
+          name: groups.length === 1 ? groups[0].name : `${groups.length} combined sources`,
+          text: groups.map((group) => `# Source file: ${group.name}\n\n${group.text}`).join("\n\n"),
+          images: groups.flatMap((group) => group.images || []),
+          metadata: groups.find((group) => group.metadata?.title)?.metadata || groups[0].metadata || {}
+        }];
+      }
+      if (buildButton) buildButton.disabled = true;
+      progress?.classList.remove("hidden");
+      if (statusBox) statusBox.textContent = "";
+      autoExamGroups = await runAutoExamBuild({
+        groups,
+        instructions,
+        onProgress: ({ step, totalSteps, sourceName, groupIndex, groupCount }) => {
+          if (progressFill) progressFill.style.width = `${Math.round(((step - 1) / totalSteps) * 100)}%`;
+          if (progressText) progressText.textContent = `GLM 5.2 is structuring batch ${step} of ${totalSteps}${groupCount > 1 ? ` · source ${groupIndex} of ${groupCount}` : ""} · ${sourceName}`;
+        }
+      });
+      if (progressFill) progressFill.style.width = "100%";
+      const readyCount = autoExamGroups.filter((group) => group.questions.length).length;
+      const questionCount = autoExamGroups.reduce((sum, group) => sum + group.questions.length, 0);
+      if (progressText) progressText.textContent = readyCount ? `${questionCount} questions structured into ${readyCount} exam draft${readyCount === 1 ? "" : "s"}. Review below, then deploy.` : "No usable questions were found. Check that correct answers are explicit in the sources.";
+      setImportStep(readyCount ? "review" : "structure");
+      renderAutoExamGroups();
+    } catch (error) {
+      if (statusBox) statusBox.textContent = error.message || "The exam auto-builder could not finish.";
+      progress?.classList.add("hidden");
+    } finally {
+      if (buildButton) buildButton.disabled = false;
+    }
+  });
+  bind("autopilot-clear", "click", () => {
+    autoExamGroups = [];
+    document.getElementById("autopilot-progress")?.classList.add("hidden");
+    const statusBox = document.getElementById("autopilot-message");
+    if (statusBox) statusBox.textContent = "";
+    setImportStep(sourceGroups.length ? "structure" : "sources");
+    renderAutoExamGroups();
+  });
+  bind("deploy-all-exams", "click", async () => {
+    const statusBox = document.getElementById("autopilot-message");
+    const pending = autoExamGroups.filter((group) => group.status === "ready" && group.questions.length);
+    if (!pending.length) return;
+    for (const group of pending) {
+      group.status = "deploying";
+      group.error = "";
+      renderAutoExamGroups();
+      try {
+        const examInput = { title: String(group.exam.title || "").trim(), description: String(group.exam.description || "").trim(), duration: Number(group.exam.duration) };
+        if (!examInput.title || !examInput.description || !Number.isFinite(examInput.duration) || examInput.duration < 1) throw new Error("A title, description, and valid duration are required.");
+        if (apiEnabled()) {
+          await window.CrosslineApi.deployExam(examInput, group.questions);
+        } else {
+          exams.push({ id: `imported-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, ...examInput, questions: group.questions });
+          save("csca-exams", exams);
+        }
+        group.status = "deployed";
+      } catch (error) {
+        group.status = "failed";
+        group.error = error.message || "This exam could not be deployed.";
+      }
+    }
+    if (apiEnabled()) { try { await refreshExamsFromApi(true); } catch {} }
+    const deployed = autoExamGroups.filter((group) => group.status === "deployed").length;
+    const failed = autoExamGroups.filter((group) => group.status === "failed").length;
+    if (statusBox) statusBox.textContent = failed ? `${deployed} exam${deployed === 1 ? "" : "s"} deployed, ${failed} failed. Fix the errors above and deploy again.` : `All ${deployed} exam${deployed === 1 ? "" : "s"} deployed. Students can see them now.`;
+    setImportStep("deploy");
+    renderAutoExamGroups();
+  });
   const renderDrafts = () => { const holder = document.getElementById("import-results"); if (holder) holder.innerHTML = renderImportedQuestionDrafts(drafts); const add = document.getElementById("add-imported-questions"); if (add) add.disabled = !drafts.length; };
   bind("parse-import-locally", "click", () => { drafts = parseImportedQuestionsLocally(document.getElementById("import-source").value); const messageBox = document.getElementById("import-message"); if (messageBox) messageBox.textContent = drafts.length ? "Drafts parsed locally. Review and add them to the selected exam." : "No valid four-option questions were found. Try JSON or the documented text format."; renderDrafts(); });
   bind("draft-with-ai", "click", async () => {
@@ -2312,18 +2529,13 @@ function showQuestionImport(message = "") {
       if (!apiEnabled()) throw new Error("OpenCode structuring needs the production API.");
       if (!sourceText) throw new Error("Choose a source file or paste question text first.");
       const payload = await window.CrosslineApi.aiImport({ sourceText, instructions });
-      const imageMap = new Map(sourceImages.map((image) => [image.ref, image]));
-      const imageByQuestion = new Map(sourceImages.filter((image) => image.questionNumber).map((image) => [Number(image.questionNumber), image]));
-      drafts = (payload.questions || []).map((question, index) => {
-        const questionNumber = Number(question.questionNumber || index + 1);
-        const asset = imageMap.get(question.imageRef) || imageByQuestion.get(questionNumber) || null;
-        return { ...question, questionNumber, imageRef: asset?.ref || question.imageRef || "", image: asset?.dataUrl || "", imageFilename: asset?.name || question.imageFilename || "", imageMimeType: asset?.mimeType || "" };
-      });
+      drafts = bindDraftImages(payload.questions, sourceImages);
       sourceMetadata = { ...sourceMetadata, ...(payload.exam || {}) };
       if (payload.exam?.title) document.getElementById("import-exam-title").value = payload.exam.title;
       if (payload.exam?.duration) document.getElementById("import-exam-duration").value = payload.exam.duration;
       if (payload.exam?.description) document.getElementById("import-exam-description").value = payload.exam.description;
       if (messageBox) messageBox.textContent = drafts.length ? `${drafts.length} structured drafts are ready. Review them before saving.` : "No usable questions were found.";
+      if (drafts.length) setImportStep("review");
       renderDrafts();
     } catch (error) {
       if (messageBox) messageBox.textContent = error.message || "OpenCode structuring could not be completed.";
@@ -2369,7 +2581,7 @@ async function showAdminNotifications(message = "") {
     bindAdminShell();
     return;
   }
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Student communication</p><h1>Notifications</h1><p class="muted">Loading sent updates...</p></div></div>`, "notifications");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Student communication</p><h1>Notifications</h1><p class="muted">Loading sent updates...</p></div></div>${adminSkeleton(3)}`, "notifications");
   bindAdminShell();
   try {
     const payload = await window.CrosslineApi.adminNotifications();
@@ -2398,13 +2610,14 @@ async function deleteExam(examId) {
   showAdminDashboard();
 }
 async function showAdminSubmissions(message = "") {
+  message = typeof message === "string" ? message : "";
   if (!apiEnabled()) {
     app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Student submissions</h1><p class="muted">Live submissions require the production API.</p></div></div><section class="panel"><p class="form-note">Local prototype mode does not have server-side student attempts. In production this page lists recent attempts, answers, event logs, and result email status.</p></section>`, "submissions");
     bindAdminShell();
     return;
   }
 
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Student submissions</h1><p class="muted">Loading recent exam attempts...</p></div></div>`, "submissions");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Student submissions</h1><p class="muted">Loading recent exam attempts...</p></div></div>${adminSkeleton(4)}`, "submissions");
   bindAdminShell();
   try {
     const payload = await window.CrosslineApi.adminSubmissions();
@@ -2420,7 +2633,7 @@ async function showAdminSubmissions(message = "") {
   }
 }
 async function showAdminSubmissionDetail(submissionId) {
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Student submission</h1><p class="muted">Loading answers and result status...</p></div><button id="back-submissions" class="ghost-button">Back</button></div>`, "submissions");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Student submission</h1><p class="muted">Loading answers and result status...</p></div><button id="back-submissions" class="ghost-button">Back</button></div>${adminSkeleton(3)}`, "submissions");
   bindAdminShell();
   bind("back-submissions", "click", showAdminSubmissions);
   try {

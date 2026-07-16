@@ -1,157 +1,67 @@
 # Secondary Mobile Camera
 
-The secondary phone camera is a simulation of the real exam setup. It verifies that the student's phone can open a front-facing camera in landscape mode, then moves the desktop app to a 360-degree room scan step.
+The secondary phone step simulates the setup of a monitored exam. It verifies that a phone can open its front-facing camera in landscape orientation. It does not transmit or store the video feed.
 
-The phone page confirms that the secondary device can open its front camera in the correct orientation. The backend only stores the pairing timestamp and setup events.
+## Session Creation
 
-## Main Frontend Functions
+After facial-recognition setup, `showPhonePairing()` calls:
 
-Desktop app in `src/app.js`:
+```http
+POST /sessions
+```
 
-- `showPhonePairing()`
-- `startPhonePairingPoll()`
-- `markPhoneConnected()`
-- `showRoomScan()`
-- `showPrivacyTerms()`
+The Worker authenticates the student, verifies the exam, prunes old attempts beyond the newest 50, and creates:
 
-Phone page in `worker/src/index.js`:
+- attempt/session UUID
+- unique six-character pairing code
+- `pairingUrl` based on `CONNECT_ORIGIN`
 
-- `phoneConnectPage(url, env)`
+The desktop renders a QR image using `api.qrserver.com` and begins polling its own authenticated status endpoint.
 
-Backend pairing:
+## Phone Page
 
-- `createExamSession()`
-- `sessionStatus()`
-- `pairPhone()`
-
-## Desktop Flow
-
-After equipment check and facial recognition:
+The QR code opens:
 
 ```text
-showFacialRecognition()
-  -> showPhonePairing()
-  -> startPhonePairingPoll()
+https://api.crosslinecscatest.com/connect?code=ABC123
 ```
 
-If the production API is available, `showPhonePairing()` calls:
+`phoneConnectPage()` returns standalone HTML/JavaScript. It:
 
-```js
-window.CrosslineApi.createSession(currentExam.id)
-```
+- displays the pairing code
+- detects landscape using viewport/screen orientation
+- disables the check button in portrait
+- requests `facingMode: "user"`
+- requests ideal 960x540 and 16:9
+- shows the camera locally in a `<video>` element
+- posts only the pairing code to `/pair-phone`
 
-That creates an `exam_sessions` row and returns:
+The video stream remains inside the phone browser. No frames, chunks, audio, WebRTC connection, recording, or upload endpoint is created.
 
-- `sessionId`
-- `pairingCode`
-- `pairingUrl`
+## Pairing State
 
-The desktop app converts `pairingUrl` into a QR code using:
+`POST /pair-phone` is public because the phone has no student token. The random pairing code acts as the capability. The Worker looks up that code, sets `phone_connected_at`, writes a `phone_connected` event, and returns the session ID.
 
-```text
-https://api.qrserver.com/v1/create-qr-code/
-```
-
-Then the desktop polls:
+The desktop polls:
 
 ```http
 GET /sessions/:sessionId/status
 ```
 
-When `phoneConnectedAt` appears, the desktop calls:
+This endpoint requires the student's token and verifies session ownership. When `phoneConnectedAt` appears, `markPhoneConnected()` stops polling and automatically advances.
 
-```js
-markPhoneConnected()
-```
-
-That automatically continues to:
-
-```js
-showRoomScan()
-```
-
-## Phone Flow
-
-The QR code opens:
-
-```http
-GET /connect?code=ABC123
-```
-
-The Worker returns a small HTML page. The page:
-
-- displays the pairing code
-- asks the student to keep the phone in landscape
-- disables the check button until landscape is detected
-- requests the front camera only
-- shows a preview video
-- calls `/pair-phone` after the camera opens
-
-The camera constraint is:
-
-```js
-video: {
-  facingMode: "user",
-  width: { ideal: 960 },
-  height: { ideal: 540 },
-  aspectRatio: { ideal: 1.7777778 }
-}
-```
-
-This requests the front camera in a landscape 16:9 shape.
-
-## Pairing API
-
-Phone page calls:
-
-```http
-POST /pair-phone
-```
-
-Payload:
-
-```json
-{ "code": "ABC123" }
-```
-
-Backend behavior:
-
-- looks up `exam_sessions.pairing_code`
-- sets `phone_connected_at`
-- inserts a `phone_connected` event
-- returns `{ "ok": true, "sessionId": "..." }`
-
-The desktop app sees this on its next poll.
+Pairing codes currently have no separate expiry column; they become irrelevant when the attempt is old/deleted. Adding an explicit expiry and one-time state would strengthen this public capability route.
 
 ## Room Scan
 
-After the phone connects, the desktop app shows:
+`showRoomScan()` instructs the student to rotate the phone around the room and click **Ok the scan is done**. The desktop records `room_scan_completed` with small metadata and moves to privacy terms.
 
-```js
-showRoomScan()
-```
+This is a student-confirmed simulation. The desktop cannot see the phone preview, does not measure rotation, and does not receive room images.
 
-The student is instructed to rotate the phone 360 degrees around the room and click:
+## Privacy and Stream Shutdown
 
-```text
-Ok the scan is done
-```
+`showPrivacyTerms()` states that setup permissions simulate the real exam and that recordings are not saved. When the student accepts, `startExam()` calls `stopMedia()` and related cleanup helpers. Desktop webcam/microphone streams and analyser state are stopped before question-taking begins.
 
-The app records an event:
+## Local Demo Behavior
 
-```js
-recordSessionEvent("room_scan_completed", { examId: currentExam?.id })
-```
-
-Then it shows privacy terms.
-
-## Privacy Terms
-
-`showPrivacyTerms()` tells the student:
-
-- checks are for simulation of the real exam setup
-- webcam/microphone/phone camera are not used after setup
-- no webcam, microphone, screen, secondary-camera, or room-scan recording is saved
-- answers and attempt details are saved for result delivery
-
-After accepting terms, `startExam()` calls `stopMedia()`.
+When no production API is enabled, the setup can use local fallback behavior for UI testing. Real QR ownership/pairing state requires the Worker.

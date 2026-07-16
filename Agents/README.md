@@ -1,42 +1,54 @@
-# Crossline Mock Exam Handover
+# Crossline CSCA Codebase Guide
 
-This folder is the handover guide for the Crossline CSCA mock exam app. The app started as a fast prototype, so the most important thing to understand is that it is not one neat framework app. It is a small Electron/vanilla-JavaScript client, a Cloudflare Worker API, a Cloudflare D1 database, and a small VPS download server.
+This folder documents the application as it exists in version `0.1.35`. It is intended for both human developers and coding agents. The source is the final authority; these guides explain the runtime boundaries, data flow, and the places most likely to be changed.
 
-## Read These First
+## Recommended Reading Order
 
-1. [System Map](system-map.md) explains the main moving parts and how they connect.
-2. [Frontend and Electron Client](frontend-electron-client.md) explains the Windows app, kiosk behavior, update UI, and main student flow.
-3. [Backend API](backend-api.md) lists the Cloudflare Worker endpoints and what each one does.
-4. [Database](database.md) explains the D1 tables and how data is related.
-5. [Login and Auth](login-auth.md) explains student registration, email verification, admin login, and tokens.
-6. [Admin and Exam Creation](admin-exam-creation.md) explains the admin dashboard, notifications, imports, exams, questions, marks, images, explanations, tags, and LaTeX support.
-7. [Results System](results-system.md) explains answer saving, instant scoring, result emails, and student result review.
-8. [OpenCode Exam Deployment](opencode-exam-deployment.md) explains file ingestion, review, and atomic exam deployment.
-8. [Secondary Mobile Camera](secondary-mobile-camera.md) explains QR pairing, phone landscape/front-camera behavior, room scan, and setup privacy terms.
-9. [Developer Runbook](developer-runbook.md) explains local dev, tests, builds, deployment, updater files, and common gotchas.
+1. [System Map](system-map.md) - the deployed components and how they communicate.
+2. [Codebase Index](codebase-index.md) - what every source directory and important file owns.
+3. [Frontend and Electron Client](frontend-electron-client.md) - website, Windows UI, kiosk, devices, and IPC.
+4. [Backend API](backend-api.md) - every production route and shared API behavior.
+5. [Database](database.md) - D1 tables, relationships, retention, and migrations.
+6. [Login and Authentication](login-auth.md) - registration, verification, password reset, Google OAuth, and admin auth.
+7. [Admin and Exam Creation](admin-exam-creation.md) - manual authoring, editing, imports, notifications, and submissions.
+8. [AI Assistant and File Import](ai-assistant-and-file-import.md) - the complete GLM/OpenCode chat and attachment pipeline.
+9. [Results System](results-system.md) - answer persistence, scoring, analytics, leaderboards, and email.
+10. [Secondary Mobile Camera](secondary-mobile-camera.md) - QR pairing, front-camera check, landscape requirement, and room scan.
+11. [Updates and Releases](updates-and-releases.md) - NSIS, GitHub Releases, blockmaps, installer behavior, and the old-client bridge.
+12. [Developer Runbook](developer-runbook.md) - local development, testing, deployment, production checks, and common failures.
 
-## Important Current Product Decisions
+## Product Rules That Shape the Code
 
-- Students should not take exams from the website. The browser website is a landing/download page only.
-- The actual exam runs inside the Windows Electron client.
-- The app simulates the real exam setup: webcam check, microphone check, network check, facial recognition step, secondary phone camera step, room scan, terms, then the exam.
-- The backend saves accounts, exams, questions, answers, flags, attempt events, and result timing.
-- Results are released immediately after submission; the result email is queued at the same time.
-- The VPS serves the website's Windows installer download and a private OpenCode relay. In-app updates come from public GitHub Releases.
-- Student dashboards derive results, subject weaknesses, and a privacy-safe leaderboard from released attempt data.
-- AI question import is admin-only. The Worker calls a restricted OpenCode service running GLM 5.2 on the VPS; no AI or relay secret is stored in the Windows client.
+- The website is a landing page, account-registration surface, legal-page host, and Windows installer download page. Students do not take exams in the browser.
+- The installed Electron client is the student exam application and also contains the administrator workspace.
+- All published exams are currently free. Price columns remain in D1 for schema compatibility but are forced to zero and are not exposed to students.
+- Results are released immediately when an exam is submitted. Result email delivery is attempted asynchronously.
+- Webcam, microphone, front-facing phone camera, facial-recognition, and room-scan steps are simulations/checks. Device streams are stopped before questions begin, and no video, audio, screen, or room-scan recording is uploaded or stored.
+- The kiosk layer is best-effort practice-exam behavior. It is not a substitute for Windows Assigned Access, AppLocker, or a managed institutional exam environment.
+- AI features are admin-only. Original files are parsed locally; the model receives extracted text and image markers, not ZIP/PDF/image binaries.
+- In-app updates use public GitHub Releases. The VPS keeps the stable website installer URL and the one-time bridge required by clients older than `0.1.35`.
 
-## Main Code Locations
+## Production Addresses
 
-- Student/admin UI: `src/app.js`
-- API wrapper used by the UI: `src/api.js`
-- API base URL config: `src/config.js`
-- Styling: `src/styles.css`
-- Electron main process and GitHub updater bridge: `electron/main.js`, `electron/preload.js`, `electron/github-updater.js`
-- Backend Worker: `worker/src/index.js`
-- Database schema: `worker/schema.sql`
-- Database migrations: `worker/migrations/`
-- VPS installer download server: `media-server/server.js`
-- Restricted OpenCode service and relay: `services/opencode/`
-- Smoke tests: `tests/smoke.js`
-- API stress test: `scripts/stress-test-worker.mjs`
+- Landing page: `https://exam.crosslinecscatest.com`
+- Worker API and phone page: `https://api.crosslinecscatest.com`
+- Installer and private AI relay hostname: `https://media.crosslinecscatest.com`
+- GitHub repository: `https://github.com/arijitcrossline-hue/crossline-csca-practice-client`
+
+## Important Entry Points
+
+- UI and client flow: `src/app.js`
+- Browser API wrapper: `src/api.js`
+- Electron process: `electron/main.js`
+- Electron renderer bridge: `electron/preload.js`
+- Local question-source parser: `electron/source-import.js`
+- GitHub updater adapter: `electron/github-updater.js`
+- Cloudflare Worker: `worker/src/index.js`
+- D1 schema: `worker/schema.sql`
+- OpenCode relay: `services/opencode/relay.mjs`
+- Installer configuration: `package.json`, `build/installer.nsh`
+- Release workflow: `.github/workflows/release.yml`
+
+## Documentation Rule
+
+When behavior changes, update the relevant guide in the same commit. Do not document secrets, real passwords, API keys, private SSH keys, or bearer tokens.

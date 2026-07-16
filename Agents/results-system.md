@@ -1,172 +1,110 @@
 # Results System
 
-The result system saves answers during the exam, scores and releases the result on submit, queues a result email, and opens the full answer breakdown immediately.
+Results are marks-based and released immediately on submission. Email delivery is asynchronous and does not control visibility.
 
-## Main Frontend Functions
+## Answer Persistence
 
-- `saveSessionAnswers(submitted = false)`
-- `submitExamAndExit()`
-- `saveLocalExamResult()`
-- `showStudentDashboard()`
-- `showStudentResults()`
-- `showStudentResultDetail(resultId)`
-- `resultQuestionHtml(question)`
-
-## Main Backend Functions
-
-- `saveAnswers()`
-- `listResults()`
-- `resultDetail()`
-- `sendDueResultEmails()`
-- `scoreExamSession()`
-- `buildResultDetail()`
-- `sendResultEmail()`
-
-## During the Exam
-
-When a student selects an answer or flags a question, the frontend calls:
-
-```js
-saveSessionAnswers(false)
-```
-
-In API mode this sends:
+During the exam, selection and flag changes call:
 
 ```http
 POST /sessions/:sessionId/answers
 ```
 
-Payload shape:
-
 ```json
 {
-  "answers": {
-    "question-id-1": 0,
-    "question-id-2": 3
-  },
-  "flags": ["question-id-2"],
+  "answers": { "question-uuid": 2 },
+  "flags": ["question-uuid"],
   "submitted": false
 }
 ```
 
-The backend stores:
+`answers` are keyed by backend question UUID. Values are option indexes 0-3. Autosave updates JSON and timestamp without scoring.
 
-- `answers_json`
-- `flags_json`
-- `updated_at`
+## Submission
 
-## On Submit
+`submitExamAndExit()` shows a confirmation dialog. On confirmation it submits current answers and records `exam_submitted`.
 
-The submit button opens a confirmation dialog:
+The Worker:
 
-```text
-Are you sure you want to submit your answers?
-```
+1. sets `submitted_at` once
+2. sets `result_released_at` to submission time
+3. sets `result_email_after` to submission time
+4. calculates earned and total marks
+5. stores score columns
+6. starts an asynchronous email sweep
 
-If confirmed, `submitExamAndExit()` calls:
-
-```js
-saveSessionAnswers(true)
-recordSessionEvent("exam_submitted", ...)
-showStudentDashboard()
-```
-
-When `submitted` is true, the backend sets:
-
-- `submitted_at`
-- `result_email_after`
-- `score_earned`
-- `score_total`
-
-`result_released_at` and `result_email_after` are set at submission. The API response is immediately ready while email delivery continues asynchronously.
-
-## Dashboard Analytics
-
-The dashboard loads up to ten released result details. It renders a large score graph only for subjects the student has attempted. Weakness analysis groups every answer by subject, chapter, and topic, reports values such as “5 correct out of 10,” and lets the student open all mistakes and skips for one topic.
-
-The leaderboard has two real modes:
-
-- latest attempt for a selected exam
-- last-five average, optionally recalculated for one selected subject
-
-Only shortened student display names are returned.
-
-## Delayed Result Release
-
-The Worker releases due results in two ways:
-
-1. A scheduled Worker handler calls `sendDueResultEmails(env)`.
-2. Normal API requests call `queueResultEmailSweep()`, which runs a background sweep at most once per minute.
-
-When a result is due:
-
-1. Worker calculates the score.
-2. Worker sends a result email through Resend if `RESEND_API_KEY` exists.
-3. Worker sets `result_emailed_at`.
-
-Before `result_emailed_at` is set, students see the result as pending.
+The client then leaves kiosk and returns to the dashboard. It does not reopen a review screen automatically.
 
 ## Scoring
 
-Scoring is marks-based.
+For every question:
 
-For each question:
+- total += normalized marks
+- earned += marks only when selected index equals `correct_index`
 
-- add `question.marks` to total
-- if selected answer equals `correct_index`, add marks to earned score
+Scores are rounded to two decimal places. Skipped answers earn zero.
 
-The result is rounded to two decimal places.
+## Result List and Detail
 
-Example:
+`GET /results` returns up to 50 submitted attempts. `ready` is true when `result_released_at` or the older compatibility `result_emailed_at` is present.
 
-```text
-Question 1 = 1 mark, correct
-Question 2 = 2.5 marks, wrong
-Question 3 = 3 marks, correct
-Score = 4 / 6.5
-```
+`GET /results/:id` verifies ownership and returns:
 
-## Student Results Page
+- exam/result metadata and score
+- every question and all four options
+- selected option/index
+- correct option/index
+- correct/wrong/skipped state
+- marks earned and available
+- explanation and explanation image
+- question image
+- subject, chapter, and topic
 
-`showStudentResults()` displays:
+The frontend renders this with `showStudentResultDetail()` and `resultQuestionHtml()`.
 
-- exam title
-- submitted time
-- pending/released status
-- score if released
+## Dashboard Analytics
 
-Pending results cannot be opened.
+`loadStudentResultData()` loads the result list and full details for up to ten ready results. Renderer helpers derive:
 
-Released result details show:
+- latest and average score percentage
+- score improvement
+- number of attempts
+- subject trend graphs
+- weakness bars
+- subject/chapter/topic correct and total counts
+- last skipped question
+- last wrong question
 
-- all questions
-- all answer options
-- selected option
-- correct option
-- marks earned/available
-- explanation
-- explanation image if present
+These values are derived from result details rather than stored as separate analytics tables.
 
-This is rendered by `resultQuestionHtml(question)`.
+## Weakness Analysis
 
-## Local Mode Results
+`topicPerformance()` groups all reviewed questions by taxonomy. A topic records total, correct, wrong, skipped, and related question references. `showWeaknessTopic()` can open mistakes/skips for one topic.
 
-If the API is disabled, `saveLocalExamResult()` calculates and stores results in localStorage immediately for development and testing.
+Taxonomy quality therefore depends on accurate question authoring/import classification.
 
-## Admin Submission Review
+## Leaderboards
 
-Admins can review attempts in:
+### Exam mode
 
-```js
-showAdminSubmissions()
-showAdminSubmissionDetail(submissionId)
-```
+Uses each student's latest submitted attempt for the selected exam, converts earned/total to a percentage, ranks ties together, and returns up to 50 entries plus the current user's row.
 
-Backend endpoints:
+### Average mode
 
-```http
-GET /admin/submissions
-GET /admin/submissions/:sessionId
-```
+Uses each student's latest five submitted attempts. With a subject filter, the Worker recalculates earned/total from only questions in that subject. Without a filter, it uses stored whole-exam scores.
 
-Admin detail returns the same marks-based answer review plus event logs.
+Names are shortened by `leaderboardName()` before leaving the Worker. Raw emails are not returned.
+
+## Result Email
+
+The email contains exam title, marks score, and submission time. Resend uses `VERIFY_FROM`. On success the Worker sets `result_emailed_at`; on failure it leaves the timestamp empty so a later sweep can retry.
+
+Email sweeps run immediately after submit, opportunistically during API requests, and through the Worker's scheduled handler. Result visibility remains immediate even if Resend is unavailable.
+
+## Admin Review
+
+Admin submission detail reuses `buildResultDetail()` and adds student identity plus session events. This keeps student and admin scoring logic consistent.
+
+## Local Mode
+
+`saveLocalExamResult()` calculates a result in the renderer and stores it under a per-user localStorage key. It is for UI development only.

@@ -1,127 +1,102 @@
 # System Map
 
-The app is made of four practical layers.
+## Deployed Architecture
 
-## 1. Windows Exam Client
-
-Code:
-
-- `src/index.html`
-- `src/app.js`
-- `src/api.js`
-- `src/config.js`
-- `src/styles.css`
-- `electron/main.js`
-- `electron/preload.js`
-- `electron/github-updater.js`
-
-This is the software students install and use. It is an Electron app that loads the local files in `src/`. The UI is mostly built by replacing `app.innerHTML` inside `src/app.js`. There is no React/Vue framework here.
-
-The Electron wrapper adds Windows-app behavior:
-
-- normal login/dashboard window at launch
-- kiosk/fullscreen only after the student starts exam setup
-- focus guard while in exam/setup mode
-- blocked shortcuts such as Alt+Tab, Alt+F4, F5, F12
-- media permissions for webcam and microphone
-- content protection hint
-- auto-update IPC bridge
-
-Security note: this is a practice/mock exam client. The kiosk layer makes the experience feel controlled, but it is not the same as a locked-down institutional exam lab.
-
-## 2. Cloudflare Worker API
-
-Code:
-
-- `worker/src/index.js`
-- `worker/wrangler.toml`
-
-The Worker is the production backend. It handles:
-
-- student registration
-- verification emails
-- student login
-- admin login
-- exam listing
-- admin exam/question creation
-- student exam sessions
-- phone QR pairing
-- answer saving
-- result scoring
-- immediate result release and queued result emails
-- admin submission review
-
-The app talks to it through `window.CrosslineApi` in `src/api.js`. The production API base URL is configured in `src/config.js`:
-
-```js
-window.CROSSLINE_API_BASE = "https://api.crosslinecscatest.com";
+```mermaid
+flowchart LR
+  Browser["Browser landing page"] --> Pages["Cloudflare Pages: src/"]
+  Windows["Windows Electron client"] --> Worker["Cloudflare Worker API"]
+  Browser --> Worker
+  Phone["Secondary phone browser"] --> Worker
+  Worker --> D1["Cloudflare D1"]
+  Worker --> Resend["Resend email API"]
+  Worker --> Relay["Authenticated VPS relay"]
+  Relay --> OpenCode["OpenCode on 127.0.0.1"]
+  OpenCode --> GLM["GLM 5.2 provider"]
+  Browser --> Media["VPS stable installer"]
+  Windows --> GitHub["GitHub Releases updater"]
 ```
 
-## 3. Cloudflare D1 Database
+## Component Boundaries
 
-Code:
+### Shared web frontend
 
-- `worker/schema.sql`
-- `worker/migrations/*.sql`
+`src/` is deployed to Cloudflare Pages and bundled into Electron. The same HTML, CSS, and JavaScript select a different entry screen at runtime:
 
-D1 stores the real application data:
+- `window.examRuntime` exists: Electron client, login, dashboard, exams, and admin tools.
+- `window.examRuntime` is absent: public landing page, account registration/verification, and legal pages.
 
-- users
-- verification codes
-- login sessions
-- exams
-- questions
-- exam attempts
-- event logs
-- answers and flags
+The UI is vanilla JavaScript. Screen functions replace `#app` with HTML and then attach listeners. There is no React, Vue, router package, or frontend build step.
 
-The full schema is explained in [Database](database.md).
+### Electron main process
 
-## 4. Downloads and Updates
+`electron/main.js` owns operating-system capabilities that the sandboxed renderer cannot use directly:
 
-Code:
+- window creation and kiosk/fullscreen state
+- focus guard and blocked keyboard shortcuts
+- camera and microphone permission policy
+- CSP headers for local files
+- Google OAuth child window
+- local file extraction/OCR IPC
+- updater IPC
+- controlled app exit
 
-- `media-server/server.js`
-- `media-server/README.md`
+`electron/preload.js` exposes a narrow `window.examRuntime` API through `contextBridge`. Node integration is disabled, context isolation and the Chromium sandbox are enabled.
 
-The VPS serves the Windows installer used by the website download button and `latest.json` used by the equipment network test. Application updates are published as public GitHub Releases and checked through `electron-updater`.
+### Cloudflare Worker
 
-Typical public URLs:
+`worker/src/index.js` is a single Worker containing routing, validation, authorization, D1 queries, result scoring, phone pairing, email delivery, and AI relay calls. `src/api.js` is the renderer-side wrapper around those routes.
 
-- `https://media.crosslinecscatest.com/downloads/Crossline-CSCA-Practice-Setup.exe`
-- `https://media.crosslinecscatest.com/updates/latest.json`
+### D1
 
-Each GitHub Release contains `latest.yml`, a versioned NSIS installer, and its versioned `.blockmap` file.
+D1 stores accounts, OAuth links, bearer sessions, exams, questions, attempts, answers, setup/security events, notifications, and notification receipts. Media recordings do not exist in the schema.
 
-## High-Level Student Flow
+### VPS
+
+The VPS has two unrelated jobs behind Caddy:
+
+- serve the stable Windows installer and transition update files
+- run the private OpenCode service and an authenticated relay
+
+OpenCode and its relay listen only on loopback. Caddy exposes `/admin-ai/*`, but the relay rejects requests without the shared secret that only the Worker knows.
+
+### GitHub Releases
+
+Installed clients from `0.1.35` onward use `electron-updater`. GitHub releases provide `latest.yml`, the versioned NSIS installer, and a versioned blockmap. Differential downloads are attempted first; a full installer download is the supported fallback.
+
+## Student Flow
 
 ```mermaid
 flowchart TD
-  A["Open Windows app"] --> B["Login or register"]
-  B --> C["Student dashboard"]
-  C --> D["Choose exam"]
-  D --> E["Enter kiosk/fullscreen setup"]
-  E --> F["Equipment check: camera, microphone, network"]
-  F --> G["Facial recognition simulation"]
-  G --> H["QR phone pairing"]
-  H --> I["360-degree room scan"]
-  I --> J["Privacy terms"]
-  J --> K["Timed exam"]
-  K --> L["Submit confirmation"]
-  L --> M["Dashboard"]
-  M --> N["Result appears immediately after submission"]
+  Open["Open Windows client"] --> Auth["Restore session or authenticate"]
+  Auth --> Dashboard["Student dashboard"]
+  Dashboard --> Select["Select a free exam"]
+  Select --> Kiosk["Enter kiosk mode"]
+  Kiosk --> Equipment["Camera, microphone, network"]
+  Equipment --> Face["Facial-recognition simulation"]
+  Face --> Pair["Pair secondary phone"]
+  Pair --> Scan["360-degree room scan confirmation"]
+  Scan --> Terms["Privacy terms"]
+  Terms --> Stop["Stop every media stream"]
+  Stop --> Exam["Timed MCQ exam"]
+  Exam --> Submit["Confirm submission"]
+  Submit --> Score["Worker scores and releases result"]
+  Score --> Dashboard
 ```
 
-## Website vs App
+## AI Import Flow
 
-When `window.examRuntime` exists, the code is running inside Electron and shows the student app.
-
-When `window.examRuntime` does not exist, the same `src/index.html` behaves like a landing page and shows a download button instead of login/exam pages. This is handled at the bottom of `src/app.js`:
-
-```js
-if (isDesktopClient()) {
-  showAuth();
-} else {
-  showDownloadLanding();
-}
+```mermaid
+flowchart LR
+  File["Admin file or ZIP"] --> Extract["Electron parser and local OCR"]
+  Extract --> Text["Extracted text, metadata, image markers"]
+  Text --> WorkerAI["Authenticated Worker AI endpoint"]
+  WorkerAI --> RelayAI["Secret-protected VPS relay"]
+  RelayAI --> Model["OpenCode with GLM 5.2"]
+  Model --> Draft["Markdown reply or structured JSON"]
+  Draft --> Rebind["Renderer rebinds local image data"]
+  Rebind --> Review["Administrator review"]
+  Review --> Deploy["Validated D1 batch write"]
 ```
+
+The chat route and the deploy route are deliberately separate. A model reply cannot directly modify D1.

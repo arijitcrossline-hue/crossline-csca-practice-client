@@ -1,167 +1,90 @@
-# Login and Auth
+# Login and Authentication
 
-There are two login systems: student auth and admin auth. Both end with a Bearer token stored in localStorage by `src/api.js`.
+Student and administrator authentication share the D1 `sessions` table but have different credential checks, token roles, and localStorage keys.
 
-## Frontend Auth Files
+## Student Registration
 
-- `src/app.js`: UI flow.
-- `src/api.js`: API calls and token storage.
-- `src/config.js`: API base URL.
+The website and Windows client can both register an account.
 
-Frontend functions:
+1. UI collects first name, last name, username, optional profile picture, email, and password.
+2. `CrosslineApi.register()` calls `POST /auth/register`.
+3. Worker normalizes fields, hashes the password, and upserts the account as unverified.
+4. A random six-digit code is hashed and stored for 15 minutes.
+5. Resend emails the plaintext code to the student.
+6. UI collects the code and calls `POST /auth/verify`.
+7. Worker compares hashes, marks the account verified, deletes the code, creates a student session, and returns the user/token.
 
-- `showAuth()`
-- `showVerification()`
-- `showStudentDashboard()`
-- `showAdminLogin()`
+Registering an email that already exists resets its password/profile and returns it to unverified state. Treat this as current behavior when considering account-takeover hardening.
 
-## Student Registration Flow
+## Password Login and Restore
 
-1. Student opens the Windows app.
-2. `showAuth("register")` shows first name, last name, username, optional profile picture, email, and password fields.
-3. Frontend calls:
+`POST /auth/login` requires a verified account and matching password hash. The token is stored in `crossline-api-token`.
 
-```js
-window.CrosslineApi.register(email, password, username, profile)
-```
+At Electron startup, `restoreStudentSession()` calls `GET /auth/me`. A valid session restores the profile and dashboard; failure clears the token and shows login.
 
-4. Worker `POST /auth/register`:
+Student logout removes only the local token. There is currently no server logout/revocation endpoint, so that token remains valid until expiry unless a password reset revokes it.
 
-- normalizes email
-- normalizes username
-- hashes password
-- upserts the user with `verified_at = NULL`
-- creates a six-digit verification code
-- stores a hash in `email_verifications`
-- emails the code through Resend
+## Password Reset
 
-5. Frontend shows `showVerification()`.
-6. Student enters code.
-7. Frontend calls:
+1. `POST /auth/password-reset/request` always returns the same generic success response.
+2. For a verified account, it emails a six-digit code valid for 15 minutes.
+3. `POST /auth/password-reset/confirm` checks email/code/new password.
+4. On success it updates the password hash, consumes the code, and deletes every session for that user.
 
-```js
-window.CrosslineApi.verify(email, code)
-```
+The generic request response reduces email-address discovery.
 
-8. Worker `POST /auth/verify`:
+## Password and Code Hashing
 
-- checks code hash and expiry
-- sets `users.verified_at`
-- deletes the verification code
-- creates a student session token
+`hashSecret()` uses SHA-256 over a value combined with `PASSWORD_PEPPER`. Verification and reset codes use the same helper. This is stronger than plaintext storage but weaker for passwords than a slow password hash such as Argon2id. A future auth migration should use a dedicated identity provider or a slow password KDF.
 
-9. Frontend stores the token:
+## Google OAuth
 
-```js
-window.CrosslineApi.setStudentToken(payload.token)
-```
+The current client exposes Google sign-in. Backend code also supports Facebook configuration, but the Facebook button is intentionally absent.
 
-10. Student lands on `showStudentDashboard()`. A valid token is restored on the next app launch, so students do not need to sign in again until the session expires or they log out.
+Desktop sequence:
 
-## Password Recovery
+1. Renderer calls `examRuntime.startOAuth("google")`.
+2. Electron opens a sandboxed modal child window at `/auth/oauth/google/start?desktop=1`.
+3. Worker creates a signed, ten-minute OAuth state containing provider and desktop mode.
+4. Google redirects to `/auth/oauth/google/callback`.
+5. Worker verifies state, exchanges the code, loads the verified Google profile, and upserts `users` plus `oauth_accounts`.
+6. Worker creates a student token and redirects to `/auth/oauth/complete` with encoded token/user data.
+7. Electron intercepts only that allowlisted API URL, sends `oauth-complete` to the renderer, and closes the child window.
+8. Renderer stores the student token and opens the dashboard.
 
-The **Forgot password?** control opens a two-step recovery flow. `POST /auth/password-reset/request` sends a six-digit code to a verified account without revealing whether an address exists. `POST /auth/password-reset/confirm` validates the code, replaces the password hash, consumes the code, and revokes old sessions. Codes expire after 15 minutes.
-
-## Student Login Flow
-
-1. Student enters email and password.
-2. Frontend calls `POST /auth/login`.
-3. Worker checks:
-
-- user exists
-- user is verified
-- password hash matches
-
-4. Worker returns:
-
-```json
-{
-  "user": {
-    "email": "student@example.com",
-    "username": "Arijit"
-  },
-  "token": "..."
-}
-```
-
-## Social Sign-In
-
-The Windows client starts Google OAuth through a temporary Electron child window. The Worker owns the redirect and token exchange, then sends the completed account profile back through Electron IPC. Facebook is intentionally skipped and has no visible client button.
-
-Required Worker secrets:
+Required secrets:
 
 - `OAUTH_STATE_SECRET`
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 
-OAuth accounts populate the student name, username, and provider profile photo. Do not add these values to frontend source files.
+Callback: `https://api.crosslinecscatest.com/auth/oauth/google/callback`.
 
-5. Frontend stores the token in localStorage key:
+## Profile Data
 
-```text
-crossline-api-token
-```
+`GET /auth/me` returns public fields only. `PATCH /auth/profile` updates username, names, and avatar. Avatar input is compressed client-side before sync; OAuth may use a provider HTTPS image URL.
 
-## Admin Login Flow
+## Administrator Authentication
 
-Admin login is intentionally separate.
+`POST /admin/login` checks:
 
-Frontend:
+- email is present in `ADMIN_EMAILS` or equals `ADMIN_EMAIL`
+- password equals `ADMIN_PASSWORD`
 
-```js
-window.CrosslineApi.adminLogin(email, password)
-```
+It does not compare the user's stored password hash. If needed, a verified user row is created so the admin session has an owner. The returned role is `admin`, and the renderer stores the token in `crossline-admin-api-token`.
 
-Worker checks environment variables:
+Admin and student authorization are not interchangeable. Every protected handler calls `requireAuth()` with the expected role.
 
-- `ADMIN_EMAILS` or `ADMIN_EMAIL`
-- `ADMIN_PASSWORD`
+## Token Model
 
-If valid, it creates an admin token with role `admin`. The frontend stores it in:
+- opaque token: two random UUIDs joined by a dot
+- stored server-side in D1
+- TTL: 30 days
+- sent as `Authorization: Bearer ...`
+- role checked on every protected request
 
-```text
-crossline-admin-api-token
-```
+Do not log tokens or include them in documentation/screenshots.
 
-Admin-only endpoints require this admin token.
+## Local Demo Mode
 
-## Token Behavior
-
-Tokens are stored in the `sessions` table.
-
-Important values:
-
-- token TTL: 30 days
-- role: `student` or `admin`
-- auth header: `Authorization: Bearer <token>`
-
-The Worker helper `requireAuth(request, env, role)` enforces role and expiry.
-
-## Local Prototype Mode
-
-If `window.CrosslineApi.enabled()` is false, the app runs in localStorage demo mode.
-
-Demo credentials:
-
-- student: `student@example.com` / `demo123`
-- admin: `admin@crossline.test` / `admin123`
-- verification code: `246810`
-
-Production should use the API. Local mode is mostly useful for frontend-only testing.
-
-## Environment Variables and Secrets
-
-Important Worker vars/secrets:
-
-- `APP_ORIGIN`: allowed browser origin for CORS.
-- `CONNECT_ORIGIN`: base URL used in phone pairing links.
-- `VERIFY_FROM`: sender address for Resend emails.
-- `ADMIN_EMAILS`: comma-separated admin emails.
-- `ADMIN_PASSWORD`: admin login password.
-- `PASSWORD_PEPPER`: extra secret used in password/code hashing.
-- `RESEND_API_KEY`: sends verification and result emails.
-
-## Security Notes
-
-- Password hashing is simple SHA-256 plus pepper. For a lightweight mock app this is workable, but a future production-grade auth system should use a stronger password hashing approach or delegate auth to a dedicated provider.
-- There is no password reset flow yet.
-- Profile pictures are stored locally in the app/browser storage per device, not in the backend.
+When no API base URL is configured, `src/app.js` uses localStorage demo accounts and a fixed verification code. This is test behavior, not the production auth system.
