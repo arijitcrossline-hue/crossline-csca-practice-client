@@ -2055,7 +2055,26 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .event-list strong { color: var(--deep-blue); }
 .editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .editor-grid .wide { grid-column: 1 / -1; }
-.question-preview-image { max-width: 220px; max-height: 120px; margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; }
+.question-preview-image { max-width: 220px; max-height: 120px; margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; object-fit: contain; }
+#question-image.question-preview-image,
+.question-card > .question-preview-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 860px);
+  max-height: min(58vh, 560px);
+  margin: 14px 0 20px;
+  border-radius: 8px;
+  background: #fff;
+}
+.answer-review .question-preview-image {
+  max-width: min(100%, 560px);
+  max-height: 360px;
+  margin: 12px 0 14px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+}
 .exam-layout { display: grid; grid-template-columns: 286px 1fr; min-height: calc(100vh - 68px); }
 .sidebar { padding: 17px; border-right: 1px solid var(--line); background: var(--sidebar); }
 .candidate-card { gap: 11px; margin-bottom: 18px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
