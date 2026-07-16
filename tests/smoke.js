@@ -145,7 +145,10 @@ async function studentFlow() {
   assert.doesNotMatch(window.document.body.textContent, /Quick Actions|Study Plan|Bookmarks/);
   assert.equal(runtimeEvents.enterKiosk, 0);
   click(window, "#start-exam-dashboard");
-  assert.match(window.document.body.textContent, /Choose an exam/);
+  assert.match(window.document.body.textContent, /Choose a subject/);
+  assert.match(window.document.body.textContent, /Physics|Chemistry|Mathematics|Academic Chinese/);
+  click(window, ".choose-subject");
+  assert.match(window.document.body.textContent, /Change subject/);
   assert.match(window.document.body.textContent, /Free for all students/);
   assert.doesNotMatch(window.document.body.textContent, /Buy for|Free trial|Premium|\$\d/);
   click(window, ".begin-exam");
@@ -302,7 +305,7 @@ function adminFlow() {
   assert.ok(window.document.querySelector("#import-drop-zone"));
   assert.ok(window.document.querySelector("#import-attach-trigger"));
   assert.equal(window.document.querySelector("#import-exam-price"), null);
-  assert.equal(window.document.querySelector("#import-exam").value, "math-physics");
+  assert.equal(window.document.querySelector("#import-exam").value, "physics-mock");
   assert.match(window.document.querySelector("#import-exam").textContent, /Create a new exam from this source/);
   assert.equal(window.document.querySelector("#import-image"), null);
   fill(window, "#import-source", "Question 1: What is 2 + 2?\nA. 3\nB. 4\nC. 5\nD. 6");

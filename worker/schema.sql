@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS exams (
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
+  subject TEXT,
   is_published INTEGER NOT NULL DEFAULT 1,
   price_cents INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'USD',
@@ -116,9 +117,11 @@ CREATE TABLE IF NOT EXISTS notifications (
   body TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'info',
   audience TEXT NOT NULL DEFAULT 'students',
+  target_user_id TEXT,
   created_by TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY (created_by) REFERENCES users(id)
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  FOREIGN KEY (target_user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS notification_receipts (

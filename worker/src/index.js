@@ -3,10 +3,12 @@ const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const VERIFY_TTL_SECONDS = 60 * 15;
 const MAX_STORED_EXAM_SESSIONS_PER_USER = 50;
 const QUESTION_IMPORT_LIMIT = 100;
+const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
 const CHAPTER_CATALOG = {
   Physics: ["Kinematics", "Forces and Newton's Laws of Motion", "Circular Motion and Gravitation", "Electrostatics", "Direct-Current Circuits", "Magnetic Fields", "Electromagnetic Induction", "Thermodynamics", "Optics", "Work and Energy", "Momentum", "Oscillations and Mechanical Waves"],
   Chemistry: ["Basic Concepts and Classification of Matter", "Chemical Language", "Solutions and pH", "Oxidation and Reduction", "Acids, Bases, Salts and Ionic Reactions", "Atomic Structure, Periodicity and Chemical Bonding", "Reaction Rates and Equilibrium", "Fundamentals of Organic Chemistry", "Chemical Experiments and Applications"],
-  Mathematics: ["Sets and Inequalities", "Functions and Basic Elementary Functions", "Sequences", "Trigonometric Functions", "Analytic Geometry", "Vectors", "Complex Numbers", "Probability"]
+  Mathematics: ["Sets and Inequalities", "Functions and Basic Elementary Functions", "Sequences", "Trigonometric Functions", "Analytic Geometry", "Vectors", "Complex Numbers", "Probability"],
+  "Academic Chinese": []
 };
 const CHAPTER_KEYWORDS = {
   Physics: {
@@ -606,10 +608,13 @@ async function listNotifications(request, env) {
     `SELECT n.id, n.title, n.body, n.kind, n.created_at, nr.read_at
        FROM notifications n
        LEFT JOIN notification_receipts nr ON nr.notification_id = n.id AND nr.user_id = ?
-      WHERE n.audience IN ('students', 'all')
+      WHERE (
+          (n.target_user_id IS NULL AND n.audience IN ('students', 'all'))
+          OR n.target_user_id = ?
+        )
       ORDER BY n.created_at DESC
       LIMIT 40`
-  ).bind(auth.userId).all();
+  ).bind(auth.userId, auth.userId).all();
   const notifications = rows.results.map((row) => ({
     id: row.id,
     title: row.title,
@@ -624,13 +629,26 @@ async function listNotifications(request, env) {
 async function markNotificationRead(request, env, url) {
   const auth = await requireAuth(request, env, "student");
   const notificationId = decodeURIComponent(url.pathname.split("/")[2]);
-  const notification = await env.DB.prepare("SELECT id FROM notifications WHERE id = ? AND audience IN ('students', 'all')")
-    .bind(notificationId).first();
+  const notification = await env.DB.prepare(
+    `SELECT id FROM notifications
+      WHERE id = ?
+        AND (
+          (target_user_id IS NULL AND audience IN ('students', 'all'))
+          OR target_user_id = ?
+        )`
+  ).bind(notificationId, auth.userId).first();
   if (!notification) return json({ error: "Notification not found." }, env, 404);
   const now = isoNow();
   await env.DB.prepare("INSERT INTO notification_receipts (notification_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(notification_id, user_id) DO UPDATE SET read_at = excluded.read_at")
     .bind(notificationId, auth.userId, now).run();
   return json({ ok: true, readAt: now }, env);
+}
+
+async function notifyUser(env, { userId, title, body, kind = "info" }) {
+  if (!userId || !title || !body) return;
+  const id = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO notifications (id, title, body, kind, audience, target_user_id, created_at) VALUES (?, ?, ?, ?, 'students', ?, ?)")
+    .bind(id, String(title).slice(0, 140), String(body).slice(0, 1000), kind, userId, isoNow()).run();
 }
 
 async function adminListNotifications(request, env) {
@@ -881,26 +899,33 @@ function normalizeExamPricing(body = {}) {
   return { priceCents: Math.round(cents), currency };
 }
 
+function normalizeExamSubject(value) {
+  const subject = canonicalSubject(value);
+  return EXAM_SUBJECTS.includes(subject) ? subject : "";
+}
+
 async function adminCreateExam(request, env) {
   await requireAuth(request, env, "admin");
   const body = await readJson(request);
   const title = String(body.title || "").trim().slice(0, 180);
   const description = String(body.description || "").trim().slice(0, 1000);
   const duration = Number(body.duration || body.duration_minutes || 60);
+  const subject = normalizeExamSubject(body.subject);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
+  if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
   const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { free: true } : body);
   if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
   const id = slugify(title) + "-" + Date.now();
   const now = isoNow();
-  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)")
-    .bind(id, title, description, duration, pricing.priceCents, pricing.currency, now, now).run();
+  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+    .bind(id, title, description, duration, subject, pricing.priceCents, pricing.currency, now, now).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id) }, env, 201);
 }
 
 async function adminUpdateExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
+  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
   if (!existing) return json({ error: "Exam not found." }, env, 404);
   const body = await readJson(request);
   const title = body.title !== undefined ? String(body.title || "").trim().slice(0, 180) : existing.title;
@@ -908,9 +933,11 @@ async function adminUpdateExam(request, env, url) {
   const duration = body.duration !== undefined || body.duration_minutes !== undefined
     ? Number(body.duration ?? body.duration_minutes)
     : Number(existing.duration_minutes);
+  const subject = body.subject !== undefined ? normalizeExamSubject(body.subject) : normalizeExamSubject(existing.subject);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) {
     return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   }
+  if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
   let priceCents = Number(existing.price_cents || 0);
   let currency = String(existing.currency || "USD");
   if (body.free !== undefined || body.access !== undefined || body.price !== undefined || body.priceCents !== undefined || body.price_cents !== undefined) {
@@ -919,8 +946,8 @@ async function adminUpdateExam(request, env, url) {
     priceCents = pricing.priceCents;
     currency = pricing.currency;
   }
-  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
-    .bind(title, description, duration, priceCents, currency, isoNow(), examId).run();
+  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
+    .bind(title, description, duration, subject, priceCents, currency, isoNow(), examId).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === examId) }, env);
 }
 
@@ -975,12 +1002,20 @@ async function adminAiDeploy(request, env) {
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "A title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   const questions = incoming.map((question, index) => normalizeQuestionInput({ ...question, marks: scheduledQuestionMarks(index, incoming.length, question.marks) }));
   if (questions.some((question) => !question)) return json({ error: "Every reviewed question needs text, four options, and an explicit correct answer." }, env, 400);
+  const subjectCounts = new Map();
+  for (const question of questions) {
+    const subject = normalizeExamSubject(question.subject);
+    if (!subject) continue;
+    subjectCounts.set(subject, (subjectCounts.get(subject) || 0) + 1);
+  }
+  const inferredSubject = [...subjectCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "";
+  const subject = normalizeExamSubject(examInput.subject) || inferredSubject || "Mathematics";
 
   const id = `${slugify(title)}-${Date.now()}`;
   const now = isoNow();
   const statements = [
-    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)")
-      .bind(id, title, description, duration, 0, "USD", now, now),
+    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+      .bind(id, title, description, duration, subject, 0, "USD", now, now),
     ...questions.map((question, index) => questionInsertStatement(env, { id: crypto.randomUUID(), examId: id, position: index + 1, question, now }))
   ];
   await env.DB.batch(statements);
@@ -1041,6 +1076,7 @@ function canonicalSubject(value) {
   if (/^physics$/i.test(subject)) return "Physics";
   if (/^chem(?:istry)?$/i.test(subject)) return "Chemistry";
   if (/^math(?:s|ematics)?$/i.test(subject)) return "Mathematics";
+  if (/^academic\s*chinese$/i.test(subject) || /^chinese$/i.test(subject)) return "Academic Chinese";
   return subject;
 }
 
@@ -1295,8 +1331,9 @@ async function saveAnswers(request, env, url, ctx) {
   const auth = await requireAuth(request, env, "student");
   const sessionId = decodeURIComponent(url.pathname.split("/")[2]);
   const body = await readJson(request);
-  const session = await env.DB.prepare("SELECT id, exam_id FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
+  const session = await env.DB.prepare("SELECT id, exam_id, submitted_at FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
   if (!session) return json({ error: "Session not found." }, env, 404);
+  const firstSubmit = Boolean(body.submitted && !session.submitted_at);
   const now = isoNow();
   const submittedAt = body.submitted ? now : null;
   const resultEmailAfter = body.submitted ? now : null;
@@ -1333,7 +1370,23 @@ async function saveAnswers(request, env, url, ctx) {
     sessionId,
     auth.userId
   ).run();
-  if (body.submitted) ctx?.waitUntil?.(sendDueResultEmails(env).catch((error) => console.error("Immediate result email failed", error)));
+  if (body.submitted) {
+    const followUps = [sendDueResultEmails(env).catch((error) => console.error("Immediate result email failed", error))];
+    if (firstSubmit) {
+      followUps.push((async () => {
+        const exam = await env.DB.prepare("SELECT title FROM exams WHERE id = ?").bind(session.exam_id).first();
+        const earned = score ? formatScore(score.earned) : "—";
+        const total = score ? formatScore(score.total) : "—";
+        await notifyUser(env, {
+          userId: auth.userId,
+          kind: "result",
+          title: "Your exam result is ready",
+          body: `${exam?.title || "Your practice exam"} scored ${earned} / ${total}. Open Results to review every question.`
+        });
+      })().catch((error) => console.error("Result notification failed", error)));
+    }
+    ctx?.waitUntil?.(Promise.all(followUps));
+  }
   return json({ ok: true, resultEmailAfter, resultReleasedAt, ready: Boolean(body.submitted), score }, env);
 }
 
@@ -1354,7 +1407,7 @@ function phoneConnectPage(url, env) {
 }
 
 async function fetchExams(env, publishedOnly) {
-  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
+  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
   const exams = [];
   for (const exam of examRows.results) {
     const questions = await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all();
@@ -1364,6 +1417,7 @@ async function fetchExams(env, publishedOnly) {
       title: exam.title,
       description: exam.description,
       duration: exam.duration_minutes,
+      subject: normalizeExamSubject(exam.subject) || "",
       priceCents,
       currency: String(exam.currency || "USD"),
       free: priceCents === 0,

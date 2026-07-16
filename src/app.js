@@ -18,10 +18,14 @@ const defaultQuestions = [
   { type: "Single choice", subject: "Mathematics", chapter: "Algebra", topic: "Difference of squares", instruction: "Choose the best answer.", text: "Which expression is equivalent to (x + 3)(x - 3)?", answers: ["x² - 9", "x² + 9", "x² - 6x + 9", "x² + 6x + 9"] },
   { type: "Single choice", subject: "Mathematics", chapter: "Functions", topic: "Function evaluation", instruction: "Choose the best answer.", text: "If f(x) = 2x + 1, what is the value of f(4)?", answers: ["7", "8", "9", "10"] }
 ];
+const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
 const defaultExams = [
-  { id: "math-physics", title: "CSCA Mathematics and Physics Mock", description: "Full practice paper covering mathematics and physics fundamentals.", duration: 90, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % defaultQuestions.length] })) },
-  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, questions: defaultQuestions.slice(1).map((question) => ({ ...question })) }
+  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 90, subject: "Physics", free: true, priceCents: 0, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
+  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", free: true, priceCents: 0, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
+  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Concentration" })) },
+  { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
+let selectedExamSubject = load("csca-exam-subject", "");
 
 let exams = load("csca-exams", defaultExams);
 let users = load("csca-users", [{ email: "student@example.com", username: "Demo Student", password: "demo123", verified: true }]);
@@ -224,12 +228,14 @@ async function checkForUpdates(manual = false, autoInstall = false) {
       return;
     }
     updateNoticeShown = true;
+    noticeUpdateAvailable(result);
     showUpdatePanel({
       kind: "available",
       message: autoInstall ? "A new update is available. Auto-update is downloading it from GitHub in the background." : "A new Crossline CSCA Practice Client update is available. Click Yes to download it.",
       result
     });
     if (autoInstall) await installUpdateNow();
+    void hydrateNotificationBadge();
   } catch (error) {
     if (manual) showUpdatePanel({ kind: "error", message: `Update check failed: ${error.message}` });
   } finally {
@@ -261,11 +267,13 @@ function registerUpdateProgressEvents() {
   window.examRuntime?.onUpdateProgress?.((event) => {
     if (event.type === "available") {
       updateNoticeShown = true;
+      noticeUpdateAvailable(event);
       showUpdatePanel({
         kind: "available",
         message: "A new Crossline CSCA Practice Client update is available on GitHub.",
         result: event
       });
+      void hydrateNotificationBadge();
       return;
     }
     if (event.type === "starting") {
@@ -419,10 +427,48 @@ function formatExamAccess(exam = {}) {
   const amount = (cents / 100).toFixed(2).replace(/\.00$/, "");
   return `${String(exam.currency || "USD").toUpperCase()} ${amount}`;
 }
+function normalizeExamSubjectValue(value) {
+  const subject = String(value || "").trim();
+  if (/^physics$/i.test(subject)) return "Physics";
+  if (/^chem(?:istry)?$/i.test(subject)) return "Chemistry";
+  if (/^math(?:s|ematics)?$/i.test(subject)) return "Mathematics";
+  if (/^academic\s*chinese$/i.test(subject) || /^chinese$/i.test(subject)) return "Academic Chinese";
+  return EXAM_SUBJECTS.includes(subject) ? subject : "";
+}
+function examSubjectFieldsHtml(exam = {}) {
+  const selected = normalizeExamSubjectValue(exam.subject) || "Mathematics";
+  return `<div class="field"><label>Subject</label><select id="exam-subject" required>${EXAM_SUBJECTS.map((subject) => `<option value="${escapeHtml(subject)}" ${subject === selected ? "selected" : ""}>${escapeHtml(subject)}</option>`).join("")}</select></div>`;
+}
 function examAccessFieldsHtml(exam = {}) {
   const free = examPriceCents(exam) === 0;
   const dollars = free ? "" : (examPriceCents(exam) / 100).toFixed(2);
-  return `<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
+  return `${examSubjectFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
+}
+function localNotifications() {
+  return load("csca-local-notifications", []);
+}
+function saveLocalNotifications(list) {
+  save("csca-local-notifications", (list || []).slice(0, 40));
+}
+function pushLocalNotification({ id, title, body, kind = "update" }) {
+  if (!id || !title || !body) return;
+  const list = localNotifications();
+  if (list.some((item) => item.id === id)) return;
+  list.unshift({ id, title, body, kind, createdAt: new Date().toISOString(), readAt: null });
+  saveLocalNotifications(list);
+}
+function markLocalNotificationRead(id) {
+  saveLocalNotifications(localNotifications().map((item) => item.id === id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item));
+}
+function noticeUpdateAvailable(result = {}) {
+  const latest = String(result.latest?.version || result.version || "").trim();
+  if (!latest) return;
+  pushLocalNotification({
+    id: `update-${latest}`,
+    kind: "update",
+    title: `App update ${latest} is available`,
+    body: `Crossline CSCA Practice Client ${latest} is ready. Open Updates to download and install it.`
+  });
 }
 function readExamAccessFields() {
   const access = document.getElementById("exam-access")?.value === "paid" ? "paid" : "free";
@@ -441,6 +487,7 @@ function normalizeApiExam(exam) {
   return {
     ...exam,
     duration: Number(exam.duration || exam.duration_minutes || 60),
+    subject: normalizeExamSubjectValue(exam.subject),
     priceCents,
     currency: String(exam.currency || "USD"),
     free: priceCents === 0,
@@ -1407,12 +1454,14 @@ function bindStudentShell() {
 }
 
 async function hydrateNotificationBadge() {
+  const localUnread = localNotifications().filter((item) => !item.readAt).length;
   const localUpdateCount = ["available", "ready"].includes(updateState.kind) ? 1 : 0;
   try {
     const payload = apiEnabled() ? await window.CrosslineApi.notifications() : { unread: 0 };
     const badge = document.getElementById("notification-count");
-    const unread = Number(payload.unread || 0) + localUpdateCount;
-    if (!badge || !unread) return;
+    const unread = Number(payload.unread || 0) + localUnread + localUpdateCount;
+    if (!badge) return;
+    if (!unread) { badge.classList.add("hidden"); badge.textContent = ""; return; }
     badge.textContent = String(unread);
     badge.classList.remove("hidden");
   } catch {}
@@ -1422,13 +1471,34 @@ async function showExamList(message = "") {
   leaveKiosk();
   message = typeof message === "string" ? message : "";
   if (apiEnabled()) { try { await refreshExamsFromApi(false); } catch {} }
-  const examCards = exams.length ? exams.map((exam) => {
+  const subject = selectedExamSubject === "__unassigned__" ? "__unassigned__" : normalizeExamSubjectValue(selectedExamSubject);
+  if (!subject) {
+    const counts = Object.fromEntries(EXAM_SUBJECTS.map((name) => [name, exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === name).length]));
+    const unassignedCount = exams.filter((exam) => !normalizeExamSubjectValue(exam.subject)).length;
+    const cards = EXAM_SUBJECTS.map((name) => `<article class="dash-page-card subject-choice-card"><div><p class="dash-card-kicker">Subject paper</p><h2>${escapeHtml(name)}</h2><p>Choose ${escapeHtml(name)} to see every published paper in this category.</p><div class="exam-meta"><span>${counts[name]} exam${counts[name] === 1 ? "" : "s"}</span></div></div><button class="dash-start-button choose-subject" data-subject="${escapeHtml(name)}">View ${escapeHtml(name)} exams ${uiIcon("chevron-right")}</button></article>`).join("");
+    const unassignedCard = unassignedCount ? `<article class="dash-page-card subject-choice-card"><div><p class="dash-card-kicker">Needs subject</p><h2>Unassigned</h2><p>These papers still need a subject set in the admin exam library.</p><div class="exam-meta"><span>${unassignedCount} exam${unassignedCount === 1 ? "" : "s"}</span></div></div><button class="dash-start-button choose-subject" data-subject="__unassigned__">View unassigned exams ${uiIcon("chevron-right")}</button></article>` : "";
+    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid subject-choice-grid">${cards}${unassignedCard}</section>`;
+    app.innerHTML = studentPageShell({ active: "exams", title: "Choose a subject", subtitle: "Pick Physics, Chemistry, Mathematics, or Academic Chinese, then open a paper in that category.", content });
+    bindStudentShell();
+    document.querySelectorAll(".choose-subject").forEach((button) => button.addEventListener("click", () => {
+      selectedExamSubject = button.dataset.subject;
+      save("csca-exam-subject", selectedExamSubject);
+      showExamList();
+    }));
+    return;
+  }
+  const filtered = subject === "__unassigned__"
+    ? exams.filter((exam) => !normalizeExamSubjectValue(exam.subject))
+    : exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === subject);
+  const subjectLabel = subject === "__unassigned__" ? "Unassigned" : subject;
+  const examCards = filtered.length ? filtered.map((exam) => {
     const canStart = exam.canStart !== false && examPriceCents(exam) === 0;
-    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">Practice mock</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This paid exam is not unlocked for your account yet.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Paid · locked"}</button></article>`;
-  }).join("") : `<article class="dash-page-card"><h2>No exams are available yet</h2><p>Ask the Crossline team to publish a practice paper for your account.</p></article>`;
-  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid exam-page-grid">${examCards}</section>`;
-  app.innerHTML = studentPageShell({ active: "exams", title: "Choose an exam", subtitle: "Select a paper, complete the realistic device setup, then begin your timed practice.", content });
+    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This paid exam is not unlocked for your account yet.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Paid · locked"}</button></article>`;
+  }).join("") : `<article class="dash-page-card"><h2>No ${escapeHtml(subjectLabel)} exams yet</h2><p>Ask the Crossline team to publish a ${escapeHtml(subjectLabel)} practice paper, or choose another subject.</p></article>`;
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<div class="subject-filter-bar"><div><p class="dash-card-kicker">Selected subject</p><h2>${escapeHtml(subjectLabel)}</h2></div><button id="change-exam-subject" class="dash-outline-button">Change subject</button></div><section class="dash-page-grid exam-page-grid">${examCards}</section>`;
+  app.innerHTML = studentPageShell({ active: "exams", title: `${subjectLabel} exams`, subtitle: "Select a paper, complete the realistic device setup, then begin your timed practice.", content });
   bindStudentShell();
+  bind("change-exam-subject", "click", () => { selectedExamSubject = ""; save("csca-exam-subject", ""); showExamList(); });
   document.querySelectorAll(".begin-exam").forEach((button) => button.addEventListener("click", () => { currentExam = exams.find((exam) => exam.id === button.dataset.id); activeSessionId = null; preflight = { camera: false, microphone: false, network: false, face: false, phone: false, roomScan: false }; showEquipmentCheck(); }));
   renderMath();
 }
@@ -1532,13 +1602,18 @@ async function showNotifications() {
   app.innerHTML = studentPageShell({ active: "dashboard", title: "Notifications", subtitle: "Loading your Crossline updates...", content: `<section class="dash-page-card"><p class="form-note">Loading notifications...</p></section>` });
   bindStudentShell();
   const payload = apiEnabled() ? await window.CrosslineApi.notifications().catch(() => ({ notifications: [] })) : { notifications: [] };
-  const notifications = payload.notifications || [];
+  const notifications = [...localNotifications(), ...(payload.notifications || [])].sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
   const updateNotification = ["available", "ready"].includes(updateState.kind) ? `<article class="dash-page-card notification-card update-notification"><div><p class="dash-card-kicker">Software update</p><h2>${updateState.kind === "ready" ? "Update ready to install" : "A new app update is available"}</h2><p>${escapeHtml(updateState.message || "Open Settings to update the Crossline Windows client.")}</p></div><button id="notification-update-action" class="dash-outline-button">${updateState.kind === "ready" ? "Restart and install" : "Update now"}</button></article>` : "";
-  const content = (notifications.length || updateNotification) ? `<section class="notification-list">${updateNotification}${notifications.map((item) => `<article class="dash-page-card notification-card ${item.readAt ? "read" : ""}"><div><p class="dash-card-kicker">${escapeHtml(item.kind || "update")}</p><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.body)}</p><small>${escapeHtml(formatDateTime(item.createdAt))}</small></div>${item.readAt ? "" : `<button class="dash-outline-button notification-read" data-id="${escapeHtml(item.id)}">Mark read</button>`}</article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No new notifications</h2><p>Exam releases and important updates from Crossline will appear here.</p></section>`;
-  app.innerHTML = studentPageShell({ active: "dashboard", title: "Notifications", subtitle: "Exam releases and important Crossline updates are collected here.", content });
+  const content = (notifications.length || updateNotification) ? `<section class="notification-list">${updateNotification}${notifications.map((item) => `<article class="dash-page-card notification-card ${item.readAt ? "read" : ""}"><div><p class="dash-card-kicker">${escapeHtml(item.kind || "update")}</p><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.body)}</p><small>${escapeHtml(formatDateTime(item.createdAt))}</small></div>${item.readAt ? "" : `<button class="dash-outline-button notification-read" data-id="${escapeHtml(item.id)}" data-local="${String(item.id).startsWith("update-") ? "1" : "0"}">Mark read</button>`}</article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No new notifications</h2><p>Exam results and app updates from Crossline will appear here automatically.</p></section>`;
+  app.innerHTML = studentPageShell({ active: "dashboard", title: "Notifications", subtitle: "Exam results and important Crossline updates are collected here.", content });
   bindStudentShell();
   bind("notification-update-action", "click", updateState.kind === "ready" ? restartUpdateNow : installUpdateNow);
-  document.querySelectorAll(".notification-read").forEach((button) => button.addEventListener("click", async () => { try { await window.CrosslineApi.markNotificationRead(button.dataset.id); } finally { showNotifications(); } }));
+  document.querySelectorAll(".notification-read").forEach((button) => button.addEventListener("click", async () => {
+    try {
+      if (button.dataset.local === "1") markLocalNotificationRead(button.dataset.id);
+      else await window.CrosslineApi.markNotificationRead(button.dataset.id);
+    } finally { showNotifications(); }
+  }));
 }
 
 function showStudentSettings(message = "") {
@@ -2066,7 +2141,7 @@ function adminSkeleton(rows = 3) {
   return `<section class="admin-skeleton" aria-hidden="true">${Array.from({ length: rows }, () => `<div class="skeleton-card"><div class="skeleton-line w35"></div><div class="skeleton-line w70"></div><div class="skeleton-line w55"></div></div>`).join("")}</section>`;
 }
 function adminShell(content, active = "exams") {
-  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Log out</button>`))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>CSCA practice</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button></aside><section class="admin-workspace">${content}</section></main>`;
+  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Log out</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>CSCA practice</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
 function bindAdminShell() {
   bind("admin-logout", "click", () => { window.CrosslineApi?.clearAdminToken(); showAdminLogin(); });
@@ -2076,11 +2151,25 @@ function bindAdminShell() {
   bind("admin-import", "click", showQuestionImport);
   bind("admin-submissions", "click", showAdminSubmissions);
   bind("admin-notifications", "click", showAdminNotifications);
-  bindDesktopExit();
+  bind("admin-updates", "click", showAdminUpdates);
+  bindDesktopExit({ updates: true });
+}
+function showAdminUpdates(message = "") {
+  message = typeof message === "string" ? message : "";
+  if (!isDesktopClient()) {
+    app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Desktop updates</p><h1>App updates</h1><p class="muted">Software updates are available in the Windows desktop client.</p></div></div><section class="admin-card"><p>Open the Crossline Windows app as an administrator to check for and install updates.</p></section>`, "updates");
+    bindAdminShell();
+    return;
+  }
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Desktop updates</p><h1>App updates</h1><p class="muted">Check GitHub Releases, enable auto-update, or reset an interrupted download.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-card"><div class="settings-update-copy"><b>Windows app updates</b><p>Updates are verified before installation. Use the same controls available in the student portal.</p></div><div class="admin-card-actions"><button id="admin-check-updates" type="button" class="primary-button">Check for updates</button><button id="admin-auto-update" type="button" class="secondary-button">${autoUpdateEnabled() ? "Auto-update enabled" : "Enable auto-update"}</button><button id="admin-reset-update" type="button" class="ghost-button">Reset update download</button></div></section>`, "updates");
+  bindAdminShell();
+  bind("admin-check-updates", "click", () => checkForUpdates(true));
+  bind("admin-auto-update", "click", () => { setAutoUpdateEnabled(!autoUpdateEnabled()); showAdminUpdates("Auto-update preference saved."); });
+  bind("admin-reset-update", "click", resetUpdateNow);
 }
 function showAdminDashboard(message = "") {
   message = typeof message === "string" ? message : "";
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">Practice paper</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, subject, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">${escapeHtml(normalizeExamSubjectValue(exam.subject) || "Unassigned subject")}</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
   bindAdminShell();
   bind("new-exam", "click", showCreateExam);
   bind("import-questions", "click", showQuestionImport);
@@ -2843,8 +2932,13 @@ function showCreateExam() {
     const title = document.getElementById("exam-title").value.trim();
     const description = document.getElementById("exam-description").value.trim();
     const duration = Number(document.getElementById("exam-duration").value);
+    const subject = normalizeExamSubjectValue(document.getElementById("exam-subject")?.value);
     const access = readExamAccessFields();
-    const exam = { title, description, duration, ...access, questions: [] };
+    const exam = { title, description, duration, subject, ...access, questions: [] };
+    if (!subject) {
+      if (message) message.textContent = "Choose a subject for this exam.";
+      return;
+    }
     if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
       if (message) message.textContent = "Enter a price greater than zero, or switch access to free.";
       return;
@@ -2880,16 +2974,21 @@ function showEditExamDetails(examId, message = "") {
     const title = document.getElementById("exam-title").value.trim();
     const description = document.getElementById("exam-description").value.trim();
     const duration = Number(document.getElementById("exam-duration").value);
+    const subject = normalizeExamSubjectValue(document.getElementById("exam-subject")?.value);
     const access = readExamAccessFields();
     if (!title || !description || !Number.isFinite(duration) || duration < 1) {
       if (status) status.textContent = "Title, description, and a valid duration are required.";
+      return;
+    }
+    if (!subject) {
+      if (status) status.textContent = "Choose a subject for this exam.";
       return;
     }
     if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
       if (status) status.textContent = "Enter a price greater than zero, or switch access to free.";
       return;
     }
-    const updates = { title, description, duration, ...access };
+    const updates = { title, description, duration, subject, ...access };
     if (apiEnabled()) {
       try {
         await window.CrosslineApi.updateExam(examId, updates);
