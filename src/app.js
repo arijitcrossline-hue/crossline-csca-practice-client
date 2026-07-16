@@ -2337,8 +2337,122 @@ function sourceImportProgressText(progress = {}) {
   return "Reading question source...";
 }
 
-function renderImportedQuestionDrafts(questions = []) {
-  return questions.length ? `<div class="import-drafts"><p class="form-note">${questions.length} draft question${questions.length === 1 ? "" : "s"} ready. Review the wording, marks, correct answers, images, and explanations before saving.</p>${questions.map((question, index) => `<article class="admin-card"><p class="admin-kicker">Draft ${index + 1}${question.subject ? ` · ${escapeHtml(question.subject)}` : ""}</p><h3>${mathHtml(question.text)}</h3>${question.image ? `<img class="question-preview-image import-image-preview" src="${escapeHtml(question.image)}" alt="Imported question image${question.imageFilename ? ` ${escapeHtml(question.imageFilename)}` : ""}" />` : ""}<p>${question.answers.map((answer, answerIndex) => `${letterLabels[answerIndex]}. ${escapeHtml(answer)}`).join(" · ")}</p><div class="exam-meta"><span>Correct: ${letterLabels[Number(question.correctIndex || 0)]}</span><span>${formatScore(question.marks)} marks</span>${question.chapter ? `<span>${escapeHtml(question.chapter)}</span>` : ""}${question.imageRef ? `<span>Image: ${escapeHtml(question.imageFilename || question.imageRef)} → Question ${escapeHtml(question.questionNumber || index + 1)}</span>` : ""}</div></article>`).join("")}</div>` : "";
+function createBlankDraftQuestion(questionNumber = 1) {
+  return {
+    type: "Single choice",
+    questionNumber,
+    subject: "",
+    chapter: "",
+    topic: "",
+    instruction: "Choose the best answer.",
+    text: "",
+    answers: ["", "", "", ""],
+    correctIndex: 0,
+    marks: 1,
+    explanation: "",
+    imageRef: "",
+    image: "",
+    imageFilename: "",
+    imageMimeType: ""
+  };
+}
+
+function renderImportedQuestionDrafts(questions = [], { scope = "import", locked = false } = {}) {
+  const disabled = locked ? "disabled" : "";
+  const count = questions.length;
+  const header = count
+    ? `<div class="import-drafts-head"><div><p class="admin-kicker">Draft review</p><h3>${count} draft question${count === 1 ? "" : "s"}</h3><p class="form-note">Edit wording, options, marks, taxonomy, and explanations before saving. Changes stay in this list until you save or deploy.</p></div>${locked ? "" : `<button type="button" class="secondary-button add-draft-question" data-draft-scope="${escapeHtml(scope)}">Add question</button>`}</div>`
+    : `<div class="import-drafts-empty"><span class="import-drafts-empty-icon">${uiIcon("clipboard-list")}</span><div><p class="admin-kicker">No drafts yet</p><h3>Add a question manually</h3><p class="form-note">Structure a source above, or start a blank four-option question here.</p></div>${locked ? "" : `<button type="button" class="secondary-button add-draft-question" data-draft-scope="${escapeHtml(scope)}">Add question</button>`}</div>`;
+  const cards = questions.map((question, index) => {
+    const answers = Array.from({ length: 4 }, (_, answerIndex) => String(question.answers?.[answerIndex] ?? ""));
+    const correctIndex = Number.isInteger(Number(question.correctIndex)) ? Math.min(3, Math.max(0, Number(question.correctIndex))) : 0;
+    const marks = formatScore(normalizeMarks(question.marks));
+    const taxonomy = [question.subject, question.chapter, question.topic].filter(Boolean).map((part) => escapeHtml(part)).join(" · ");
+    return `<article class="admin-card import-draft-card" data-draft-index="${index}" data-draft-scope="${escapeHtml(scope)}">
+      <div class="import-draft-card-head">
+        <div>
+          <p class="admin-kicker">Draft ${index + 1}${taxonomy ? ` · ${taxonomy}` : ""}</p>
+          <div class="exam-meta import-draft-summary">
+            <span class="draft-correct-note">Correct: ${letterLabels[correctIndex]}</span>
+            <span class="draft-marks-note">${marks} marks</span>
+            ${question.imageRef || question.image ? `<span>Image: ${escapeHtml(question.imageFilename || question.imageRef || "attached")}</span>` : ""}
+          </div>
+        </div>
+        ${locked ? "" : `<button type="button" class="danger-button remove-draft-question" data-draft-index="${index}" aria-label="Remove draft ${index + 1}">Remove</button>`}
+      </div>
+      ${question.image ? `<img class="question-preview-image import-image-preview" src="${escapeHtml(question.image)}" alt="Imported question image${question.imageFilename ? ` ${escapeHtml(question.imageFilename)}` : ""}" />` : ""}
+      <fieldset class="import-draft-fields editor-grid" ${disabled}>
+        <div class="field"><label>Subject</label><input class="draft-subject" data-draft-index="${index}" value="${escapeHtml(question.subject || "")}" autocomplete="off" /></div>
+        <div class="field"><label>Chapter</label><input class="draft-chapter" data-draft-index="${index}" value="${escapeHtml(question.chapter || "")}" autocomplete="off" /></div>
+        <div class="field"><label>Topic</label><input class="draft-topic" data-draft-index="${index}" value="${escapeHtml(question.topic || "")}" autocomplete="off" /></div>
+        <div class="field"><label>Marks</label><input class="draft-marks" data-draft-index="${index}" type="number" min="0.1" step="0.1" value="${escapeHtml(marks)}" /></div>
+        <div class="field wide"><label>Question text</label><textarea class="draft-text" data-draft-index="${index}" rows="3">${escapeHtml(question.text || "")}</textarea></div>
+        ${answers.map((answer, answerIndex) => `<div class="field draft-answer-field ${correctIndex === answerIndex ? "is-correct" : ""}"><span class="draft-answer-label"><span class="draft-answer-letter" aria-hidden="true">${letterLabels[answerIndex]}</span><input class="draft-answer" data-draft-index="${index}" data-answer-index="${answerIndex}" value="${escapeHtml(answer)}" aria-label="Option ${letterLabels[answerIndex]}" /><label class="draft-correct-pick"><input type="radio" class="draft-correct" name="draft-correct-${escapeHtml(scope)}-${index}" data-draft-index="${index}" value="${answerIndex}" ${correctIndex === answerIndex ? "checked" : ""} /><span>Correct</span></label></span></div>`).join("")}
+        <div class="field wide"><label>Explanation</label><textarea class="draft-explanation compact-textarea" data-draft-index="${index}" rows="2" placeholder="Optional. LaTeX supported.">${escapeHtml(question.explanation || "")}</textarea></div>
+      </fieldset>
+    </article>`;
+  }).join("");
+  return `<div class="import-drafts" data-draft-scope="${escapeHtml(scope)}">${header}${cards}</div>`;
+}
+
+function bindImportedDraftEditors(root, questions, { onStructureChange } = {}) {
+  if (!root || !Array.isArray(questions)) return;
+  const readIndex = (element) => Number(element.dataset.draftIndex);
+  root.querySelectorAll(".draft-text").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (question) question.text = input.value;
+  }));
+  root.querySelectorAll(".draft-answer").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (!question) return;
+    if (!Array.isArray(question.answers)) question.answers = ["", "", "", ""];
+    question.answers[Number(input.dataset.answerIndex)] = input.value;
+  }));
+  root.querySelectorAll(".draft-subject").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (question) question.subject = input.value;
+  }));
+  root.querySelectorAll(".draft-chapter").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (question) question.chapter = input.value;
+  }));
+  root.querySelectorAll(".draft-topic").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (question) question.topic = input.value;
+  }));
+  root.querySelectorAll(".draft-explanation").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (question) question.explanation = input.value;
+  }));
+  root.querySelectorAll(".draft-marks").forEach((input) => input.addEventListener("input", () => {
+    const question = questions[readIndex(input)];
+    if (!question) return;
+    question.marks = normalizeMarks(input.value);
+    const card = input.closest(".import-draft-card");
+    const note = card?.querySelector(".draft-marks-note");
+    if (note) note.textContent = `${formatScore(question.marks)} marks`;
+  }));
+  root.querySelectorAll(".draft-correct").forEach((input) => input.addEventListener("change", () => {
+    const question = questions[readIndex(input)];
+    if (!question || !input.checked) return;
+    question.correctIndex = Number(input.value);
+    const card = input.closest(".import-draft-card");
+    const note = card?.querySelector(".draft-correct-note");
+    if (note) note.textContent = `Correct: ${letterLabels[question.correctIndex] || "A"}`;
+    card?.querySelectorAll(".draft-answer-field").forEach((field, answerIndex) => {
+      field.classList.toggle("is-correct", answerIndex === question.correctIndex);
+    });
+  }));
+  root.querySelectorAll(".remove-draft-question").forEach((button) => button.addEventListener("click", () => {
+    const index = readIndex(button);
+    if (!Number.isInteger(index) || index < 0 || index >= questions.length) return;
+    questions.splice(index, 1);
+    onStructureChange?.();
+  }));
+  root.querySelectorAll(".add-draft-question").forEach((button) => button.addEventListener("click", () => {
+    questions.push(createBlankDraftQuestion(questions.length + 1));
+    onStructureChange?.();
+  }));
 }
 
 function showQuestionImport(message = "") {
@@ -2349,9 +2463,9 @@ function showQuestionImport(message = "") {
   const createSelected = Boolean(initial?.text) || !exams.length;
   const examOptions = `<option value="__create__" ${createSelected ? "selected" : ""}>Create a new exam from this source</option>${exams.map((exam, index) => `<option value="${escapeHtml(exam.id)}" ${!createSelected && index === 0 ? "selected" : ""}>Add to ${escapeHtml(exam.title)}</option>`).join("")}`;
   app.innerHTML = adminShell(`
-    <div class="admin-toolbar"><div><p class="admin-kicker">Question intake</p><h1>Import questions</h1><p class="muted">Turn a ZIP question bank, HTML, PDF, image, Markdown, text, JSON, or CSV paper into reviewable drafts.</p></div><button id="back-admin" class="ghost-button">Back to exams</button></div>
+    <div class="admin-toolbar"><div><p class="admin-kicker">Question intake</p><h1>Import questions</h1><p class="muted">Turn a ZIP question bank, HTML, PDF, image, Markdown, text, JSON, or CSV paper into editable drafts you can review before saving.</p></div><button id="back-admin" class="ghost-button">Back to exams</button></div>
     <ol class="import-steps" aria-label="Import progress"><li class="active" data-step="sources"><span>1</span>Add sources</li><li data-step="structure"><span>2</span>Structure with GLM</li><li data-step="review"><span>3</span>Review drafts</li><li data-step="deploy"><span>4</span>Deploy exams</li></ol>
-    <section class="admin-card import-guide"><h2>Local extraction, then OpenCode structuring</h2><p>HTML structure, related images, PDF text, and Tesseract OCR are processed on this computer. Only extracted text and image markers go to GLM 5.2. Original images stay local and are restored onto the matching question after structuring.</p><p class="form-note">Correct answers must be explicit in the source. Review every draft before publishing.</p></section>
+    <section class="admin-card import-guide"><h2>Local extraction, then OpenCode structuring</h2><p>HTML structure, related images, PDF text, and Tesseract OCR are processed on this computer. Only extracted text and image markers go to GLM 5.2. Original images stay local and are restored onto the matching question after structuring.</p><p class="form-note">Correct answers must be explicit in the source. Edit every draft before publishing.</p></section>
     <section class="admin-card autopilot-card"><div class="autopilot-heading"><div><p class="admin-kicker">Exam auto-builder</p><h2>Dump everything, let GLM build the exams</h2><p class="muted">Drop all your papers at once. Big sources are split into batches automatically, each file can become its own exam, and you deploy everything after one review.</p></div><span>${uiIcon("star")}</span></div>
       <div class="autopilot-controls"><div class="field"><label>Grouping</label><select id="autopilot-mode"><option value="per-source">One exam per source file</option><option value="combined">Combine everything into one exam</option></select></div><div class="autopilot-actions"><button id="auto-build" type="button" class="primary-button autopilot-build-button">${uiIcon("star")} Auto-build exams with GLM</button></div></div>
       <div id="autopilot-progress" class="autopilot-progress hidden"><div class="autopilot-progress-track"><div id="autopilot-progress-fill" class="autopilot-progress-fill"></div></div><p id="autopilot-progress-text" class="form-note"></p></div>
@@ -2415,13 +2529,20 @@ function showQuestionImport(message = "") {
     const holder = document.getElementById("autopilot-results");
     const deployRow = document.getElementById("autopilot-deploy-row");
     if (!holder) return;
-    holder.innerHTML = autoExamGroups.map((group, index) => `<article class="admin-card exam-group-card ${group.status}"><div class="exam-group-head"><div><p class="admin-kicker">${escapeHtml(group.name)}</p><span class="status-chip ${group.status}">${autoStatusLabel[group.status] || group.status}</span></div><button type="button" class="ghost-button remove-exam-group" data-index="${index}" ${group.status === "deploying" ? "disabled" : ""}>Remove</button></div>
-      <div class="editor-grid exam-group-fields"><div class="field wide"><label>Exam title</label><input class="group-title" data-index="${index}" value="${escapeHtml(group.exam.title)}" ${group.status === "deployed" ? "disabled" : ""} /></div><div class="field"><label>Duration in minutes</label><input class="group-duration" data-index="${index}" type="number" min="1" max="480" step="1" value="${escapeHtml(group.exam.duration)}" ${group.status === "deployed" ? "disabled" : ""} /></div><div class="field wide"><label>Description</label><input class="group-description" data-index="${index}" value="${escapeHtml(group.exam.description)}" ${group.status === "deployed" ? "disabled" : ""} /></div></div>
+    holder.innerHTML = autoExamGroups.map((group, index) => {
+      const locked = group.status === "deployed" || group.status === "deploying";
+      const scope = `auto-${index}`;
+      const reviewLabel = group.questions.length
+        ? `Review ${group.questions.length} draft question${group.questions.length === 1 ? "" : "s"}`
+        : "Add questions manually";
+      return `<article class="admin-card exam-group-card ${group.status}"><div class="exam-group-head"><div><p class="admin-kicker">${escapeHtml(group.name)}</p><span class="status-chip ${group.status}">${autoStatusLabel[group.status] || group.status}</span></div><button type="button" class="ghost-button remove-exam-group" data-index="${index}" ${group.status === "deploying" ? "disabled" : ""}>Remove</button></div>
+      <div class="editor-grid exam-group-fields"><div class="field wide"><label>Exam title</label><input class="group-title" data-index="${index}" value="${escapeHtml(group.exam.title)}" ${locked ? "disabled" : ""} /></div><div class="field"><label>Duration in minutes</label><input class="group-duration" data-index="${index}" type="number" min="1" max="480" step="1" value="${escapeHtml(group.exam.duration)}" ${locked ? "disabled" : ""} /></div><div class="field wide"><label>Description</label><input class="group-description" data-index="${index}" value="${escapeHtml(group.exam.description)}" ${locked ? "disabled" : ""} /></div></div>
       <div class="exam-meta"><span>${group.questions.length} question${group.questions.length === 1 ? "" : "s"}</span><span>${formatScore(group.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${group.questions.filter((question) => question.image).length} images</span></div>
       ${group.error ? `<p class="form-message">${escapeHtml(group.error)}</p>` : ""}
-      ${group.questions.length ? `<details class="exam-group-review"><summary>Review ${group.questions.length} draft question${group.questions.length === 1 ? "" : "s"}</summary>${renderImportedQuestionDrafts(group.questions)}</details>` : ""}
-    </article>`).join("");
-    const deployable = autoExamGroups.some((group) => group.status === "ready" && group.questions.length);
+      <details class="exam-group-review" data-group-index="${index}" ${group.reviewOpen || !group.questions.length ? "open" : ""}><summary>${reviewLabel}</summary>${renderImportedQuestionDrafts(group.questions, { scope, locked })}</details>
+    </article>`;
+    }).join("");
+    const deployable = autoExamGroups.some((group) => (group.status === "ready" || group.status === "failed") && group.questions.length);
     if (deployRow) deployRow.classList.toggle("hidden", !autoExamGroups.length);
     const deployButton = document.getElementById("deploy-all-exams");
     if (deployButton) deployButton.disabled = !deployable;
@@ -2433,7 +2554,21 @@ function showQuestionImport(message = "") {
       else if (input.classList.contains("group-duration")) group.exam.duration = Number(input.value);
       else group.exam.description = input.value;
     }));
-    renderMath();
+    holder.querySelectorAll(".exam-group-review").forEach((details) => {
+      const group = autoExamGroups[Number(details.dataset.groupIndex)];
+      if (!group) return;
+      details.addEventListener("toggle", () => { group.reviewOpen = details.open; });
+      bindImportedDraftEditors(details, group.questions, {
+        onStructureChange: () => {
+          group.reviewOpen = true;
+          if (group.status === "empty" || group.status === "ready" || group.status === "failed") {
+            group.status = group.questions.length ? "ready" : "empty";
+            group.error = "";
+          }
+          renderAutoExamGroups();
+        }
+      });
+    });
   };
   bind("auto-build", "click", async () => {
     const statusBox = document.getElementById("autopilot-message");
@@ -2490,7 +2625,7 @@ function showQuestionImport(message = "") {
   });
   bind("deploy-all-exams", "click", async () => {
     const statusBox = document.getElementById("autopilot-message");
-    const pending = autoExamGroups.filter((group) => group.status === "ready" && group.questions.length);
+    const pending = autoExamGroups.filter((group) => (group.status === "ready" || group.status === "failed") && group.questions.length);
     if (!pending.length) return;
     for (const group of pending) {
       group.status = "deploying";
@@ -2518,8 +2653,23 @@ function showQuestionImport(message = "") {
     setImportStep("deploy");
     renderAutoExamGroups();
   });
-  const renderDrafts = () => { const holder = document.getElementById("import-results"); if (holder) holder.innerHTML = renderImportedQuestionDrafts(drafts); const add = document.getElementById("add-imported-questions"); if (add) add.disabled = !drafts.length; };
-  bind("parse-import-locally", "click", () => { drafts = parseImportedQuestionsLocally(document.getElementById("import-source").value); const messageBox = document.getElementById("import-message"); if (messageBox) messageBox.textContent = drafts.length ? "Drafts parsed locally. Review and add them to the selected exam." : "No valid four-option questions were found. Try JSON or the documented text format."; renderDrafts(); });
+  const renderDrafts = () => {
+    const holder = document.getElementById("import-results");
+    if (holder) {
+      holder.innerHTML = renderImportedQuestionDrafts(drafts, { scope: "import" });
+      bindImportedDraftEditors(holder, drafts, { onStructureChange: renderDrafts });
+    }
+    const add = document.getElementById("add-imported-questions");
+    if (add) add.disabled = !drafts.length;
+  };
+  renderDrafts();
+  bind("parse-import-locally", "click", () => {
+    drafts = parseImportedQuestionsLocally(document.getElementById("import-source").value);
+    const messageBox = document.getElementById("import-message");
+    if (messageBox) messageBox.textContent = drafts.length ? "Drafts parsed locally. Review and edit them before saving." : "No valid four-option questions were found. Try JSON or the documented text format, or add a blank question below.";
+    if (drafts.length) setImportStep("review");
+    renderDrafts();
+  });
   bind("draft-with-ai", "click", async () => {
     const sourceText = document.getElementById("import-source").value.trim();
     const instructions = document.getElementById("import-instructions").value.trim();

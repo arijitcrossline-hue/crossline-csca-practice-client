@@ -652,14 +652,83 @@ async function adminCreateNotification(request, env) {
   return json({ notification: { id, title, body: message, kind, audience } }, env, 201);
 }
 
-async function adminAiImport(request, env) {
-  await requireAuth(request, env, "admin");
-  if (!env.OPENCODE_RELAY_URL && !env.GLM_API_KEY) return json({ error: "AI import is not configured on the server yet." }, env, 503);
-  const body = await readJson(request, 2 * 1024 * 1024);
-  const sourceText = String(body.sourceText || "").trim().slice(0, 220000);
-  const instructions = String(body.instructions || "").trim().slice(0, 4000);
-  if (!sourceText) return json({ error: "Extract or paste source text before importing." }, env, 400);
-  const prompt = [
+const IMPORT_CHUNK_CHARS = 6000;
+const IMPORT_CHUNK_CONCURRENCY = 3;
+
+function jsonQuestionChunks(source, maxChars) {
+  const start = source.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let end = -1;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+    } else if (char === '"') inString = true;
+    else if (char === "[" || char === "{") depth += 1;
+    else if (char === "]" || char === "}") {
+      depth -= 1;
+      if (!depth) { end = i; break; }
+    }
+  }
+  if (end === -1 || end - start < source.length * 0.5) return null;
+  let list;
+  try { list = JSON.parse(source.slice(start, end + 1)); } catch { return null; }
+  if (!Array.isArray(list) || list.length < 2 || !list.every((item) => item && typeof item === "object" && !Array.isArray(item))) return null;
+  const header = source.slice(0, start).trim();
+  const groups = [];
+  let group = [];
+  let groupLength = 0;
+  for (const item of list) {
+    const itemLength = JSON.stringify(item).length + 2;
+    if (group.length && groupLength + itemLength > maxChars) { groups.push(group); group = []; groupLength = 0; }
+    group.push(item);
+    groupLength += itemLength;
+  }
+  if (group.length) groups.push(group);
+  return groups.map((items) => `${header ? `${header}\n\n` : ""}${JSON.stringify(items, null, 1)}`);
+}
+
+function splitImportSource(text, maxChars = IMPORT_CHUNK_CHARS) {
+  const source = String(text || "");
+  if (source.length <= maxChars) return source.trim() ? [source] : [];
+  const jsonChunks = jsonQuestionChunks(source, maxChars);
+  if (jsonChunks) return jsonChunks;
+  const blocks = source.split(/\n\s*(?=(?:#{1,6}\s*|\*\*\s*)?(?:(?:question|q)[\s.]*)?\d{1,3}\s*[.:)\]]\**\s)/i);
+  const chunks = [];
+  let current = "";
+  for (const block of blocks) {
+    if (current && current.length + block.length + 1 > maxChars) { chunks.push(current); current = block; }
+    else current = current ? `${current}\n${block}` : block;
+    while (current.length > maxChars) {
+      const window = current.slice(0, maxChars);
+      const lineBreak = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"));
+      const cut = lineBreak > maxChars * 0.3 ? lineBreak : maxChars;
+      chunks.push(current.slice(0, cut));
+      current = current.slice(cut);
+    }
+  }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
+function importImageNotes(source) {
+  const notes = [];
+  for (const match of String(source || "").matchAll(/\[\[(CROSSLINE_IMAGE_\d+)\]\]\s*Filename:\s*([^\n]*?)\.\s*(?:Attach to question (\d+)\.|Question number could not be inferred)/g)) {
+    // Infer a question number from a trailing digit run in the filename (e.g. Jan_30.png -> 30) when extraction could not.
+    const trailing = match[3] ? null : match[2].match(/(\d{1,3})\s*(?:\.[a-z0-9]+)?$/i);
+    const inferred = trailing && Number(trailing[1]) >= 1 && Number(trailing[1]) <= 500 ? Number(trailing[1]) : null;
+    notes.push(`[[${match[1]}]] Filename: ${match[2]}.${match[3] ? ` Attach to question ${match[3]}.` : inferred ? ` Attach to question ${inferred} (number taken from the filename).` : " Question number could not be inferred from the filename."}`);
+  }
+  return notes.slice(0, 64);
+}
+
+function importPrompt(sourceText, instructions) {
+  return [
     "You are a lossless exam-paper transcription assistant. Convert only the exam and questions explicitly present in the source into one JSON object with keys exam and questions.",
     "exam must contain title, description, and duration. Use null for any exam field not explicitly present. duration is the stated number of minutes, not an estimate.",
     `questions must be an array of up to ${QUESTION_IMPORT_LIMIT} objects, each with questionNumber, subject, chapter, topic, text, answers (exactly 4 strings), correctIndex (0-3), marks, explanation, instruction, imageRef, and imageFilename.`,
@@ -673,17 +742,51 @@ async function adminAiImport(request, env) {
     instructions ? `Administrator instructions:\n${instructions}` : "",
     `Source text:\n${sourceText}`
   ].filter(Boolean).join("\n\n");
-  let completion;
+}
+
+async function adminAiImport(request, env) {
+  await requireAuth(request, env, "admin");
+  if (!env.OPENCODE_RELAY_URL && !env.GLM_API_KEY) return json({ error: "AI import is not configured on the server yet." }, env, 503);
+  const body = await readJson(request, 2 * 1024 * 1024);
+  const sourceText = String(body.sourceText || "").trim().slice(0, 220000);
+  const instructions = String(body.instructions || "").trim().slice(0, 4000);
+  if (!sourceText) return json({ error: "Extract or paste source text before importing." }, env, 400);
+  const chunks = splitImportSource(sourceText);
+  const imageNotes = chunks.length > 1 ? importImageNotes(sourceText) : [];
+  const noteAppendix = imageNotes.length ? `\n\nImage attachment notes (bind these markers to the matching question numbers):\n${imageNotes.join("\n")}`.slice(0, 9000) : "";
+  const parsedChunks = new Array(chunks.length);
+  let completion = null;
+  let nextChunk = 0;
+  const runChunk = async () => {
+    while (nextChunk < chunks.length) {
+      const index = nextChunk++;
+      const chunkCompletion = await adminModelCompletion(env, { messages: [{ role: "user", content: importPrompt(chunks[index] + noteAppendix, instructions) }], temperature: 0 });
+      parsedChunks[index] = parseImportedQuestions(chunkCompletion.content);
+      completion = chunkCompletion;
+    }
+  };
   try {
-    completion = await adminModelCompletion(env, { messages: [{ role: "user", content: prompt }], temperature: 0 });
+    await Promise.all(Array.from({ length: Math.min(IMPORT_CHUNK_CONCURRENCY, chunks.length) }, runChunk));
   } catch (error) {
     console.error("AI import request failed", error.message);
     return json({ error: "The AI import service did not accept this source. Check the configured model and API key." }, env, 502);
   }
-  const parsed = parseImportedQuestions(completion.content);
-  const questions = parsed.questions;
-  if (!questions.length) return json({ error: "The AI response did not contain usable multiple-choice questions. Try a clearer source." }, env, 422);
-  return json({ questions, exam: parsed.exam, model: completion.model, runtime: completion.runtime }, env);
+  const seen = new Set();
+  const questions = [];
+  let exam = null;
+  for (const parsed of parsedChunks) {
+    if (!parsed) continue;
+    if (!exam && (parsed.exam.title || parsed.exam.duration)) exam = parsed.exam;
+    for (const question of parsed.questions) {
+      const key = `${question.text.replace(/\s+/g, " ").trim().toLowerCase()}::${question.answers.map((answer) => String(answer).replace(/\s+/g, " ").trim().toLowerCase()).join("|")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      questions.push(question);
+    }
+  }
+  const merged = questions.slice(0, QUESTION_IMPORT_LIMIT).map((question, index, list) => ({ ...question, marks: normalizeMarks(scheduledQuestionMarks(index, list.length, question.marks)) }));
+  if (!merged.length) return json({ error: "The AI response did not contain usable multiple-choice questions. Try a clearer source." }, env, 422);
+  return json({ questions: merged, exam: exam || parsedChunks[0]?.exam || null, model: completion?.model || env.GLM_MODEL || "glm-5.2", runtime: completion?.runtime || "opencode" }, env);
 }
 
 async function adminAiChat(request, env) {
