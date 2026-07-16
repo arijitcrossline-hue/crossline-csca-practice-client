@@ -251,7 +251,7 @@ function adminFlow() {
   click(window, "#admin-entry");
   submit(window, "#admin-form");
   assert.match(window.document.body.textContent, /Exam library/);
-  assert.doesNotMatch(window.document.body.textContent, /Edit price|set prices|Premium price|Currency/);
+  assert.match(window.document.body.textContent, /Edit details/);
   assert.doesNotMatch(window.document.body.textContent, /Student portal preview/);
   click(window, "#admin-overview");
   assert.match(window.document.body.textContent, /GLM question assistant/);
@@ -265,9 +265,14 @@ function adminFlow() {
   assert.ok(window.document.querySelector("#assistant-attach-trigger"));
   assert.match(window.document.body.textContent, /Attach source/);
   click(window, "#admin-exams");
+  click(window, ".edit-exam-details");
+  assert.match(window.document.body.textContent, /Edit exam/);
+  assert.ok(window.document.querySelector("#exam-access"));
+  assert.ok(window.document.querySelector("#exam-price-field"));
+  click(window, "#back-admin");
   click(window, "#new-exam");
-  assert.equal(window.document.querySelector("#exam-price"), null);
-  assert.match(window.document.body.textContent, /available to all registered students at no cost/);
+  assert.ok(window.document.querySelector("#exam-access"));
+  assert.match(window.document.body.textContent, /Free for all students/);
   fill(window, "#exam-title", "Demo Created Paper");
   fill(window, "#exam-description", "Created through the administrator workflow.");
   fill(window, "#exam-duration", "45");

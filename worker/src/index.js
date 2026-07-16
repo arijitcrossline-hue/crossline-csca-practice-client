@@ -391,9 +391,17 @@ async function adminLogin(request, env) {
 async function listExams(request, env) {
   await requireAuth(request, env, "student");
   const exams = await fetchExams(env, true);
+  const listed = exams.map((exam) => {
+    const free = !Number(exam.priceCents || 0);
+    return {
+      ...exam,
+      canStart: free,
+      accessReason: free ? "" : "This exam is paid. Ask Crossline to unlock access, or choose a free paper."
+    };
+  });
   return json({
-    exams: exams.map((exam) => ({ ...exam, canStart: true, accessReason: "" })),
-    access: { allExamsFree: true, canStart: true }
+    exams: listed,
+    access: { allExamsFree: listed.every((exam) => exam.canStart), canStart: listed.some((exam) => exam.canStart) }
   }, env);
 }
 
@@ -863,26 +871,56 @@ async function adminListExams(request, env) {
   return json({ exams: await fetchExams(env, false) }, env);
 }
 
+function normalizeExamPricing(body = {}) {
+  const access = String(body.access || "").toLowerCase();
+  if (body.free === true || body.free === "true" || access === "free") return { priceCents: 0, currency: "USD" };
+  const dollars = body.price !== undefined && body.price !== null && body.price !== "" ? Number(body.price) : NaN;
+  const cents = Number.isFinite(dollars) ? Math.round(dollars * 100) : Number(body.priceCents ?? body.price_cents);
+  if (!Number.isFinite(cents) || cents < 1 || cents > 1_000_000) return null;
+  const currency = String(body.currency || "USD").trim().toUpperCase().slice(0, 8) || "USD";
+  return { priceCents: Math.round(cents), currency };
+}
+
 async function adminCreateExam(request, env) {
   await requireAuth(request, env, "admin");
   const body = await readJson(request);
-  const title = String(body.title || "").trim();
-  const description = String(body.description || "").trim();
+  const title = String(body.title || "").trim().slice(0, 180);
+  const description = String(body.description || "").trim().slice(0, 1000);
   const duration = Number(body.duration || body.duration_minutes || 60);
-  if (!title || !description || !Number.isFinite(duration)) return json({ error: "Title, description, and duration are required." }, env, 400);
+  if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
+  const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { free: true } : body);
+  if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
   const id = slugify(title) + "-" + Date.now();
   const now = isoNow();
   await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)")
-    .bind(id, title, description, duration, 0, "USD", now, now).run();
+    .bind(id, title, description, duration, pricing.priceCents, pricing.currency, now, now).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id) }, env, 201);
 }
 
 async function adminUpdateExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const result = await env.DB.prepare("UPDATE exams SET price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
-    .bind(0, "USD", isoNow(), examId).run();
-  if (!result.meta?.changes) return json({ error: "Exam not found." }, env, 404);
+  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
+  if (!existing) return json({ error: "Exam not found." }, env, 404);
+  const body = await readJson(request);
+  const title = body.title !== undefined ? String(body.title || "").trim().slice(0, 180) : existing.title;
+  const description = body.description !== undefined ? String(body.description || "").trim().slice(0, 1000) : existing.description;
+  const duration = body.duration !== undefined || body.duration_minutes !== undefined
+    ? Number(body.duration ?? body.duration_minutes)
+    : Number(existing.duration_minutes);
+  if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) {
+    return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
+  }
+  let priceCents = Number(existing.price_cents || 0);
+  let currency = String(existing.currency || "USD");
+  if (body.free !== undefined || body.access !== undefined || body.price !== undefined || body.priceCents !== undefined || body.price_cents !== undefined) {
+    const pricing = normalizeExamPricing(body);
+    if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
+    priceCents = pricing.priceCents;
+    currency = pricing.currency;
+  }
+  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
+    .bind(title, description, duration, priceCents, currency, isoNow(), examId).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === examId) }, env);
 }
 
@@ -1208,8 +1246,9 @@ async function createExamSession(request, env) {
   const auth = await requireAuth(request, env, "student");
   const body = await readJson(request);
   const examId = String(body.examId || "");
-  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, price_cents FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
+  if (Number(exam.price_cents || 0) > 0) return json({ error: "This exam is paid and is not unlocked for your account yet." }, env, 402);
   const id = crypto.randomUUID();
   const code = randomPairingCode();
   const now = isoNow();
@@ -1315,15 +1354,19 @@ function phoneConnectPage(url, env) {
 }
 
 async function fetchExams(env, publishedOnly) {
-  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
+  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
   const exams = [];
   for (const exam of examRows.results) {
     const questions = await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all();
+    const priceCents = Math.max(0, Math.round(Number(exam.price_cents || 0)));
     exams.push({
       id: exam.id,
       title: exam.title,
       description: exam.description,
       duration: exam.duration_minutes,
+      priceCents,
+      currency: String(exam.currency || "USD"),
+      free: priceCents === 0,
       questions: questions.results.map((question) => ({
         id: question.id,
         type: question.type,

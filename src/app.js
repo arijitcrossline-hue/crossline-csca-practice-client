@@ -410,10 +410,42 @@ function resultEmailStatus(submission = {}) {
   if (submission.submittedAt) return "Waiting to schedule";
   return "Not submitted";
 }
+function examPriceCents(exam = {}) {
+  return Math.max(0, Math.round(Number(exam.priceCents ?? exam.price_cents ?? 0)));
+}
+function formatExamAccess(exam = {}) {
+  const cents = examPriceCents(exam);
+  if (!cents) return "Free for all students";
+  const amount = (cents / 100).toFixed(2).replace(/\.00$/, "");
+  return `${String(exam.currency || "USD").toUpperCase()} ${amount}`;
+}
+function examAccessFieldsHtml(exam = {}) {
+  const free = examPriceCents(exam) === 0;
+  const dollars = free ? "" : (examPriceCents(exam) / 100).toFixed(2);
+  return `<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
+}
+function readExamAccessFields() {
+  const access = document.getElementById("exam-access")?.value === "paid" ? "paid" : "free";
+  if (access === "free") return { access: "free", free: true, price: 0 };
+  return { access: "paid", free: false, price: Number(document.getElementById("exam-price")?.value) };
+}
+function bindExamAccessFields() {
+  const access = document.getElementById("exam-access");
+  const priceField = document.getElementById("exam-price-field");
+  const sync = () => { if (priceField) priceField.hidden = access?.value !== "paid"; };
+  access?.addEventListener("change", sync);
+  sync();
+}
 function normalizeApiExam(exam) {
+  const priceCents = examPriceCents(exam);
   return {
     ...exam,
     duration: Number(exam.duration || exam.duration_minutes || 60),
+    priceCents,
+    currency: String(exam.currency || "USD"),
+    free: priceCents === 0,
+    canStart: exam.canStart !== false && priceCents === 0,
+    accessReason: exam.accessReason || "",
     questions: (exam.questions || []).map((question, index) => ({
       type: question.type || "Single choice",
       subject: question.subject || "",
@@ -1391,7 +1423,8 @@ async function showExamList(message = "") {
   message = typeof message === "string" ? message : "";
   if (apiEnabled()) { try { await refreshExamsFromApi(false); } catch {} }
   const examCards = exams.length ? exams.map((exam) => {
-    return `<article class="dash-page-card exam-choice-card"><div><div class="exam-title-row"><p class="dash-card-kicker">Practice mock</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>Free for all students</span></div></div><button class="dash-start-button begin-exam" data-id="${escapeHtml(exam.id)}">Begin setup ${uiIcon("chevron-right")}</button></article>`;
+    const canStart = exam.canStart !== false && examPriceCents(exam) === 0;
+    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">Practice mock</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This paid exam is not unlocked for your account yet.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Paid · locked"}</button></article>`;
   }).join("") : `<article class="dash-page-card"><h2>No exams are available yet</h2><p>Ask the Crossline team to publish a practice paper for your account.</p></article>`;
   const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid exam-page-grid">${examCards}</section>`;
   app.innerHTML = studentPageShell({ active: "exams", title: "Choose an exam", subtitle: "Select a paper, complete the realistic device setup, then begin your timed practice.", content });
@@ -2045,11 +2078,13 @@ function bindAdminShell() {
   bind("admin-notifications", "click", showAdminNotifications);
   bindDesktopExit();
 }
-function showAdminDashboard() {
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Create free practice papers with question metadata, explanations, images, and marks.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div><section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">Practice paper</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>Free for all students</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
+function showAdminDashboard(message = "") {
+  message = typeof message === "string" ? message : "";
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">Practice paper</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
   bindAdminShell();
   bind("new-exam", "click", showCreateExam);
   bind("import-questions", "click", showQuestionImport);
+  document.querySelectorAll(".edit-exam-details").forEach((button) => button.addEventListener("click", () => showEditExamDetails(button.dataset.id)));
   document.querySelectorAll(".edit-exam").forEach((button) => button.addEventListener("click", () => showQuestionEditor(button.dataset.id)));
   document.querySelectorAll(".delete-exam").forEach((button) => button.addEventListener("click", () => deleteExam(button.dataset.id)));
   renderMath();
@@ -2798,21 +2833,76 @@ async function showAdminSubmissionDetail(submissionId) {
   }
 }
 function showCreateExam() {
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" value="60" required /></div><p class="form-note wide">Every published exam is available to all registered students at no cost.</p><button class="primary-button">Create exam</button></form></section>`);
-  bindAdminShell(); bind("back-admin", "click", showAdminDashboard); bind("create-exam-form", "submit", async (event) => {
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="60" required /></div>${examAccessFieldsHtml({ free: true, priceCents: 0 })}<p id="create-exam-message" class="form-message wide"></p><button class="primary-button">Create exam</button></form></section>`);
+  bindAdminShell();
+  bind("back-admin", "click", showAdminDashboard);
+  bindExamAccessFields();
+  bind("create-exam-form", "submit", async (event) => {
     event.preventDefault();
+    const message = document.getElementById("create-exam-message");
     const title = document.getElementById("exam-title").value.trim();
-    const exam = { id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`, title, description: document.getElementById("exam-description").value.trim(), duration: Number(document.getElementById("exam-duration").value), questions: [] };
+    const description = document.getElementById("exam-description").value.trim();
+    const duration = Number(document.getElementById("exam-duration").value);
+    const access = readExamAccessFields();
+    const exam = { title, description, duration, ...access, questions: [] };
+    if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
+      if (message) message.textContent = "Enter a price greater than zero, or switch access to free.";
+      return;
+    }
     if (apiEnabled()) {
       try {
         const payload = await window.CrosslineApi.createExam(exam);
         await refreshExamsFromApi(true);
         return showQuestionEditor(payload.exam.id);
       } catch (error) {
-        return showAdminLogin(error.message);
+        if (message) message.textContent = error.message || "The exam could not be created.";
+        return;
       }
     }
-    exams.push(exam); save("csca-exams", exams); showQuestionEditor(exam.id);
+    exams.push({ id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`, ...exam, priceCents: access.free ? 0 : Math.round(access.price * 100), currency: "USD", free: access.free });
+    save("csca-exams", exams);
+    showQuestionEditor(exams.at(-1).id);
+  });
+}
+
+function showEditExamDetails(examId, message = "") {
+  message = typeof message === "string" ? message : "";
+  const exam = exams.find((item) => item.id === examId);
+  if (!exam) return showAdminDashboard("Exam not found.");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Paper details</p><h1>Edit exam</h1><p class="muted">Change the title, description, duration, and student access for this paper.</p></div><button id="back-admin" class="ghost-button">Back to library</button></div><section class="panel"><form id="edit-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" value="${escapeHtml(exam.title || "")}" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required>${escapeHtml(exam.description || "")}</textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="${escapeHtml(exam.duration || 60)}" required /></div>${examAccessFieldsHtml(exam)}<p id="edit-exam-message" class="form-message wide">${escapeHtml(message)}</p><div class="admin-card-actions wide"><button class="primary-button" type="submit">Save details</button><button id="edit-exam-questions" class="secondary-button" type="button">Edit questions</button></div></form></section>`, "exams");
+  bindAdminShell();
+  bind("back-admin", "click", showAdminDashboard);
+  bind("edit-exam-questions", "click", () => showQuestionEditor(examId));
+  bindExamAccessFields();
+  bind("edit-exam-form", "submit", async (event) => {
+    event.preventDefault();
+    const status = document.getElementById("edit-exam-message");
+    const title = document.getElementById("exam-title").value.trim();
+    const description = document.getElementById("exam-description").value.trim();
+    const duration = Number(document.getElementById("exam-duration").value);
+    const access = readExamAccessFields();
+    if (!title || !description || !Number.isFinite(duration) || duration < 1) {
+      if (status) status.textContent = "Title, description, and a valid duration are required.";
+      return;
+    }
+    if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
+      if (status) status.textContent = "Enter a price greater than zero, or switch access to free.";
+      return;
+    }
+    const updates = { title, description, duration, ...access };
+    if (apiEnabled()) {
+      try {
+        await window.CrosslineApi.updateExam(examId, updates);
+        await refreshExamsFromApi(true);
+        return showAdminDashboard("Exam details saved.");
+      } catch (error) {
+        if (status) status.textContent = error.message || "The exam details could not be saved.";
+        return;
+      }
+    }
+    Object.assign(exam, updates, { priceCents: access.free ? 0 : Math.round(access.price * 100), currency: "USD", free: access.free });
+    save("csca-exams", exams);
+    showAdminDashboard("Exam details saved.");
   });
 }
 function showQuestionEditor(examId) {

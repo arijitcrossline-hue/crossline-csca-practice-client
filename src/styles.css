@@ -1724,6 +1724,10 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .admin-toolbar-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .admin-kicker { margin: 0 0 5px !important; color: #c11e23 !important; font-size: .73rem !important; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .admin-exam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; }
+.admin-exam-grid .admin-card-actions { flex-wrap: wrap; }
+.editor-grid .admin-card-actions.wide { grid-column: 1 / -1; }
+.exam-choice-card.locked { opacity: 0.88; }
+.exam-choice-card.locked .dash-muted-button { cursor: not-allowed; }
 .admin-exam-grid .admin-card { display: flex; flex-direction: column; min-height: 210px; margin: 0; padding: 20px; border-color: #ecd9c8; border-radius: 13px; background: #fffdf8; }
 .admin-exam-grid .admin-card h3 { color: #2d201b; font-family: "Playfair Display", Georgia, serif; font-size: 1.3rem; }
 .admin-exam-grid .admin-card .exam-meta { margin-top: auto; padding-top: 16px; }

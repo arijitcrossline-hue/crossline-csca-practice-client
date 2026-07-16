@@ -69,6 +69,7 @@
     aiChat(messages, attachment = null) { return request("/admin/ai/chat", { method: "POST", admin: true, body: { messages, attachment } }); },
     deployExam(exam, questions) { return request("/admin/ai/deploy", { method: "POST", admin: true, body: { exam, questions: questions.map(questionWithImageAsset) } }); },
     createExam(exam) { return request("/admin/exams", { method: "POST", admin: true, body: exam }); },
+    updateExam(examId, exam) { return request(`/admin/exams/${encodeURIComponent(examId)}`, { method: "PATCH", admin: true, body: exam }); },
     deleteExam(examId) { return request(`/admin/exams/${encodeURIComponent(examId)}`, { method: "DELETE", admin: true }); },
     createQuestion(examId, question) { return request(`/admin/exams/${encodeURIComponent(examId)}/questions`, { method: "POST", admin: true, body: question }); },
     importQuestions(examId, questions) { return request(`/admin/exams/${encodeURIComponent(examId)}/questions/import`, { method: "POST", admin: true, body: { questions: questions.map(questionWithImageAsset) } }); },
