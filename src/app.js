@@ -131,6 +131,10 @@ function shouldRunDailyUpdateCheck() {
 function markDailyUpdateCheck() {
   localStorage.setItem("csca-last-update-check", new Date().toISOString().slice(0, 10));
 }
+function updateProgressSegments(progress, count = 20) {
+  const filled = Math.round((progress / 100) * count);
+  return Array.from({ length: count }, (_, index) => `<span class="update-progress-segment${index < filled ? " filled" : ""}" aria-hidden="true"></span>`).join("");
+}
 function updatePanelHtml() {
   const state = updateState;
   if (!state.message) return "";
@@ -146,7 +150,7 @@ function updatePanelHtml() {
       <strong data-update-title>${state.kind === "available" ? "Update available" : state.kind === "error" ? "Update issue" : "Software updates"}</strong>
       <p data-update-message>${escapeHtml(state.message)}</p>
       ${canInstall ? `<small>Current version: ${escapeHtml(current)} · Latest version: ${escapeHtml(latest)}</small>` : ""}
-      ${progress !== null ? `<div class="update-progress" aria-label="Update download progress"><div data-update-progress style="width: ${progress.toFixed(1)}%"></div></div><small data-update-progress-copy>${progress.toFixed(0)}% downloaded${state.speed ? ` · ${escapeHtml(state.speed)}` : ""}</small>` : ""}
+      ${progress !== null ? `<div class="update-progress-meta"><span>Downloading update</span><b data-update-percent>${progress.toFixed(0)}%</b></div><div class="update-progress-segments" data-update-segments role="progressbar" aria-label="Update download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.toFixed(0)}">${updateProgressSegments(progress)}</div><small data-update-progress-copy>${progress.toFixed(0)}% downloaded${state.speed ? ` · ${escapeHtml(state.speed)}` : ""}</small>` : ""}
     </div>
     <div class="update-actions">
       ${canInstall ? `<button id="install-update" class="primary-button" ${updateInstallRunning ? "disabled" : ""}>${updateInstallRunning ? "Downloading..." : "Yes, update now"}</button>` : ""}
@@ -172,11 +176,15 @@ function renderUpdatePanel() {
   if (existing?.dataset.updateKind === updateState.kind && updateState.kind === "info" && typeof updateState.progress === "number") {
     const progress = Math.max(0, Math.min(100, updateState.progress));
     const message = existing.querySelector("[data-update-message]");
-    const bar = existing.querySelector("[data-update-progress]");
+    const segments = existing.querySelector("[data-update-segments]");
+    const percentCopy = existing.querySelector("[data-update-percent]");
     const copy = existing.querySelector("[data-update-progress-copy]");
-    if (message && bar && copy) {
+    if (message && segments && percentCopy && copy) {
       message.textContent = updateState.message;
-      bar.style.width = `${progress.toFixed(1)}%`;
+      const filled = Math.round((progress / 100) * segments.children.length);
+      [...segments.children].forEach((segment, index) => segment.classList.toggle("filled", index < filled));
+      segments.setAttribute("aria-valuenow", progress.toFixed(0));
+      percentCopy.textContent = `${progress.toFixed(0)}%`;
       copy.textContent = `${progress.toFixed(0)}% downloaded${updateState.speed ? ` · ${updateState.speed}` : ""}`;
       return;
     }
@@ -1794,7 +1802,7 @@ function resultQuestionHtml(question, prefix = "all") {
     if (isSelected) return `<em class="result-badge selected">Your answer</em>`;
     return "";
   };
-  return `<article id="${resultQuestionAnchor(question.id, prefix)}" class="answer-review ${status}"><header class="answer-review-head"><div><p class="answer-review-kicker">Question ${question.position}</p><h3>${formatScore(question.earnedMarks)} / ${formatScore(question.marks)} marks</h3></div><span class="result-status ${status}" aria-label="${statusLabel}">${statusLabel}</span></header>${question.image ? `<img class="question-preview-image" src="${escapeHtml(question.image)}" alt="Question image" />` : ""}<div class="rich-content answer-review-prompt">${contentHtml(question.text)}</div><div class="result-options" role="list">${answers.map((answer, index) => `<div class="result-option ${optionState(index)}" role="listitem"><strong>${letterLabels[index]}</strong><span>${contentHtml(answer)}</span>${optionBadge(index)}</div>`).join("")}</div><div class="result-verdict"><span>You chose ${hasSelection ? `<b>(${letterLabels[Number(selected)]})</b> ${contentHtml(answers[Number(selected)] || "")}` : "<b>no option</b>"}</span><span>Correct answer is <b>(${letterLabels[correctIndex]})</b> ${contentHtml(answers[correctIndex] || "")}</span></div><div class="explanation-box"><p class="explanation-label">Explanation</p>${question.explanation ? `<div class="explanation-body rich-content">${contentHtml(question.explanation)}</div>` : `<p class="explanation-empty">No explanation has been added for this question yet.</p>`}${question.explanationImage ? `<img class="question-preview-image" src="${escapeHtml(question.explanationImage)}" alt="Explanation image" />` : ""}</div></article>`;
+  return `<article id="${resultQuestionAnchor(question.id, prefix)}" class="answer-review ${status}"><header class="answer-review-head"><div><p class="answer-review-kicker">Question ${question.position}</p><h3>${formatScore(question.earnedMarks)} / ${formatScore(question.marks)} marks</h3></div><span class="result-status ${status}" aria-label="${statusLabel}">${statusLabel}</span></header>${question.image ? `<img class="question-preview-image" src="${escapeHtml(question.image)}" alt="Question image" />` : ""}<div class="rich-content answer-review-prompt">${contentHtml(question.text)}</div><div class="result-options" role="list">${answers.map((answer, index) => `<div class="result-option ${optionState(index)}" role="listitem"><strong>${letterLabels[index]}</strong><span>${contentHtml(answer)}</span>${optionBadge(index)}</div>`).join("")}</div><div class="result-verdict"><span>You chose ${hasSelection ? `<b>(${letterLabels[Number(selected)]})</b> ${contentHtml(answers[Number(selected)] || "")}` : "<b>no option</b>"}</span><span>Correct answer is <b>(${letterLabels[correctIndex]})</b> ${contentHtml(answers[correctIndex] || "")}</span></div><div class="explanation-box"><p class="explanation-label">Explanation</p>${question.explanation ? `<div class="explanation-body rich-content">${markdownHtml(question.explanation)}</div>` : `<p class="explanation-empty">No explanation has been added for this question yet.</p>`}${question.explanationImage ? `<img class="question-preview-image" src="${escapeHtml(question.explanationImage)}" alt="Explanation image" />` : ""}</div></article>`;
 }
 
 function setupStepper(active) {

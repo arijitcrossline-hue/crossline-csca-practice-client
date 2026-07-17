@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crossline update progress preview</title>
+  <link rel="stylesheet" href="../src/styles.css?v=20260717-v0145">
+  <style>
+    body { min-height: 100vh; margin: 0; background: #f3eee8; }
+    .preview-copy { max-width: 640px; padding: 64px 28px; }
+    .preview-copy h1 { margin: 0 0 10px; color: #2d2320; font-size: 28px; }
+    .preview-copy p { color: #756761; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main class="preview-copy"><h1>Crossline CSCA Practice</h1><p>The update panel stays anchored above the application while the download continues.</p></main>
+  <section class="update-panel info" data-update-kind="info" role="status" aria-live="polite">
+    <div>
+      <strong>Software updates</strong>
+      <p>Downloading the latest Crossline update...</p>
+      <div class="update-progress-meta"><span>Downloading update</span><b>68%</b></div>
+      <div class="update-progress-segments" role="progressbar" aria-label="Update download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="68">
+        <span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment filled"></span><span class="update-progress-segment"></span><span class="update-progress-segment"></span><span class="update-progress-segment"></span><span class="update-progress-segment"></span><span class="update-progress-segment"></span><span class="update-progress-segment"></span>
+      </div>
+      <small>68% downloaded · 2.4 MB/s</small>
+    </div>
+    <div class="update-actions"><button class="secondary-button">Enable auto-update</button><button class="ghost-button">Dismiss</button></div>
+  </section>
+</body>
+</html>

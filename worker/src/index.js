@@ -1,3 +1,5 @@
+import { buildResultEmail } from "./result-email.mjs";
+
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const VERIFY_TTL_SECONDS = 60 * 15;
@@ -1679,8 +1681,9 @@ function base64UrlToBytes(value) {
 
 async function sendDueResultEmails(env) {
   const rows = await env.DB.prepare(
-    `SELECT s.id, s.exam_id, s.answers_json, s.flags_json, s.submitted_at, s.result_email_after,
-            u.email AS student_email, e.title AS exam_title
+    `SELECT s.id, s.user_id, s.exam_id, s.answers_json, s.flags_json, s.submitted_at, s.result_email_after,
+            u.email AS student_email, u.username AS student_username, u.first_name AS student_first_name,
+            u.last_name AS student_last_name, e.title AS exam_title, e.subject AS exam_subject
        FROM exam_sessions s
        JOIN users u ON u.id = s.user_id
        JOIN exams e ON e.id = s.exam_id
@@ -1709,13 +1712,67 @@ function queueResultEmailSweep(env, ctx) {
 
 async function buildResult(env, session) {
   const score = await scoreExamSession(env, session);
+  const subject = resultSubject(session.exam_subject, session.exam_title);
+  const percent = score.total > 0 ? roundScore((score.earned / score.total) * 100) : 0;
+  const insights = await buildResultInsights(env, session, subject, percent);
   return {
     sessionId: session.id,
     examTitle: session.exam_title,
+    studentName: [session.student_first_name, session.student_last_name].map(normalizePersonName).filter(Boolean).join(" ") || normalizeUsername(session.student_username) || "Student",
+    subject,
     submittedAt: session.submitted_at,
     earned: score.earned,
-    total: score.total
+    total: score.total,
+    percent,
+    ...insights
   };
+}
+
+async function buildResultInsights(env, session, subject, percent) {
+  const previous = subject
+    ? await env.DB.prepare(
+      `SELECT MAX(100.0 * s.score_earned / s.score_total) AS previous_best
+         FROM exam_sessions s
+         JOIN exams e ON e.id = s.exam_id
+        WHERE s.user_id = ? AND s.id <> ? AND s.submitted_at IS NOT NULL AND s.score_total > 0
+          AND LOWER(COALESCE(e.subject, '')) = LOWER(?)`
+    ).bind(session.user_id, session.id, subject).first()
+    : await env.DB.prepare(
+      `SELECT MAX(100.0 * score_earned / score_total) AS previous_best
+         FROM exam_sessions
+        WHERE user_id = ? AND id <> ? AND exam_id = ? AND submitted_at IS NOT NULL AND score_total > 0`
+    ).bind(session.user_id, session.id, session.exam_id).first();
+  const previousBest = previous?.previous_best === null || previous?.previous_best === undefined
+    ? null
+    : roundScore(previous.previous_best);
+  const isPersonalBest = previousBest !== null && percent > previousBest;
+
+  const position = await env.DB.prepare(
+    `WITH best_scores AS (
+       SELECT user_id, MAX(100.0 * score_earned / score_total) AS percent
+         FROM exam_sessions
+        WHERE exam_id = ? AND user_id <> ? AND submitted_at IS NOT NULL AND score_total > 0
+        GROUP BY user_id
+     )
+     SELECT 1 + COALESCE(SUM(CASE WHEN percent > ? THEN 1 ELSE 0 END), 0) AS rank,
+            COUNT(*) + 1 AS participants
+       FROM best_scores`
+  ).bind(session.exam_id, session.user_id, percent).first();
+
+  return {
+    previousBest,
+    isPersonalBest,
+    improvement: isPersonalBest ? roundScore(percent - previousBest) : null,
+    rank: Math.max(1, Number(position?.rank || 1)),
+    participants: Math.max(1, Number(position?.participants || 1))
+  };
+}
+
+function resultSubject(subject, examTitle) {
+  const explicit = String(subject || "").trim();
+  if (explicit) return explicit;
+  const title = String(examTitle || "").toLowerCase();
+  return EXAM_SUBJECTS.find((candidate) => title.includes(candidate.toLowerCase())) || "CSCA";
 }
 
 async function scoreExamSession(env, session) {
@@ -1789,19 +1846,10 @@ async function buildResultDetail(env, session) {
 }
 
 async function sendResultEmail(env, email, result) {
-  const subject = `Your Crossline CSCA mock result: ${formatScore(result.earned)} / ${formatScore(result.total)}`;
-  const text = [
-    `Your Crossline CSCA mock exam result is ready.`,
-    ``,
-    `Exam: ${result.examTitle}`,
-    `Score: ${formatScore(result.earned)} / ${formatScore(result.total)}`,
-    `Submitted: ${formatEmailDate(result.submittedAt)}`,
-    ``,
-    `Thank you for practising with Crossline Education.`
-  ].join("\n");
+  const emailContent = buildResultEmail({ ...result, appUrl: env.APP_ORIGIN });
 
   if (!env.RESEND_API_KEY) {
-    console.log(`Result email for ${email}: ${subject}`);
+    console.log(`Result email for ${email}: ${emailContent.subject}`);
     return;
   }
 
@@ -1811,8 +1859,9 @@ async function sendResultEmail(env, email, result) {
     body: JSON.stringify({
       from: env.VERIFY_FROM,
       to: email,
-      subject,
-      text
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html
     })
   });
   if (!response.ok) {
@@ -2041,11 +2090,6 @@ async function hmac(value, secret) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function formatEmailDate(value) {
-  if (!value) return "Unknown";
-  try { return new Date(value).toLocaleString("en-US", { timeZone: "UTC" }) + " UTC"; } catch { return value; }
 }
 
 function randomPairingCode() {

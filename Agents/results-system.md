@@ -98,7 +98,9 @@ Names are shortened by `leaderboardName()` before leaving the Worker. Raw emails
 
 ## Result Email
 
-The email contains exam title, marks score, and submission time. Resend uses `VERIFY_FROM`. On success the Worker sets `result_emailed_at`; on failure it leaves the timestamp empty so a later sweep can retry.
+The Worker sends a branded, responsive HTML email with a plain-text fallback. It contains the exam title, marks and percentage, position against the other students' best attempts for that exam, and subject-level personal-best progress. Rank and progress are calculated when the email is sent; they do not add persisted analytics columns.
+
+Resend uses `VERIFY_FROM`. On success the Worker sets `result_emailed_at`; on failure it leaves the timestamp empty so a later sweep can retry.
 
 Email sweeps run immediately after submit, opportunistically during API requests, and through the Worker's scheduled handler. Result visibility remains immediate even if Resend is unavailable.
 

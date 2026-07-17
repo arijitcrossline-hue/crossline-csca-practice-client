@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crossline result email preview</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #ddd8d3; font-family: Arial, sans-serif; }
+    iframe { display: block; width: min(760px, 100%); height: 930px; margin: 0 auto; border: 0; background: white; }
+  </style>
+</head>
+<body>
+  <iframe id="email" title="Crossline result email"></iframe>
+  <script type="module">
+    import { buildResultEmail } from "../worker/src/result-email.mjs";
+    document.querySelector("#email").srcdoc = buildResultEmail({
+      studentName: "Arijit",
+      subject: "Physics",
+      examTitle: "2026 January CSCA Physics Official Examination",
+      earned: 94,
+      total: 100,
+      percent: 94,
+      rank: 1,
+      participants: 18,
+      previousBest: 82,
+      improvement: 12,
+      isPersonalBest: true,
+      submittedAt: "2026-01-25T08:30:00.000Z",
+      appUrl: "https://exam.crosslinecscatest.com"
+    }).html;
+  </script>
+</body>
+</html>

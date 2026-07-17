@@ -141,6 +141,16 @@ async function studentFlow() {
   assert.match(window.document.body.textContent, /Welcome back, Demo Student/);
   assert.doesNotMatch(window.document.body.textContent, /\[object PointerEvent\]/);
   assert.match(window.document.body.textContent, /Subject performance/);
+  window.eval(`showUpdatePanel({ kind: "info", message: "Downloading update...", progress: 45, speed: "2.4 MB/s" })`);
+  const progressPanel = window.document.querySelector(".update-panel");
+  assert.equal(progressPanel.querySelectorAll(".update-progress-segment").length, 20);
+  assert.equal(progressPanel.querySelectorAll(".update-progress-segment.filled").length, 9);
+  assert.equal(progressPanel.querySelector("[data-update-percent]").textContent, "45%");
+  window.eval(`showUpdatePanel({ kind: "info", message: "Downloading update...", progress: 70, speed: "2.1 MB/s" })`);
+  assert.equal(window.document.querySelector(".update-panel"), progressPanel);
+  assert.equal(progressPanel.querySelectorAll(".update-progress-segment.filled").length, 14);
+  assert.equal(progressPanel.querySelector("[data-update-percent]").textContent, "70%");
+  click(window, "#dismiss-update");
   assert.equal(window.document.querySelector("#dashboard-profile"), null);
   assert.doesNotMatch(window.document.body.textContent, /Quick Actions|Study Plan|Bookmarks/);
   assert.equal(runtimeEvents.enterKiosk, 0);
