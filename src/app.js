@@ -1293,10 +1293,8 @@ function dashboardSubjectGraphs(details = []) {
   return trends.map(({ subject, points }) => {
     const latestScore = points.at(-1)?.score ?? 0;
     const bars = points.map((point, index) => {
-      const submitted = new Date(point.submittedAt);
-      const weekday = Number.isNaN(submitted.getTime()) ? `Attempt ${index + 1}` : submitted.toLocaleDateString("en-US", { weekday: "short" });
-      const label = points.length === 1 ? "L" : weekday.charAt(0);
-      return `<button class="subject-trend-point" data-result-id="${escapeHtml(point.resultId)}" data-score="${point.score}" style="--score:${Math.max(6, point.score)}%" aria-label="${escapeHtml(`${point.examTitle}: ${point.score}% on ${weekday}`)}"><span class="subject-trend-bar" aria-hidden="true"></span><small title="${escapeHtml(weekday)}">${escapeHtml(label)}</small><em class="subject-trend-tooltip" aria-hidden="true">${point.score}%</em></button>`;
+      const attemptLabel = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"][index] || `Attempt ${index + 1}`;
+      return `<button class="subject-trend-point" data-result-id="${escapeHtml(point.resultId)}" data-score="${point.score}" style="--score:${Math.max(6, point.score)}%" aria-label="${escapeHtml(`${attemptLabel} attempt, ${point.examTitle}: ${point.score}%`)}"><span class="subject-trend-bar" aria-hidden="true"></span><small>${escapeHtml(attemptLabel)}</small><em class="subject-trend-tooltip" aria-hidden="true">${point.score}%</em></button>`;
     }).join("");
     return `<article class="dash-performance subject-trend-card"><div class="dash-section-title"><div><span class="subject-trend-live"><i></i>Activity</span><h2>${escapeHtml(subject)}</h2><p>Last ${points.length} released ${points.length === 1 ? "attempt" : "attempts"}</p></div><strong><span data-subject-trend-value>${latestScore}</span><small>%</small></strong></div><div class="subject-trend-chart" style="--point-count:${points.length}" aria-label="${escapeHtml(subject)} score history">${bars}</div></article>`;
   }).join("");

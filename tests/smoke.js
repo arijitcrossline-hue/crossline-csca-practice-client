@@ -219,6 +219,7 @@ async function studentFlow() {
   assert.doesNotMatch(window.document.body.textContent, /Question ID:/);
   const trendPoint = window.document.querySelector(".subject-trend-point");
   assert.ok(trendPoint);
+  assert.equal(trendPoint.querySelector("small").textContent, "First");
   assert.ok(window.document.querySelector(".subject-trend-tooltip"));
   assert.equal(window.document.querySelector(".subject-chart-scale"), null);
   trendPoint.dispatchEvent(new window.MouseEvent("mouseenter", { bubbles: true }));
