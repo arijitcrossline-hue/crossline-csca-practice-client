@@ -6,6 +6,7 @@ const VERIFY_TTL_SECONDS = 60 * 15;
 const MAX_STORED_EXAM_SESSIONS_PER_USER = 50;
 const QUESTION_IMPORT_LIMIT = 100;
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
+const EXAM_CATEGORIES = ["official", "original"];
 const CHAPTER_CATALOG = {
   Physics: [
     "Kinematics",
@@ -1045,6 +1046,14 @@ function normalizeExamSubject(value) {
   return EXAM_SUBJECTS.includes(subject) ? subject : "";
 }
 
+function normalizeExamCategory(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!raw) return "original";
+  if (raw === "official" || raw.includes("past paper") || raw.includes("past school")) return "official";
+  if (raw === "original" || raw.includes("cross")) return "original";
+  return EXAM_CATEGORIES.includes(raw) ? raw : "original";
+}
+
 async function adminCreateExam(request, env) {
   await requireAuth(request, env, "admin");
   const body = await readJson(request);
@@ -1052,21 +1061,22 @@ async function adminCreateExam(request, env) {
   const description = String(body.description || "").trim().slice(0, 1000);
   const duration = Number(body.duration || body.duration_minutes || 60);
   const subject = normalizeExamSubject(body.subject);
+  const category = normalizeExamCategory(body.category);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
   const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { free: true } : body);
   if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
   const id = slugify(title) + "-" + Date.now();
   const now = isoNow();
-  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
-    .bind(id, title, description, duration, subject, pricing.priceCents, pricing.currency, now, now).run();
+  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+    .bind(id, title, description, duration, subject, category, pricing.priceCents, pricing.currency, now, now).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id) }, env, 201);
 }
 
 async function adminUpdateExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
+  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
   if (!existing) return json({ error: "Exam not found." }, env, 404);
   const body = await readJson(request);
   const title = body.title !== undefined ? String(body.title || "").trim().slice(0, 180) : existing.title;
@@ -1075,6 +1085,7 @@ async function adminUpdateExam(request, env, url) {
     ? Number(body.duration ?? body.duration_minutes)
     : Number(existing.duration_minutes);
   const subject = body.subject !== undefined ? normalizeExamSubject(body.subject) : normalizeExamSubject(existing.subject);
+  const category = body.category !== undefined ? normalizeExamCategory(body.category) : normalizeExamCategory(existing.category);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) {
     return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   }
@@ -1087,8 +1098,8 @@ async function adminUpdateExam(request, env, url) {
     priceCents = pricing.priceCents;
     currency = pricing.currency;
   }
-  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
-    .bind(title, description, duration, subject, priceCents, currency, isoNow(), examId).run();
+  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, category = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
+    .bind(title, description, duration, subject, category, priceCents, currency, isoNow(), examId).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === examId) }, env);
 }
 
@@ -1151,12 +1162,13 @@ async function adminAiDeploy(request, env) {
   }
   const inferredSubject = [...subjectCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "";
   const subject = normalizeExamSubject(examInput.subject) || inferredSubject || "Mathematics";
+  const category = normalizeExamCategory(examInput.category);
 
   const id = `${slugify(title)}-${Date.now()}`;
   const now = isoNow();
   const statements = [
-    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
-      .bind(id, title, description, duration, subject, 0, "USD", now, now),
+    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+      .bind(id, title, description, duration, subject, category, 0, "USD", now, now),
     ...questions.map((question, index) => questionInsertStatement(env, { id: crypto.randomUUID(), examId: id, position: index + 1, question, now }))
   ];
   await env.DB.batch(statements);
@@ -1569,7 +1581,7 @@ function phoneConnectPage(url, env) {
 }
 
 async function fetchExams(env, publishedOnly) {
-  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
+  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, category, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
   const exams = [];
   for (const exam of examRows.results) {
     const questions = await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all();
@@ -1580,6 +1592,7 @@ async function fetchExams(env, publishedOnly) {
       description: exam.description,
       duration: exam.duration_minutes,
       subject: normalizeExamSubject(exam.subject) || "",
+      category: normalizeExamCategory(exam.category),
       priceCents,
       currency: String(exam.currency || "USD"),
       free: priceCents === 0,

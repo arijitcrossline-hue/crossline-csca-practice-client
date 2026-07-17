@@ -1747,6 +1747,9 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .subject-choice-card .dash-start-button { margin-top: auto; }
 .subject-filter-bar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; padding: 18px 20px; border: 1px solid #ecd9c8; border-radius: 14px; background: #fffdf8; }
 .subject-filter-bar h2 { margin: 4px 0 0; font-family: "Playfair Display", Georgia, serif; font-size: 1.45rem; color: #2d201b; }
+.exam-category-block { margin: 0 0 28px; }
+.exam-category-heading { margin: 0 0 14px; }
+.exam-category-heading h3 { margin: 4px 0 0; font-family: "Playfair Display", Georgia, serif; font-size: 1.28rem; color: #2d201b; }
 .admin-exam-grid .admin-card { display: flex; flex-direction: column; min-height: 210px; margin: 0; padding: 20px; border-color: #ecd9c8; border-radius: 13px; background: #fffdf8; }
 .admin-exam-grid .admin-card h3 { color: #2d201b; font-family: "Playfair Display", Georgia, serif; font-size: 1.3rem; }
 .admin-exam-grid .admin-card .exam-meta { margin-top: auto; padding-top: 16px; }

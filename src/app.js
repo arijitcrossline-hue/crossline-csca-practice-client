@@ -21,6 +21,10 @@ const defaultQuestions = [
   { type: "Single choice", subject: "Mathematics", chapter: "Functions and Basic Elementary Functions", topic: "Functions and Basic Elementary Functions", instruction: "Choose the best answer.", text: "If f(x) = 2x + 1, what is the value of f(4)?", answers: ["7", "8", "9", "10"] }
 ];
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
+const EXAM_CATEGORIES = [
+  { id: "official", label: "Official CSCA past papers" },
+  { id: "original", label: "Cross-Line original exams" }
+];
 const TOPIC_CATALOG = {
   Physics: [
     "Kinematics",
@@ -99,10 +103,10 @@ const TOPIC_KEYWORDS = {
   }
 };
 const defaultExams = [
-  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 90, subject: "Physics", free: true, priceCents: 0, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
-  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", free: true, priceCents: 0, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
-  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
-  { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
+  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 60, subject: "Physics", category: "official", free: true, priceCents: 0, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
+  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", category: "official", free: true, priceCents: 0, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
+  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", category: "original", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
+  { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
 let selectedExamSubject = load("csca-exam-subject", "");
 
@@ -604,6 +608,16 @@ function normalizeExamSubjectValue(value) {
   if (/^academic\s*chinese$/i.test(subject) || /^chinese$/i.test(subject)) return "Academic Chinese";
   return EXAM_SUBJECTS.includes(subject) ? subject : "";
 }
+function normalizeExamCategoryValue(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (raw === "official" || raw.includes("past paper") || raw.includes("past school")) return "official";
+  if (raw === "original" || raw.includes("cross")) return "original";
+  return "original";
+}
+function examCategoryLabel(value) {
+  const id = normalizeExamCategoryValue(value);
+  return EXAM_CATEGORIES.find((item) => item.id === id)?.label || "Cross-Line original exams";
+}
 function classifyOfficialTopic(subject, requested = "", sourceText = "") {
   const catalog = TOPIC_CATALOG[subject] || [];
   const normalizedRequested = String(requested || "").trim().replace(/\s+/g, " ");
@@ -642,10 +656,14 @@ function examSubjectFieldsHtml(exam = {}) {
   const selected = normalizeExamSubjectValue(exam.subject) || "Mathematics";
   return `<div class="field"><label>Subject</label><select id="exam-subject" required>${EXAM_SUBJECTS.map((subject) => `<option value="${escapeHtml(subject)}" ${subject === selected ? "selected" : ""}>${escapeHtml(subject)}</option>`).join("")}</select></div>`;
 }
+function examCategoryFieldsHtml(exam = {}) {
+  const selected = normalizeExamCategoryValue(exam.category);
+  return `<div class="field"><label>Exam category</label><select id="exam-category" required>${EXAM_CATEGORIES.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select></div>`;
+}
 function examAccessFieldsHtml(exam = {}) {
   const free = examPriceCents(exam) === 0;
   const dollars = free ? "" : (examPriceCents(exam) / 100).toFixed(2);
-  return `${examSubjectFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
+  return `${examSubjectFieldsHtml(exam)}${examCategoryFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
 }
 function localNotifications() {
   return load("csca-local-notifications", []);
@@ -695,6 +713,7 @@ function normalizeApiExam(exam) {
     ...exam,
     duration: Number(exam.duration || exam.duration_minutes || 60),
     subject: normalizeExamSubjectValue(exam.subject),
+    category: normalizeExamCategoryValue(exam.category),
     priceCents,
     currency: String(exam.currency || "USD"),
     free: priceCents === 0,
@@ -1800,12 +1819,20 @@ function renderExamList(message = "") {
     ? exams.filter((exam) => !normalizeExamSubjectValue(exam.subject))
     : exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === subject);
   const subjectLabel = subject === "__unassigned__" ? "Unassigned" : subject;
-  const examCards = filtered.length ? filtered.map((exam) => {
+  const examCardHtml = (exam) => {
     const canStart = exam.canStart !== false && examPriceCents(exam) === 0;
     return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This paid exam is not unlocked for your account yet.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Paid · locked"}</button></article>`;
-  }).join("") : `<article class="dash-page-card"><h2>No ${escapeHtml(subjectLabel)} exams yet</h2><p>Ask the Crossline team to publish a ${escapeHtml(subjectLabel)} practice paper, or choose another subject.</p></article>`;
-  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<div class="subject-filter-bar"><div><p class="dash-card-kicker">Selected subject</p><h2>${escapeHtml(subjectLabel)}</h2></div><button id="change-exam-subject" class="dash-outline-button">Change subject</button></div><section class="dash-page-grid exam-page-grid">${examCards}</section>`;
-  app.innerHTML = studentPageShell({ active: "exams", title: `${subjectLabel} exams`, subtitle: "Select a paper, complete the realistic device setup, then begin your timed practice.", content });
+  };
+  const categorySections = EXAM_CATEGORIES.map((category) => {
+    const list = filtered.filter((exam) => normalizeExamCategoryValue(exam.category) === category.id);
+    if (!list.length) return "";
+    return `<section class="exam-category-block"><div class="exam-category-heading"><p class="dash-card-kicker">Category</p><h3>${escapeHtml(category.label)}</h3></div><div class="dash-page-grid exam-page-grid">${list.map(examCardHtml).join("")}</div></section>`;
+  }).join("");
+  const examCards = filtered.length
+    ? categorySections
+    : `<article class="dash-page-card"><h2>No ${escapeHtml(subjectLabel)} exams yet</h2><p>Ask the Crossline team to publish a ${escapeHtml(subjectLabel)} practice paper, or choose another subject.</p></article>`;
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<div class="subject-filter-bar"><div><p class="dash-card-kicker">Selected subject</p><h2>${escapeHtml(subjectLabel)}</h2></div><button id="change-exam-subject" class="dash-outline-button">Change subject</button></div>${examCards}`;
+  app.innerHTML = studentPageShell({ active: "exams", title: `${subjectLabel} exams`, subtitle: "Official CSCA past papers and Cross-Line original exams are listed separately under this subject.", content });
   bindStudentShell();
   bind("change-exam-subject", "click", () => { selectedExamSubject = ""; save("csca-exam-subject", ""); showExamList(); });
   document.querySelectorAll(".begin-exam").forEach((button) => button.addEventListener("click", () => { currentExam = exams.find((exam) => exam.id === button.dataset.id); activeSessionId = null; preflight = { camera: false, microphone: false, network: false, face: false, phone: false, roomScan: false }; showEquipmentCheck(); }));
@@ -2655,7 +2682,7 @@ function showAdminUpdates(message = "") {
 }
 function showAdminDashboard(message = "") {
   message = typeof message === "string" ? message : "";
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, subject, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">${escapeHtml(normalizeExamSubjectValue(exam.subject) || "Unassigned subject")}</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, subject, category, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">${escapeHtml(normalizeExamSubjectValue(exam.subject) || "Unassigned subject")} · ${escapeHtml(examCategoryLabel(exam.category))}</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
   bindAdminShell();
   bind("new-exam", "click", showCreateExam);
   bind("import-questions", "click", showQuestionImport);
@@ -3428,7 +3455,7 @@ async function showAdminSubmissionDetail(submissionId) {
   }
 }
 function showCreateExam() {
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="60" required /></div>${examAccessFieldsHtml({ free: true, priceCents: 0 })}<p id="create-exam-message" class="form-message wide"></p><button class="primary-button">Create exam</button></form></section>`);
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="60" required /></div>${examAccessFieldsHtml({ free: true, priceCents: 0, category: "original" })}<p id="create-exam-message" class="form-message wide"></p><button class="primary-button">Create exam</button></form></section>`);
   bindAdminShell();
   bind("back-admin", "click", showAdminDashboard);
   bindExamAccessFields();
@@ -3439,8 +3466,9 @@ function showCreateExam() {
     const description = document.getElementById("exam-description").value.trim();
     const duration = Number(document.getElementById("exam-duration").value);
     const subject = normalizeExamSubjectValue(document.getElementById("exam-subject")?.value);
+    const category = normalizeExamCategoryValue(document.getElementById("exam-category")?.value);
     const access = readExamAccessFields();
-    const exam = { title, description, duration, subject, ...access, questions: [] };
+    const exam = { title, description, duration, subject, category, ...access, questions: [] };
     if (!subject) {
       if (message) message.textContent = "Choose a subject for this exam.";
       return;
@@ -3469,7 +3497,7 @@ function showEditExamDetails(examId, message = "") {
   message = typeof message === "string" ? message : "";
   const exam = exams.find((item) => item.id === examId);
   if (!exam) return showAdminDashboard("Exam not found.");
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Paper details</p><h1>Edit exam</h1><p class="muted">Change the title, description, duration, and student access for this paper.</p></div><button id="back-admin" class="ghost-button">Back to library</button></div><section class="panel"><form id="edit-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" value="${escapeHtml(exam.title || "")}" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required>${escapeHtml(exam.description || "")}</textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="${escapeHtml(exam.duration || 60)}" required /></div>${examAccessFieldsHtml(exam)}<p id="edit-exam-message" class="form-message wide">${escapeHtml(message)}</p><div class="admin-card-actions wide"><button class="primary-button" type="submit">Save details</button><button id="edit-exam-questions" class="secondary-button" type="button">Edit questions</button></div></form></section>`, "exams");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Paper details</p><h1>Edit exam</h1><p class="muted">Change the title, description, duration, category, and student access for this paper.</p></div><button id="back-admin" class="ghost-button">Back to library</button></div><section class="panel"><form id="edit-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" value="${escapeHtml(exam.title || "")}" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required>${escapeHtml(exam.description || "")}</textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="${escapeHtml(exam.duration || 60)}" required /></div>${examAccessFieldsHtml(exam)}<p id="edit-exam-message" class="form-message wide">${escapeHtml(message)}</p><div class="admin-card-actions wide"><button class="primary-button" type="submit">Save details</button><button id="edit-exam-questions" class="secondary-button" type="button">Edit questions</button></div></form></section>`, "exams");
   bindAdminShell();
   bind("back-admin", "click", showAdminDashboard);
   bind("edit-exam-questions", "click", () => showQuestionEditor(examId));
@@ -3481,6 +3509,7 @@ function showEditExamDetails(examId, message = "") {
     const description = document.getElementById("exam-description").value.trim();
     const duration = Number(document.getElementById("exam-duration").value);
     const subject = normalizeExamSubjectValue(document.getElementById("exam-subject")?.value);
+    const category = normalizeExamCategoryValue(document.getElementById("exam-category")?.value);
     const access = readExamAccessFields();
     if (!title || !description || !Number.isFinite(duration) || duration < 1) {
       if (status) status.textContent = "Title, description, and a valid duration are required.";
@@ -3494,7 +3523,7 @@ function showEditExamDetails(examId, message = "") {
       if (status) status.textContent = "Enter a price greater than zero, or switch access to free.";
       return;
     }
-    const updates = { title, description, duration, subject, ...access };
+    const updates = { title, description, duration, subject, category, ...access };
     if (apiEnabled()) {
       try {
         await window.CrosslineApi.updateExam(examId, updates);

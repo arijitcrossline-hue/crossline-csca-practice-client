@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS exams (
   description TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
   subject TEXT,
+  category TEXT NOT NULL DEFAULT 'original',
   is_published INTEGER NOT NULL DEFAULT 1,
   price_cents INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'USD',

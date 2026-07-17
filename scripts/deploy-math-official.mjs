@@ -115,8 +115,9 @@ async function deployExam(token, bank) {
       exam: {
         title: bank.title,
         description: bank.description,
-        duration: 90,
+        duration: 60,
         subject: "Mathematics",
+        category: "official",
         free: true
       },
       questions: bank.questions
