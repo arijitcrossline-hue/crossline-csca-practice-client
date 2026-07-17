@@ -88,14 +88,14 @@ const TOPIC_KEYWORDS = {
     "Chemical Experiments and Applications": ["experiment", "laboratory", "titration", "indicator", "apparatus"]
   },
   Mathematics: {
-    "Sets and Inequalities": ["set", "inequality", "interval", "subset"],
-    "Functions and Basic Elementary Functions": ["function", "domain", "range", "exponential", "logarithm"],
-    "Sequences": ["sequence", "series", "arithmetic progression", "geometric progression"],
-    "Trigonometric Functions": ["trigonometric", "sine", "cosine", "tangent", "radian"],
-    "Analytic Geometry": ["coordinate", "analytic geometry", "parabola", "ellipse", "hyperbola", "slope"],
-    "Vectors": ["vector", "dot product", "cross product"],
-    "Complex Numbers": ["complex", "imaginary", "argand"],
-    "Probability": ["probability", "random", "permutation", "combination", "binomial"]
+    "Sets and Inequalities": ["empty set", "subset", "union", "intersection", "inequality", "solution set", "interval notation"],
+    "Functions and Basic Elementary Functions": ["function", "domain", "range", "exponential", "logarithm", "inverse function", "even function", "odd function", "f(x)", "monotonic"],
+    "Sequences": ["sequence", "series", "arithmetic progression", "geometric progression", "common difference", "common ratio", "recursive", "a_n"],
+    "Trigonometric Functions": ["trigonometric", "sine", "cosine", "tangent", "radian", "identity", "sin", "cos", "tan", "degree", "angle"],
+    "Analytic Geometry": ["coordinate", "analytic geometry", "parabola", "ellipse", "hyperbola", "slope", "quadrant", "distance formula", "midpoint", "circle equation", "straight line"],
+    "Vectors": ["vector", "dot product", "cross product", "magnitude", "unit vector"],
+    "Complex Numbers": ["complex", "imaginary", "argand", "modulus", "conjugate"],
+    "Probability": ["probability", "random", "permutation", "combination", "binomial", "sample space"]
   }
 };
 const defaultExams = [

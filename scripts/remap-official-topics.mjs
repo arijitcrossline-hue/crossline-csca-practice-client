@@ -57,19 +57,25 @@ function escapeSql(value) {
   return String(value ?? "").replace(/'/g, "''");
 }
 
-const raw = execFileSync("npx", ["wrangler", "d1", "execute", "crossline-mocks", "--remote", "--json", "--command", "SELECT id, subject, chapter, topic, substr(text,1,240) AS text FROM questions"], {
+const forceText = process.argv.includes("--from-text");
+const examFilter = process.argv.find((arg) => arg.startsWith("--exam-prefix="))?.slice("--exam-prefix=".length) || "";
+
+const raw = execFileSync("npx", ["wrangler", "d1", "execute", "crossline-mocks", "--remote", "--json", "--command", "SELECT id, exam_id, subject, chapter, topic, text FROM questions"], {
   cwd: root,
   encoding: "utf8",
-  maxBuffer: 20 * 1024 * 1024
+  maxBuffer: 40 * 1024 * 1024
 });
 const parsed = JSON.parse(raw);
 const rows = parsed[0]?.results || parsed.results || [];
 const updates = [];
 const summary = new Map();
 for (const row of rows) {
+  if (examFilter && !String(row.exam_id || "").startsWith(examFilter)) continue;
   const subject = canonicalSubject(row.subject);
   if (!CHAPTER_CATALOG[subject]?.length) continue;
-  const topic = classifyChapter(subject, row.chapter || row.topic, `${row.chapter || ""} ${row.topic || ""} ${row.text || ""}`);
+  const topic = forceText
+    ? classifyChapter(subject, "", row.text || "")
+    : classifyChapter(subject, row.chapter || row.topic, `${row.chapter || ""} ${row.topic || ""} ${row.text || ""}`);
   if (row.chapter === topic && row.topic === topic && row.subject === subject) continue;
   updates.push({ id: row.id, subject, topic });
   summary.set(`${subject}::${topic}`, (summary.get(`${subject}::${topic}`) || 0) + 1);
@@ -83,7 +89,7 @@ if (!updates.length) {
 }
 
 const statements = updates.map((item) => `UPDATE questions SET subject = '${escapeSql(item.subject)}', chapter = '${escapeSql(item.topic)}', topic = '${escapeSql(item.topic)}', updated_at = datetime('now') WHERE id = '${escapeSql(item.id)}';`);
-const sqlPath = path.join(root, "worker/migrations/0014_remap_official_topics.sql");
+const sqlPath = path.join(root, "worker/migrations/0019_remap_official_topics.sql");
 fs.writeFileSync(sqlPath, `${statements.join("\n")}\n`);
 console.log(`Wrote ${statements.length} updates to ${sqlPath}`);
 
