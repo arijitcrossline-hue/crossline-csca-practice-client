@@ -217,6 +217,15 @@ async function studentFlow() {
   assert.match(window.document.body.textContent, /Welcome back/);
   assert.match(window.document.body.textContent, /Latest score/);
   assert.doesNotMatch(window.document.body.textContent, /Question ID:/);
+  const trendPoint = window.document.querySelector(".subject-trend-point");
+  assert.ok(trendPoint);
+  assert.ok(window.document.querySelector(".subject-trend-tooltip"));
+  assert.equal(window.document.querySelector(".subject-chart-scale"), null);
+  trendPoint.dispatchEvent(new window.MouseEvent("mouseenter", { bubbles: true }));
+  assert.ok(trendPoint.classList.contains("is-hovered"));
+  assert.equal(trendPoint.closest(".subject-trend-card").querySelector("[data-subject-trend-value]").textContent, trendPoint.dataset.score);
+  trendPoint.closest(".subject-trend-chart").dispatchEvent(new window.MouseEvent("mouseleave", { bubbles: true }));
+  assert.ok(!trendPoint.classList.contains("is-hovered"));
   click(window, "#view-results-dashboard");
   await waitFor(window, ".subject-performance-card");
   assert.match(window.document.body.textContent, /correct out of/);

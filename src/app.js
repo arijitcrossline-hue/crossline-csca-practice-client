@@ -1290,7 +1290,41 @@ function subjectTrendData(details = []) {
 function dashboardSubjectGraphs(details = []) {
   const trends = subjectTrendData(details);
   if (!trends.length) return `<article class="dash-performance dash-subject-empty"><h2>Subject performance</h2><p>Complete an exam to unlock score graphs for every subject you attempt.</p></article>`;
-  return trends.map(({ subject, points }) => `<article class="dash-performance subject-trend-card"><div class="dash-section-title"><div><h2>${escapeHtml(subject)}</h2><p>Last ${points.length} released ${points.length === 1 ? "attempt" : "attempts"}</p></div><strong>${points.at(-1)?.score ?? 0}%</strong></div><div class="subject-trend-chart" role="img" aria-label="${escapeHtml(subject)} score history">${points.map((point, index) => `<button class="subject-trend-point" data-result-id="${escapeHtml(point.resultId)}" style="--score:${Math.max(4, point.score)}%" title="${escapeHtml(point.examTitle)}: ${point.score}%"><b>${point.score}%</b><span></span><small>${points.length === 1 ? "Latest" : `Mock ${index + 1}`}</small></button>`).join("")}</div><div class="subject-chart-scale" aria-hidden="true"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div></article>`).join("");
+  return trends.map(({ subject, points }) => {
+    const latestScore = points.at(-1)?.score ?? 0;
+    const bars = points.map((point, index) => {
+      const submitted = new Date(point.submittedAt);
+      const weekday = Number.isNaN(submitted.getTime()) ? `Attempt ${index + 1}` : submitted.toLocaleDateString("en-US", { weekday: "short" });
+      const label = points.length === 1 ? "L" : weekday.charAt(0);
+      return `<button class="subject-trend-point" data-result-id="${escapeHtml(point.resultId)}" data-score="${point.score}" style="--score:${Math.max(6, point.score)}%" aria-label="${escapeHtml(`${point.examTitle}: ${point.score}% on ${weekday}`)}"><span class="subject-trend-bar" aria-hidden="true"></span><small title="${escapeHtml(weekday)}">${escapeHtml(label)}</small><em class="subject-trend-tooltip" aria-hidden="true">${point.score}%</em></button>`;
+    }).join("");
+    return `<article class="dash-performance subject-trend-card"><div class="dash-section-title"><div><span class="subject-trend-live"><i></i>Activity</span><h2>${escapeHtml(subject)}</h2><p>Last ${points.length} released ${points.length === 1 ? "attempt" : "attempts"}</p></div><strong><span data-subject-trend-value>${latestScore}</span><small>%</small></strong></div><div class="subject-trend-chart" style="--point-count:${points.length}" aria-label="${escapeHtml(subject)} score history">${bars}</div></article>`;
+  }).join("");
+}
+
+function bindSubjectTrendInteractions() {
+  document.querySelectorAll(".subject-trend-chart").forEach((chart) => {
+    const points = [...chart.querySelectorAll(".subject-trend-point")];
+    const value = chart.closest(".subject-trend-card")?.querySelector("[data-subject-trend-value]");
+    const latest = points.at(-1)?.dataset.score || "0";
+    const setHovered = (hoveredIndex = null) => {
+      points.forEach((point, index) => {
+        point.classList.toggle("is-hovered", index === hoveredIndex);
+        point.classList.toggle("is-neighbor", hoveredIndex !== null && Math.abs(index - hoveredIndex) === 1);
+        point.classList.toggle("is-dimmed", hoveredIndex !== null && Math.abs(index - hoveredIndex) > 1);
+      });
+      chart.closest(".subject-trend-card")?.classList.toggle("is-hovering", hoveredIndex !== null);
+      if (value) value.textContent = hoveredIndex === null ? latest : points[hoveredIndex].dataset.score;
+    };
+    points.forEach((point, index) => {
+      point.addEventListener("mouseenter", () => setHovered(index));
+      point.addEventListener("focus", () => setHovered(index));
+    });
+    chart.addEventListener("mouseleave", () => setHovered());
+    chart.addEventListener("focusout", (event) => {
+      if (!chart.contains(event.relatedTarget)) setHovered();
+    });
+  });
 }
 
 function dashboardQuestionMatch(details = [], type = "skipped") {
@@ -1457,6 +1491,7 @@ async function showStudentDashboard(message = "", options = {}) {
   });
   document.querySelectorAll(".view-result").forEach((button) => button.addEventListener("click", () => showStudentResultDetail(button.dataset.id)));
   document.querySelectorAll(".subject-trend-point").forEach((button) => button.addEventListener("click", () => showStudentResultDetail(button.dataset.resultId)));
+  bindSubjectTrendInteractions();
   bindDesktopExit({ updates: true });
   renderMath();
 }

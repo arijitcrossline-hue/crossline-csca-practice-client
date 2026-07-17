@@ -2441,16 +2441,25 @@ dialog { border: 0; border-radius: 9px; box-shadow: 0 18px 50px #1b2b4455; anima
 
 .dash-weakness-row span small { display: block; margin-top: 3px; color: #8b756d; font-size: .68rem; font-weight: 500; }
 .dash-subject-graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 19px; position: relative; z-index: 1; }
-.dash-subject-graphs .dash-performance { min-height: 330px; padding: 22px 22px 18px 62px; }
+.dash-subject-graphs .dash-performance { min-height: 315px; padding: 22px; }
 .subject-trend-card { position: relative; }
-.subject-trend-card .dash-section-title { margin-left: -40px; }
-.subject-trend-card .dash-section-title strong { color: #b51a1f; font-family: "Playfair Display", Georgia, serif; font-size: 1.45rem; }
-.subject-trend-chart { position: relative; display: flex; align-items: end; justify-content: space-around; gap: 12px; height: 228px; border-bottom: 1px solid #d8c7bb; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(25% - 1px), #eadfd6 calc(25% - 1px), #eadfd6 25%); }
-.subject-trend-point { display: grid; grid-template-rows: 22px minmax(0, 1fr) 30px; align-items: end; justify-items: center; align-self: stretch; flex: 1 1 0; min-width: 44px; border: 0; padding: 0 3px; color: #493b35; background: transparent; cursor: pointer; }
-.subject-trend-point b { align-self: center; color: #8f1418; font-size: .78rem; }
-.subject-trend-point span { display: block; align-self: end; width: min(46px, 68%); height: var(--score); max-height: 100%; min-height: 8px; border-radius: 8px 8px 2px 2px; background: linear-gradient(180deg, #e12725, #f4a16c); box-shadow: 0 9px 18px rgba(193, 36, 28, .12); transition: filter .18s ease, transform .18s ease; }
-.subject-trend-point:hover span { filter: saturate(1.18); transform: translateY(-3px); }
-.subject-trend-point small { min-height: 26px; margin-top: 8px; color: #78675f; font-size: .7rem; }
+.subject-trend-card .dash-section-title { align-items: flex-start; }
+.subject-trend-card .dash-section-title h2 { margin-top: 6px; }
+.subject-trend-card .dash-section-title > strong { display: flex; min-width: 58px; height: 34px; align-items: baseline; justify-content: flex-end; color: #2e2926; font-family: "Inter", "Segoe UI", Arial, sans-serif; font-size: 1.35rem; font-variant-numeric: tabular-nums; opacity: .5; transition: color .25s ease, opacity .25s ease; }
+.subject-trend-card .dash-section-title > strong small { margin-left: 2px; color: #80736d; font-size: .7rem; font-weight: 500; }
+.subject-trend-card.is-hovering .dash-section-title > strong { color: #201c1a; opacity: 1; }
+.subject-trend-live { display: inline-flex; align-items: center; gap: 7px; color: #84756e; font-size: .66rem; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }
+.subject-trend-live i { width: 7px; height: 7px; border-radius: 50%; background: #2d9b64; box-shadow: 0 0 0 4px rgba(45, 155, 100, .1); }
+.subject-trend-chart { position: relative; display: grid; grid-template-columns: repeat(var(--point-count), minmax(28px, 1fr)); gap: 10px; width: 100%; height: 205px; padding: 32px 5px 0; }
+.subject-trend-point { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) 24px; align-items: end; justify-items: center; min-width: 0; height: 100%; border: 0; padding: 0 2px; color: #493b35; background: transparent; cursor: pointer; }
+.subject-trend-bar { display: block; align-self: end; width: min(38px, 78%); height: var(--score); min-height: 9px; border-radius: 999px; background: #d6ccc6; transform-origin: bottom; transition: background-color .28s ease, transform .28s ease, opacity .28s ease; }
+.subject-trend-point.is-hovered .subject-trend-bar { background: #2e2926; transform: scaleX(1.15) scaleY(1.02); }
+.subject-trend-point.is-neighbor .subject-trend-bar { background: #958984; transform: scaleX(1.05); }
+.subject-trend-point.is-dimmed .subject-trend-bar { background: #e6dfda; opacity: .72; }
+.subject-trend-point small { margin-top: 8px; color: #8b7d76; font-size: .66rem; font-weight: 700; transition: color .25s ease; }
+.subject-trend-point.is-hovered small { color: #2e2926; }
+.subject-trend-tooltip { position: absolute; z-index: 2; top: -1px; left: 50%; padding: 5px 8px; border-radius: 6px; color: #fff; background: #2e2926; box-shadow: 0 6px 16px rgba(40, 31, 27, .16); font-size: .68rem; font-style: normal; font-weight: 750; line-height: 1; white-space: nowrap; opacity: 0; pointer-events: none; transform: translate(-50%, 4px); transition: opacity .18s ease, transform .18s ease; }
+.subject-trend-point.is-hovered .subject-trend-tooltip { opacity: 1; transform: translate(-50%, 0); }
 
 .notification-popover {
   position: fixed;
@@ -2519,7 +2528,6 @@ dialog { border: 0; border-radius: 9px; box-shadow: 0 18px 50px #1b2b4455; anima
 @media (max-width: 700px) {
   .notification-popover { top: auto; right: 0; bottom: 0; left: 0; width: 100%; max-height: 58dvh; border-radius: 14px 14px 0 0; }
 }
-.subject-chart-scale { position: absolute; top: 76px; left: 17px; bottom: 41px; display: flex; flex-direction: column; justify-content: space-between; color: #8b7a72; font-size: .68rem; }
 .dash-subject-empty { grid-column: 1 / -1; padding: 30px !important; }
 .answer-review-focus {
   outline: 2px solid rgba(198, 48, 54, .45);
