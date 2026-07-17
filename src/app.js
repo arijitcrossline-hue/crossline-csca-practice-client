@@ -9,22 +9,99 @@ const defaultQuestions = [
   {
     type: "Single choice",
     subject: "Physics",
-    chapter: "Circular motion",
-    topic: "Angular and linear velocity",
+    chapter: "Circular Motion and Gravitation",
+    topic: "Circular Motion and Gravitation",
     instruction: "Each question has four options, among which only one is correct.",
     text: "As shown in the figure, if two objects A and B with equal mass are placed on a horizontal disk rotating uniformly around the vertical axis, and the two objects remain stationary relative to the disk, then ( )",
     diagram: true,
     answers: ["the angular velocity of A is the same as B", "the angular velocity of A is greater than that of B", "the linear velocity of A is the same as B", "the angular velocity of A is smaller than that of B"]
   },
-  { type: "Single choice", subject: "Physics", chapter: "Kinematics", topic: "Constant acceleration", instruction: "Choose the best answer.", text: "A particle moves with constant acceleration. Its velocity changes from 2 m/s to 10 m/s in 4 seconds. What is its acceleration?", answers: ["1 m/s²", "2 m/s²", "3 m/s²", "4 m/s²"] },
-  { type: "Single choice", subject: "Mathematics", chapter: "Algebra", topic: "Difference of squares", instruction: "Choose the best answer.", text: "Which expression is equivalent to (x + 3)(x - 3)?", answers: ["x² - 9", "x² + 9", "x² - 6x + 9", "x² + 6x + 9"] },
-  { type: "Single choice", subject: "Mathematics", chapter: "Functions", topic: "Function evaluation", instruction: "Choose the best answer.", text: "If f(x) = 2x + 1, what is the value of f(4)?", answers: ["7", "8", "9", "10"] }
+  { type: "Single choice", subject: "Physics", chapter: "Kinematics", topic: "Kinematics", instruction: "Choose the best answer.", text: "A particle moves with constant acceleration. Its velocity changes from 2 m/s to 10 m/s in 4 seconds. What is its acceleration?", answers: ["1 m/s²", "2 m/s²", "3 m/s²", "4 m/s²"] },
+  { type: "Single choice", subject: "Mathematics", chapter: "Functions and Basic Elementary Functions", topic: "Functions and Basic Elementary Functions", instruction: "Choose the best answer.", text: "Which expression is equivalent to (x + 3)(x - 3)?", answers: ["x² - 9", "x² + 9", "x² - 6x + 9", "x² + 6x + 9"] },
+  { type: "Single choice", subject: "Mathematics", chapter: "Functions and Basic Elementary Functions", topic: "Functions and Basic Elementary Functions", instruction: "Choose the best answer.", text: "If f(x) = 2x + 1, what is the value of f(4)?", answers: ["7", "8", "9", "10"] }
 ];
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
+const TOPIC_CATALOG = {
+  Physics: [
+    "Kinematics",
+    "Forces and Newton's Laws of Motion",
+    "Circular Motion and Gravitation",
+    "Work and Energy",
+    "Momentum",
+    "Oscillations and Mechanical Waves",
+    "Electrostatics",
+    "Direct-Current Circuits",
+    "Magnetic Fields",
+    "Electromagnetic Induction",
+    "Thermodynamics",
+    "Optics"
+  ],
+  Chemistry: [
+    "Basic Concepts and Classification of Matter",
+    "Chemical Language",
+    "Chemical Calculations",
+    "Solutions and pH",
+    "Oxidation and Reduction",
+    "Acids, Bases, Salts and Ionic Reactions",
+    "Atomic Structure, Periodicity and Chemical Bonding",
+    "Reaction Rates and Equilibrium",
+    "Fundamentals of Organic Chemistry",
+    "Chemical Experiments and Applications"
+  ],
+  Mathematics: [
+    "Sets and Inequalities",
+    "Functions and Basic Elementary Functions",
+    "Sequences",
+    "Trigonometric Functions",
+    "Analytic Geometry",
+    "Vectors",
+    "Complex Numbers",
+    "Probability"
+  ],
+  "Academic Chinese": []
+};
+const TOPIC_KEYWORDS = {
+  Physics: {
+    "Kinematics": ["kinematics", "velocity", "acceleration", "displacement", "projectile", "motion graph", "free fall"],
+    "Forces and Newton's Laws of Motion": ["newton", "force", "friction", "tension", "laws of motion", "net force"],
+    "Circular Motion and Gravitation": ["circular motion", "centripetal", "orbit", "gravitation", "satellite", "angular velocity"],
+    "Work and Energy": ["work", "energy", "power", "kinetic", "potential energy", "mechanical energy"],
+    "Momentum": ["momentum", "collision", "impulse"],
+    "Oscillations and Mechanical Waves": ["oscillation", "simple harmonic", "shm", "wave", "frequency", "wavelength", "sound"],
+    "Electrostatics": ["electrostatic", "coulomb", "electric field", "electric potential", "point charge"],
+    "Direct-Current Circuits": ["direct current", "resistor", "resistance", "ohm", "circuit", "kirchhoff"],
+    "Magnetic Fields": ["magnetic field", "lorentz", "ampere force", "magnet"],
+    "Electromagnetic Induction": ["induction", "faraday", "lenz", "magnetic flux", "transformer", "induced emf"],
+    "Thermodynamics": ["temperature", "heat", "gas law", "ideal gas", "thermodynamic"],
+    "Optics": ["lens", "mirror", "refraction", "reflection", "optics", "focal"]
+  },
+  Chemistry: {
+    "Basic Concepts and Classification of Matter": ["matter", "mixture", "element", "compound"],
+    "Chemical Language": ["chemical equation", "formula", "nomenclature", "symbol"],
+    "Chemical Calculations": ["chemical calculation", "mole", "molar mass", "stoichiometry", "yield"],
+    "Solutions and pH": ["solution", "concentration", "ph", "solubility", "molarity"],
+    "Oxidation and Reduction": ["oxidation", "reduction", "redox", "oxidation number"],
+    "Acids, Bases, Salts and Ionic Reactions": ["acid", "base", "salt", "ionic", "neutralization"],
+    "Atomic Structure, Periodicity and Chemical Bonding": ["atomic", "electron", "periodic", "bond", "orbital"],
+    "Reaction Rates and Equilibrium": ["reaction rate", "equilibrium", "le chatelier", "catalyst"],
+    "Fundamentals of Organic Chemistry": ["organic", "hydrocarbon", "alkane", "alkene", "functional group"],
+    "Chemical Experiments and Applications": ["experiment", "laboratory", "titration", "indicator", "apparatus"]
+  },
+  Mathematics: {
+    "Sets and Inequalities": ["set", "inequality", "interval", "subset"],
+    "Functions and Basic Elementary Functions": ["function", "domain", "range", "exponential", "logarithm"],
+    "Sequences": ["sequence", "series", "arithmetic progression", "geometric progression"],
+    "Trigonometric Functions": ["trigonometric", "sine", "cosine", "tangent", "radian"],
+    "Analytic Geometry": ["coordinate", "analytic geometry", "parabola", "ellipse", "hyperbola", "slope"],
+    "Vectors": ["vector", "dot product", "cross product"],
+    "Complex Numbers": ["complex", "imaginary", "argand"],
+    "Probability": ["probability", "random", "permutation", "combination", "binomial"]
+  }
+};
 const defaultExams = [
   { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 90, subject: "Physics", free: true, priceCents: 0, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
   { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", free: true, priceCents: 0, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
-  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Concentration" })) },
+  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
   { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
 let selectedExamSubject = load("csca-exam-subject", "");
@@ -481,12 +558,46 @@ function formatExamAccess(exam = {}) {
   return `${String(exam.currency || "USD").toUpperCase()} ${amount}`;
 }
 function normalizeExamSubjectValue(value) {
-  const subject = String(value || "").trim();
+  const subject = String(value || "").trim().replace(/\s+/g, " ");
   if (/^physics$/i.test(subject)) return "Physics";
   if (/^chem(?:istry)?$/i.test(subject)) return "Chemistry";
   if (/^math(?:s|ematics)?$/i.test(subject)) return "Mathematics";
   if (/^academic\s*chinese$/i.test(subject) || /^chinese$/i.test(subject)) return "Academic Chinese";
   return EXAM_SUBJECTS.includes(subject) ? subject : "";
+}
+function classifyOfficialTopic(subject, requested = "", sourceText = "") {
+  const catalog = TOPIC_CATALOG[subject] || [];
+  const normalizedRequested = String(requested || "").trim().replace(/\s+/g, " ");
+  if (!catalog.length) return normalizedRequested;
+  const lower = normalizedRequested.toLowerCase();
+  const exact = catalog.find((topic) => topic.toLowerCase() === lower);
+  if (exact) return exact;
+  if (lower.length >= 4) {
+    const partial = catalog.find((topic) => {
+      const name = topic.toLowerCase();
+      return name.includes(lower) || lower.includes(name) || name.split(/\s+/).filter((part) => part.length > 3).some((part) => lower.includes(part));
+    });
+    if (partial) return partial;
+  }
+  const haystack = `${normalizedRequested} ${sourceText}`.toLowerCase();
+  let best = catalog[0];
+  let bestScore = -1;
+  for (const topic of catalog) {
+    const keywords = TOPIC_KEYWORDS[subject]?.[topic] || [];
+    const nameBonus = haystack.includes(topic.toLowerCase()) ? topic.length * 2 : 0;
+    const score = nameBonus + keywords.reduce((sum, keyword) => sum + (haystack.includes(keyword) ? keyword.length : 0), 0);
+    if (score > bestScore) { best = topic; bestScore = score; }
+  }
+  return best;
+}
+function topicSelectHtml({ id = "", subject, selected = "", className = "", dataAttrs = "" }) {
+  const catalogSubject = normalizeExamSubjectValue(subject);
+  const catalog = TOPIC_CATALOG[catalogSubject] || [];
+  if (!catalog.length) {
+    return `<input ${id ? `id="${escapeHtml(id)}"` : ""} class="${escapeHtml(className)}" value="${escapeHtml(selected)}" ${dataAttrs} placeholder="Topic" autocomplete="off" />`;
+  }
+  const matched = classifyOfficialTopic(catalogSubject, selected) || catalog[0];
+  return `<select ${id ? `id="${escapeHtml(id)}"` : ""} class="${escapeHtml(className)}" ${dataAttrs}>${catalog.map((topic) => `<option value="${escapeHtml(topic)}" ${topic === matched ? "selected" : ""}>${escapeHtml(topic)}</option>`).join("")}</select>`;
 }
 function examSubjectFieldsHtml(exam = {}) {
   const selected = normalizeExamSubjectValue(exam.subject) || "Mathematics";
@@ -1219,10 +1330,14 @@ async function loadStudentResultData() {
 }
 
 function questionTaxonomy(question = {}) {
+  const subject = normalizeExamSubjectValue(question.subject) || String(question.subject || "General practice").trim() || "General practice";
+  const topic = classifyOfficialTopic(subject, question.chapter || question.topic, `${question.topic || ""} ${question.text || ""}`);
+  const fallback = String(question.topic || question.chapter || question.subject || "General practice").trim() || "General practice";
+  const official = topic || fallback;
   return {
-    subject: String(question.subject || "General practice").trim() || "General practice",
-    chapter: String(question.chapter || "General chapter").trim() || "General chapter",
-    topic: String(question.topic || question.chapter || question.subject || "General practice").trim() || "General practice"
+    subject,
+    chapter: official,
+    topic: official
   };
 }
 
@@ -1239,7 +1354,7 @@ function topicPerformance(details = []) {
   const stats = new Map();
   resultQuestionRefs(details).forEach((question) => {
     const taxonomy = questionTaxonomy(question);
-    const key = [taxonomy.subject, taxonomy.chapter, taxonomy.topic].join("\u001f");
+    const key = [taxonomy.subject, taxonomy.topic].join("\u001f");
     const stat = stats.get(key) || { key, ...taxonomy, total: 0, correct: 0, wrong: 0, skipped: 0, questions: [] };
     stat.total += 1;
     if (question.correct === true) stat.correct += 1;
@@ -1631,7 +1746,7 @@ async function showWeaknessAnalysis() {
   bindStudentShell();
   const data = await loadStudentResultData().catch(() => ({ details: [] }));
   const stats = topicPerformance(data.details || []).filter((stat) => stat.wrong || stat.skipped);
-  const content = stats.length ? `<section class="weakness-summary"><div><strong>${stats.length}</strong><span>topics need attention</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.wrong, 0)}</strong><span>incorrect answers</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.skipped, 0)}</strong><span>skipped answers</span></div></section><section class="subject-performance-list">${stats.map((stat, index) => `<article class="dash-page-card subject-performance-card"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)} · ${escapeHtml(stat.chapter)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total} · ${stat.wrong} incorrect · ${stat.skipped} skipped</p></div><div><div class="subject-meter"><i style="--score:${stat.accuracy}%"></i></div><small>${stat.accuracy}% accuracy</small></div><button class="dash-outline-button weakness-review" data-index="${index}">Review ${stat.wrong + stat.skipped} questions</button></article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No weak topics yet</h2><p>Complete a mock to build topic-level analysis. If every released answer is correct, this page will stay clear.</p><button id="weakness-start-exam" class="dash-start-button">Choose an exam</button></section>`;
+  const content = stats.length ? `<section class="weakness-summary"><div><strong>${stats.length}</strong><span>topics need attention</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.wrong, 0)}</strong><span>incorrect answers</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.skipped, 0)}</strong><span>skipped answers</span></div></section><section class="subject-performance-list">${stats.map((stat, index) => `<article class="dash-page-card subject-performance-card"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total} · ${stat.wrong} incorrect · ${stat.skipped} skipped</p></div><div><div class="subject-meter"><i style="--score:${stat.accuracy}%"></i></div><small>${stat.accuracy}% accuracy</small></div><button class="dash-outline-button weakness-review" data-index="${index}">Review ${stat.wrong + stat.skipped} questions</button></article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No weak topics yet</h2><p>Complete a mock to build topic-level analysis. If every released answer is correct, this page will stay clear.</p><button id="weakness-start-exam" class="dash-start-button">Choose an exam</button></section>`;
   app.innerHTML = studentPageShell({ active: "weakness", title: "Weakness analysis", subtitle: "Every topic is calculated from your real correct, incorrect, and skipped answers.", content });
   bindStudentShell();
   bind("weakness-start-exam", "click", showExamList);
@@ -1642,8 +1757,8 @@ async function showWeaknessAnalysis() {
 function showWeaknessTopic(stat) {
   if (!stat) return showWeaknessAnalysis();
   const questions = stat.questions.filter((question) => question.correct !== true);
-  const content = `<div class="dash-result-summary weakness-topic-summary"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)} · ${escapeHtml(stat.chapter)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total}. Review every mistake and skip below.</p></div><button id="back-weakness" class="dash-outline-button">Back to all topics</button></div><section class="dash-review-section"><h2>Mistakes and skipped questions</h2>${questions.map((question, index) => `<div class="weakness-question-wrap">${resultQuestionHtml(question, `topic-${index}`)}<button class="dash-outline-button open-question-result" data-result-id="${escapeHtml(question.resultId)}" data-question-id="${escapeHtml(question.id)}">Open in full result</button></div>`).join("")}</section>`;
-  app.innerHTML = studentPageShell({ active: "weakness", title: stat.topic, subtitle: `${stat.subject} · ${stat.chapter}`, content });
+  const content = `<div class="dash-result-summary weakness-topic-summary"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total}. Review every mistake and skip below.</p></div><button id="back-weakness" class="dash-outline-button">Back to all topics</button></div><section class="dash-review-section"><h2>Mistakes and skipped questions</h2>${questions.map((question, index) => `<div class="weakness-question-wrap">${resultQuestionHtml(question, `topic-${index}`)}<button class="dash-outline-button open-question-result" data-result-id="${escapeHtml(question.resultId)}" data-question-id="${escapeHtml(question.id)}">Open in full result</button></div>`).join("")}</section>`;
+  app.innerHTML = studentPageShell({ active: "weakness", title: stat.topic, subtitle: stat.subject, content });
   bindStudentShell();
   bind("back-weakness", "click", showWeaknessAnalysis);
   document.querySelectorAll(".open-question-result").forEach((button) => button.addEventListener("click", () => showStudentResultDetail(button.dataset.resultId, button.dataset.questionId)));
@@ -2712,9 +2827,8 @@ function renderImportedQuestionDrafts(questions = [], { scope = "import", locked
       </div>
       ${question.image ? `<img class="question-preview-image import-image-preview" src="${escapeHtml(question.image)}" alt="Imported question image${question.imageFilename ? ` ${escapeHtml(question.imageFilename)}` : ""}" />` : ""}
       <fieldset class="import-draft-fields editor-grid" ${disabled}>
-        <div class="field"><label>Subject</label><input class="draft-subject" data-draft-index="${index}" value="${escapeHtml(question.subject || "")}" autocomplete="off" /></div>
-        <div class="field"><label>Chapter</label><input class="draft-chapter" data-draft-index="${index}" value="${escapeHtml(question.chapter || "")}" autocomplete="off" /></div>
-        <div class="field"><label>Topic</label><input class="draft-topic" data-draft-index="${index}" value="${escapeHtml(question.topic || "")}" autocomplete="off" /></div>
+        <div class="field"><label>Subject</label><select class="draft-subject" data-draft-index="${index}">${EXAM_SUBJECTS.map((subject) => `<option value="${escapeHtml(subject)}" ${normalizeExamSubjectValue(question.subject) === subject ? "selected" : ""}>${escapeHtml(subject)}</option>`).join("")}<option value="" ${normalizeExamSubjectValue(question.subject) ? "" : "selected"}>Other</option></select></div>
+        <div class="field wide"><label>Official topic</label>${topicSelectHtml({ className: "draft-topic", subject: question.subject || "Physics", selected: question.topic || question.chapter || "", dataAttrs: `data-draft-index="${index}"` })}</div>
         <div class="field"><label>Marks</label><input class="draft-marks" data-draft-index="${index}" type="number" min="0.1" step="0.1" value="${escapeHtml(marks)}" /></div>
         <div class="field wide"><label>Question text</label><textarea class="draft-text" data-draft-index="${index}" rows="3">${escapeHtml(question.text || "")}</textarea></div>
         ${answers.map((answer, answerIndex) => `<div class="field draft-answer-field ${correctIndex === answerIndex ? "is-correct" : ""}"><span class="draft-answer-label"><span class="draft-answer-letter" aria-hidden="true">${letterLabels[answerIndex]}</span><input class="draft-answer" data-draft-index="${index}" data-answer-index="${answerIndex}" value="${escapeHtml(answer)}" aria-label="Option ${letterLabels[answerIndex]}" /><label class="draft-correct-pick"><input type="radio" class="draft-correct" name="draft-correct-${escapeHtml(scope)}-${index}" data-draft-index="${index}" value="${answerIndex}" ${correctIndex === answerIndex ? "checked" : ""} /><span>Correct</span></label></span></div>`).join("")}
@@ -2738,17 +2852,38 @@ function bindImportedDraftEditors(root, questions, { onStructureChange } = {}) {
     if (!Array.isArray(question.answers)) question.answers = ["", "", "", ""];
     question.answers[Number(input.dataset.answerIndex)] = input.value;
   }));
-  root.querySelectorAll(".draft-subject").forEach((input) => input.addEventListener("input", () => {
+  root.querySelectorAll(".draft-subject").forEach((input) => input.addEventListener("change", () => {
     const question = questions[readIndex(input)];
-    if (question) question.subject = input.value;
+    if (!question) return;
+    question.subject = input.value;
+    const topic = classifyOfficialTopic(normalizeExamSubjectValue(question.subject), question.topic || question.chapter, question.text || "");
+    question.chapter = topic;
+    question.topic = topic;
+    const topicField = input.closest(".import-draft-fields")?.querySelector(".draft-topic");
+    if (topicField) {
+      const replacement = document.createElement("div");
+      replacement.innerHTML = topicSelectHtml({ className: "draft-topic", subject: question.subject || "Physics", selected: topic, dataAttrs: `data-draft-index="${readIndex(input)}"` });
+      topicField.replaceWith(replacement.firstElementChild);
+      const next = input.closest(".import-draft-fields")?.querySelector(".draft-topic");
+      next?.addEventListener("change", () => {
+        const current = questions[readIndex(next)];
+        if (!current) return;
+        current.topic = next.value;
+        current.chapter = next.value;
+      });
+    }
   }));
-  root.querySelectorAll(".draft-chapter").forEach((input) => input.addEventListener("input", () => {
+  root.querySelectorAll(".draft-topic").forEach((input) => input.addEventListener("change", () => {
     const question = questions[readIndex(input)];
-    if (question) question.chapter = input.value;
+    if (!question) return;
+    question.topic = input.value;
+    question.chapter = input.value;
   }));
   root.querySelectorAll(".draft-topic").forEach((input) => input.addEventListener("input", () => {
     const question = questions[readIndex(input)];
-    if (question) question.topic = input.value;
+    if (!question) return;
+    question.topic = input.value;
+    question.chapter = input.value;
   }));
   root.querySelectorAll(".draft-explanation").forEach((input) => input.addEventListener("input", () => {
     const question = questions[readIndex(input)];
@@ -3213,13 +3348,21 @@ function showEditExamDetails(examId, message = "") {
 function showQuestionEditor(examId) {
   editorExamId = examId; editorImage = ""; editorExplanationImage = ""; const exam = exams.find((item) => item.id === examId);
   if (!exam) return showAdminDashboard();
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>${mathHtml(exam.title)}</h1><p class="muted">${exam.questions.length} questions · ${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} total marks</p></div><button id="back-admin" class="ghost-button">Back to papers</button></div><section class="panel"><h3>Add a question</h3><p class="form-note">LaTeX is supported in question text, options, and explanations. Example: \\(x^2 + y^2\\).</p><form id="question-form" class="editor-grid"><div class="field"><label>Subject</label><input id="question-subject" placeholder="Mathematics" /></div><div class="field"><label>Chapter</label><input id="question-chapter" placeholder="Algebra" /></div><div class="field"><label>Topic</label><input id="question-topic" placeholder="Quadratic equations" /></div><div class="field wide"><label>Question text</label><textarea id="new-question" required></textarea></div>${[0,1,2,3].map((index) => `<div class="field"><label>Option ${letterLabels[index]}</label><input id="option-${index}" required /></div>`).join("")}<div class="field"><label>Correct answer</label><select id="correct-answer">${letterLabels.map((label, index) => `<option value="${index}">${label}</option>`).join("")}</select></div><div class="field"><label>Marks for this question</label><input id="question-marks" type="number" min="0.1" step="0.1" value="1" required /></div><div class="field wide"><label>Optional question image</label><input id="question-image-input" type="file" accept="image/*" /><img id="editor-preview" class="question-preview-image hidden" alt="Question image preview" /></div><div class="field wide"><label>Answer explanation</label><textarea id="question-explanation" placeholder="Explain the correct answer. LaTeX supported."></textarea></div><div class="field wide"><label>Optional explanation image / graph</label><input id="explanation-image-input" type="file" accept="image/*" /><img id="explanation-preview" class="question-preview-image hidden" alt="Explanation image preview" /></div><button class="primary-button">Add question</button></form></section><div id="question-list">${exam.questions.map((question, index) => `<article class="admin-card"><p class="admin-kicker">${escapeHtml([question.subject, question.chapter, question.topic].filter(Boolean).join(" · ") || "Untitled topic")}</p><h3>Question ${index + 1}</h3><p>${mathHtml(question.text)}</p>${question.image ? `<img class="question-preview-image" src="${question.image}" alt="Attached question image" />` : ""}<div class="exam-meta"><span>Correct answer: ${letterLabels[Number(question.correctIndex || 0)]}</span><span>Marks: ${formatScore(question.marks)}</span>${question.explanation ? `<span>Explanation added</span>` : ""}${question.explanationImage ? `<span>Explanation image added</span>` : ""}</div><div class="admin-card-actions"><button class="secondary-button edit-question" data-index="${index}">Edit</button><button class="danger-button delete-question" data-index="${index}" data-question-id="${escapeHtml(question.backendId || "")}">Delete</button></div></article>`).join("")}</div>`);
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>${mathHtml(exam.title)}</h1><p class="muted">${exam.questions.length} questions · ${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} total marks</p></div><button id="back-admin" class="ghost-button">Back to papers</button></div><section class="panel"><h3>Add a question</h3><p class="form-note">Use the official CSCA topic list for Physics, Chemistry, and Mathematics. LaTeX is supported in question text, options, and explanations.</p><form id="question-form" class="editor-grid"><div class="field"><label>Subject</label><select id="question-subject">${EXAM_SUBJECTS.map((subject) => `<option value="${escapeHtml(subject)}" ${normalizeExamSubjectValue(exam.subject) === subject ? "selected" : ""}>${escapeHtml(subject)}</option>`).join("")}</select></div><div class="field"><label>Official topic</label><span id="question-topic-host">${topicSelectHtml({ id: "question-topic", subject: exam.subject || "Physics", selected: "" })}</span></div><div class="field wide"><label>Question text</label><textarea id="new-question" required></textarea></div>${[0,1,2,3].map((index) => `<div class="field"><label>Option ${letterLabels[index]}</label><input id="option-${index}" required /></div>`).join("")}<div class="field"><label>Correct answer</label><select id="correct-answer">${letterLabels.map((label, index) => `<option value="${index}">${label}</option>`).join("")}</select></div><div class="field"><label>Marks for this question</label><input id="question-marks" type="number" min="0.1" step="0.1" value="1" required /></div><div class="field wide"><label>Optional question image</label><input id="question-image-input" type="file" accept="image/*" /><img id="editor-preview" class="question-preview-image hidden" alt="Question image preview" /></div><div class="field wide"><label>Answer explanation</label><textarea id="question-explanation" placeholder="Explain the correct answer. LaTeX supported."></textarea></div><div class="field wide"><label>Optional explanation image / graph</label><input id="explanation-image-input" type="file" accept="image/*" /><img id="explanation-preview" class="question-preview-image hidden" alt="Explanation image preview" /></div><button class="primary-button">Add question</button></form></section><div id="question-list">${exam.questions.map((question, index) => `<article class="admin-card"><p class="admin-kicker">${escapeHtml([question.subject, question.topic || question.chapter].filter(Boolean).join(" · ") || "Untitled topic")}</p><h3>Question ${index + 1}</h3><p>${mathHtml(question.text)}</p>${question.image ? `<img class="question-preview-image" src="${question.image}" alt="Attached question image" />` : ""}<div class="exam-meta"><span>Correct answer: ${letterLabels[Number(question.correctIndex || 0)]}</span><span>Marks: ${formatScore(question.marks)}</span>${question.explanation ? `<span>Explanation added</span>` : ""}${question.explanationImage ? `<span>Explanation image added</span>` : ""}</div><div class="admin-card-actions"><button class="secondary-button edit-question" data-index="${index}">Edit</button><button class="danger-button delete-question" data-index="${index}" data-question-id="${escapeHtml(question.backendId || "")}">Delete</button></div></article>`).join("")}</div>`);
   bindAdminShell(); bind("back-admin", "click", showAdminDashboard);
+  const syncQuestionTopicHost = () => {
+    const host = document.getElementById("question-topic-host");
+    const subject = document.getElementById("question-subject")?.value || exam.subject || "Physics";
+    if (host) host.innerHTML = topicSelectHtml({ id: "question-topic", subject, selected: document.getElementById("question-topic")?.value || "" });
+  };
+  bind("question-subject", "change", syncQuestionTopicHost);
   bind("question-image-input", "change", (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { editorImage = reader.result; const preview = document.getElementById("editor-preview"); preview.src = editorImage; preview.classList.remove("hidden"); }; reader.readAsDataURL(file); });
   bind("explanation-image-input", "change", (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { editorExplanationImage = reader.result; const preview = document.getElementById("explanation-preview"); preview.src = editorExplanationImage; preview.classList.remove("hidden"); }; reader.readAsDataURL(file); });
   bind("question-form", "submit", async (event) => {
     event.preventDefault();
-    const question = { type: "Single choice", subject: document.getElementById("question-subject").value.trim(), chapter: document.getElementById("question-chapter").value.trim(), topic: document.getElementById("question-topic").value.trim(), instruction: "Choose the best answer.", text: document.getElementById("new-question").value.trim(), answers: [0,1,2,3].map((index) => document.getElementById(`option-${index}`).value.trim()), correctIndex: Number(document.getElementById("correct-answer").value), marks: normalizeMarks(document.getElementById("question-marks").value), explanation: document.getElementById("question-explanation").value.trim(), explanationImage: editorExplanationImage, image: editorImage };
+    const subject = document.getElementById("question-subject").value.trim();
+    const topic = document.getElementById("question-topic").value.trim();
+    const question = { type: "Single choice", subject, chapter: topic, topic, instruction: "Choose the best answer.", text: document.getElementById("new-question").value.trim(), answers: [0,1,2,3].map((index) => document.getElementById(`option-${index}`).value.trim()), correctIndex: Number(document.getElementById("correct-answer").value), marks: normalizeMarks(document.getElementById("question-marks").value), explanation: document.getElementById("question-explanation").value.trim(), explanationImage: editorExplanationImage, image: editorImage };
     if (apiEnabled()) {
       try {
         await window.CrosslineApi.createQuestion(examId, question);
@@ -3253,20 +3396,27 @@ function showQuestionEdit(examId, questionIndex) {
   if (!exam || !question) return showQuestionEditor(examId);
   editorImage = question.image || "";
   editorExplanationImage = question.explanationImage || "";
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Edit question ${questionIndex + 1}</h1><p class="muted">${mathHtml(exam.title)}</p></div><button id="back-questions" class="ghost-button">Back to questions</button></div><section class="panel"><form id="edit-question-form" class="editor-grid"><div class="field"><label>Subject</label><input id="edit-question-subject" value="${escapeHtml(question.subject || "")}" /></div><div class="field"><label>Chapter</label><input id="edit-question-chapter" value="${escapeHtml(question.chapter || "")}" /></div><div class="field"><label>Topic</label><input id="edit-question-topic" value="${escapeHtml(question.topic || "")}" /></div><div class="field wide"><label>Question text</label><textarea id="edit-question-text" required>${escapeHtml(question.text)}</textarea></div>${[0,1,2,3].map((index) => `<div class="field"><label>Option ${letterLabels[index]}</label><input id="edit-option-${index}" value="${escapeHtml(question.answers?.[index] || "")}" required /></div>`).join("")}<div class="field"><label>Correct answer</label><select id="edit-correct-answer">${letterLabels.map((label, index) => `<option value="${index}" ${Number(question.correctIndex || 0) === index ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="field"><label>Marks for this question</label><input id="edit-question-marks" type="number" min="0.1" step="0.1" value="${escapeHtml(formatScore(question.marks))}" required /></div><div class="field wide"><label>Question image</label><input id="edit-question-image-input" type="file" accept="image/*" />${editorImage ? `<img id="edit-editor-preview" class="question-preview-image" src="${escapeHtml(editorImage)}" alt="Question image preview" />` : `<img id="edit-editor-preview" class="question-preview-image hidden" alt="Question image preview" />`}<button type="button" id="clear-question-image" class="ghost-button">Clear question image</button></div><div class="field wide"><label>Answer explanation</label><textarea id="edit-question-explanation" placeholder="Explain the correct answer. LaTeX supported.">${escapeHtml(question.explanation || "")}</textarea></div><div class="field wide"><label>Explanation image / graph</label><input id="edit-explanation-image-input" type="file" accept="image/*" />${editorExplanationImage ? `<img id="edit-explanation-preview" class="question-preview-image" src="${escapeHtml(editorExplanationImage)}" alt="Explanation image preview" />` : `<img id="edit-explanation-preview" class="question-preview-image hidden" alt="Explanation image preview" />`}<button type="button" id="clear-explanation-image" class="ghost-button">Clear explanation image</button></div><button class="primary-button">Save question</button></form></section>`, "exams");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><h1>Edit question ${questionIndex + 1}</h1><p class="muted">${mathHtml(exam.title)}</p></div><button id="back-questions" class="ghost-button">Back to questions</button></div><section class="panel"><form id="edit-question-form" class="editor-grid"><div class="field"><label>Subject</label><select id="edit-question-subject">${EXAM_SUBJECTS.map((subject) => `<option value="${escapeHtml(subject)}" ${normalizeExamSubjectValue(question.subject) === subject ? "selected" : ""}>${escapeHtml(subject)}</option>`).join("")}</select></div><div class="field"><label>Official topic</label><span id="edit-question-topic-host">${topicSelectHtml({ id: "edit-question-topic", subject: question.subject || exam.subject || "Physics", selected: question.topic || question.chapter || "" })}</span></div><div class="field wide"><label>Question text</label><textarea id="edit-question-text" required>${escapeHtml(question.text)}</textarea></div>${[0,1,2,3].map((index) => `<div class="field"><label>Option ${letterLabels[index]}</label><input id="edit-option-${index}" value="${escapeHtml(question.answers?.[index] || "")}" required /></div>`).join("")}<div class="field"><label>Correct answer</label><select id="edit-correct-answer">${letterLabels.map((label, index) => `<option value="${index}" ${Number(question.correctIndex || 0) === index ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="field"><label>Marks for this question</label><input id="edit-question-marks" type="number" min="0.1" step="0.1" value="${escapeHtml(formatScore(question.marks))}" required /></div><div class="field wide"><label>Question image</label><input id="edit-question-image-input" type="file" accept="image/*" />${editorImage ? `<img id="edit-editor-preview" class="question-preview-image" src="${escapeHtml(editorImage)}" alt="Question image preview" />` : `<img id="edit-editor-preview" class="question-preview-image hidden" alt="Question image preview" />`}<button type="button" id="clear-question-image" class="ghost-button">Clear question image</button></div><div class="field wide"><label>Answer explanation</label><textarea id="edit-question-explanation" placeholder="Explain the correct answer. LaTeX supported.">${escapeHtml(question.explanation || "")}</textarea></div><div class="field wide"><label>Explanation image / graph</label><input id="edit-explanation-image-input" type="file" accept="image/*" />${editorExplanationImage ? `<img id="edit-explanation-preview" class="question-preview-image" src="${escapeHtml(editorExplanationImage)}" alt="Explanation image preview" />` : `<img id="edit-explanation-preview" class="question-preview-image hidden" alt="Explanation image preview" />`}<button type="button" id="clear-explanation-image" class="ghost-button">Clear explanation image</button></div><button class="primary-button">Save question</button></form></section>`, "exams");
   bindAdminShell();
   bind("back-questions", "click", () => showQuestionEditor(examId));
+  bind("edit-question-subject", "change", () => {
+    const host = document.getElementById("edit-question-topic-host");
+    const subject = document.getElementById("edit-question-subject")?.value || "Physics";
+    if (host) host.innerHTML = topicSelectHtml({ id: "edit-question-topic", subject, selected: document.getElementById("edit-question-topic")?.value || "" });
+  });
   bind("clear-question-image", "click", () => { editorImage = ""; document.getElementById("edit-editor-preview").classList.add("hidden"); });
   bind("clear-explanation-image", "click", () => { editorExplanationImage = ""; document.getElementById("edit-explanation-preview").classList.add("hidden"); });
   bindImageInput("edit-question-image-input", "edit-editor-preview", (value) => { editorImage = value; });
   bindImageInput("edit-explanation-image-input", "edit-explanation-preview", (value) => { editorExplanationImage = value; });
   bind("edit-question-form", "submit", async (event) => {
     event.preventDefault();
+    const subject = document.getElementById("edit-question-subject").value.trim();
+    const topic = document.getElementById("edit-question-topic").value.trim();
     const updated = {
       type: question.type || "Single choice",
-      subject: document.getElementById("edit-question-subject").value.trim(),
-      chapter: document.getElementById("edit-question-chapter").value.trim(),
-      topic: document.getElementById("edit-question-topic").value.trim(),
+      subject,
+      chapter: topic,
+      topic,
       instruction: question.instruction || "Choose the best answer.",
       text: document.getElementById("edit-question-text").value.trim(),
       answers: [0,1,2,3].map((index) => document.getElementById(`edit-option-${index}`).value.trim()),
