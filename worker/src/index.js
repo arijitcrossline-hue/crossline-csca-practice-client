@@ -609,7 +609,7 @@ async function averageLeaderboard(env, currentUserId, subject) {
       (subjectQuestions.get(row.exam_id) || []).forEach((question) => {
         const marks = normalizeMarks(question.marks);
         total += marks;
-        if (Number(answers[question.id]) === Number(question.correct_index || 0)) earned += marks;
+        if (answerIsCorrect(answers, question.id, question.correct_index)) earned += marks;
       });
     }
     if (!total) return;
@@ -1335,7 +1335,7 @@ async function adminSubmissionDetail(request, env, url) {
     const correctIndex = Number(question.correct_index || 0);
     const marks = normalizeMarks(question.marks);
     const selected = answers[question.id] ?? null;
-    const isCorrect = Number(selected) === correctIndex;
+    const isCorrect = answerIsCorrect(answers, question.id, correctIndex);
     totalMarks += marks;
     if (isCorrect) earnedMarks += marks;
     return {
@@ -1728,7 +1728,7 @@ async function scoreExamSession(env, session) {
   for (const question of questionRows.results) {
     const marks = normalizeMarks(question.marks);
     total += marks;
-    if (Number(answers[question.id]) === Number(question.correct_index || 0)) earned += marks;
+    if (answerIsCorrect(answers, question.id, question.correct_index)) earned += marks;
   }
   return {
     earned: roundScore(earned),
@@ -1748,7 +1748,7 @@ async function buildResultDetail(env, session) {
     const selected = answers[question.id] ?? null;
     const correctIndex = Number(question.correct_index || 0);
     const marks = normalizeMarks(question.marks);
-    const correct = Number(selected) === correctIndex;
+    const correct = answerIsCorrect(answers, question.id, correctIndex);
     total += marks;
     if (correct) earned += marks;
     return {
@@ -2076,6 +2076,13 @@ function isoNow() {
 
 function parseJson(value, fallback) {
   try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function answerIsCorrect(answers, questionId, correctIndex) {
+  const selected = answers?.[questionId];
+  if (selected === null || selected === undefined || selected === "") return false;
+  const selectedIndex = Number(selected);
+  return Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex <= 3 && selectedIndex === Number(correctIndex || 0);
 }
 
 function json(payload, env, status = 200, extraHeaders = {}) {

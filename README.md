@@ -59,6 +59,7 @@ For an existing production database, apply the administrator role and MFA migrat
 ```bash
 npm run worker:migrate:0014
 npm run worker:migrate:0015
+npm run worker:migrate:0016
 ```
 
 Set the production secrets:

@@ -20,6 +20,7 @@
     "worker:migrate:0013": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0013_exam_subjects_and_targeted_notifications.sql",
     "worker:migrate:0014": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0014_admin_roles_and_mfa.sql",
     "worker:migrate:0015": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0015_notification_archives.sql",
+    "worker:migrate:0016": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0016_correct_january_physics_answers.sql",
     "worker:seed": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/seed.sql",
     "worker:migrate:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/schema.sql",
     "worker:seed:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/seed.sql",

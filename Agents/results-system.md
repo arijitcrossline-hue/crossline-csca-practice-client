@@ -41,6 +41,7 @@ For every question:
 
 - total += normalized marks
 - earned += marks only when selected index equals `correct_index`
+- `null` and missing answers never count as option index `0`
 
 Scores are rounded to two decimal places. Skipped answers earn zero.
 
