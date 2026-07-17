@@ -133,6 +133,21 @@ let updatePanelTimer = null;
 let updateState = { kind: "idle", message: "", result: null, progress: null };
 let authAvatarData = "";
 let oauthListenerRegistered = false;
+let activeStudentView = "";
+let studentViewRevision = 0;
+let studentExamsFetchedAt = 0;
+const STUDENT_CACHE_TTL = 30000;
+const studentDataCache = {
+  resultData: null,
+  resultDataFetchedAt: 0,
+  resultDataPromise: null,
+  leaderboards: new Map(),
+  leaderboardFetchedAt: new Map(),
+  leaderboardPromises: new Map(),
+  notificationCount: null,
+  notificationFetchedAt: 0,
+  notificationPromise: null
+};
 let sourceImportProgressUnsubscribe = null;
 let adminAssistantMessages = [];
 let adminAssistantAttachment = null;
@@ -443,9 +458,33 @@ function apiEnabled() { return Boolean(window.CrosslineApi?.enabled()); }
 function localModeNote(text) { return apiEnabled() ? "" : text; }
 function localSessionKey() { return "csca-local-current-user"; }
 function rememberLocalUser(user) { save(localSessionKey(), user?.email || ""); }
+function beginStudentView(view) {
+  activeStudentView = view;
+  studentViewRevision += 1;
+  closeNotificationPopover();
+  return studentViewRevision;
+}
+function isCurrentStudentView(view, revision) {
+  return activeStudentView === view && studentViewRevision === revision;
+}
+function resetStudentDataCache() {
+  studentDataCache.resultData = null;
+  studentDataCache.resultDataFetchedAt = 0;
+  studentDataCache.resultDataPromise = null;
+  studentDataCache.leaderboards.clear();
+  studentDataCache.leaderboardFetchedAt.clear();
+  studentDataCache.leaderboardPromises.clear();
+  studentDataCache.notificationCount = null;
+  studentDataCache.notificationFetchedAt = 0;
+  studentDataCache.notificationPromise = null;
+  studentExamsFetchedAt = 0;
+}
 function clearStudentSession() {
   currentUser = null;
   activeSessionId = null;
+  activeStudentView = "";
+  studentViewRevision += 1;
+  resetStudentDataCache();
   localStorage.removeItem(localSessionKey());
   window.CrosslineApi?.clearStudentToken?.();
 }
@@ -768,6 +807,7 @@ async function refreshExamsFromApi(admin = false) {
   const payload = admin ? await window.CrosslineApi.adminExams() : await window.CrosslineApi.exams();
   exams = (payload.exams || []).map(normalizeApiExam);
   save("csca-exams", exams);
+  if (!admin) studentExamsFetchedAt = Date.now();
 }
 async function recordSessionEvent(type, payload = {}) {
   if (!apiEnabled() || !activeSessionId) return;
@@ -1329,6 +1369,60 @@ async function loadStudentResultData() {
   return { results, details };
 }
 
+function studentResultSnapshot() {
+  if (!apiEnabled()) {
+    const local = { results: getLocalResults(), details: getLocalResults() };
+    studentDataCache.resultData = local;
+    studentDataCache.resultDataFetchedAt = Date.now();
+    return local;
+  }
+  return studentDataCache.resultData || { results: [], details: [] };
+}
+
+function refreshStudentResultData(force = false) {
+  if (!apiEnabled()) return Promise.resolve(studentDataCache.resultData || studentResultSnapshot());
+  if (!force && studentDataCache.resultData && Date.now() - studentDataCache.resultDataFetchedAt < STUDENT_CACHE_TTL) {
+    return Promise.resolve(studentDataCache.resultData);
+  }
+  if (studentDataCache.resultDataPromise) return studentDataCache.resultDataPromise;
+  studentDataCache.resultDataPromise = loadStudentResultData()
+    .then((data) => {
+      studentDataCache.resultData = data;
+      studentDataCache.resultDataFetchedAt = Date.now();
+      return data;
+    })
+    .finally(() => { studentDataCache.resultDataPromise = null; });
+  return studentDataCache.resultDataPromise;
+}
+
+function leaderboardCacheKey(mode, value = "") {
+  return `${mode}:${String(value || "")}`;
+}
+
+function leaderboardSnapshot(mode, value = "") {
+  return studentDataCache.leaderboards.get(leaderboardCacheKey(mode, value)) || null;
+}
+
+function refreshStudentLeaderboard(mode, value = "", force = false) {
+  if (!apiEnabled()) return Promise.resolve(null);
+  const key = leaderboardCacheKey(mode, value);
+  const fetchedAt = studentDataCache.leaderboardFetchedAt.get(key) || 0;
+  if (!force && studentDataCache.leaderboards.has(key) && Date.now() - fetchedAt < STUDENT_CACHE_TTL) {
+    return Promise.resolve(studentDataCache.leaderboards.get(key));
+  }
+  if (studentDataCache.leaderboardPromises.has(key)) return studentDataCache.leaderboardPromises.get(key);
+  const filters = mode === "exam" ? { mode, examId: value } : { mode, subject: value };
+  const request = window.CrosslineApi.leaderboard(filters)
+    .then((payload) => {
+      studentDataCache.leaderboards.set(key, payload);
+      studentDataCache.leaderboardFetchedAt.set(key, Date.now());
+      return payload;
+    })
+    .finally(() => { studentDataCache.leaderboardPromises.delete(key); });
+  studentDataCache.leaderboardPromises.set(key, request);
+  return request;
+}
+
 function questionTaxonomy(question = {}) {
   const subject = normalizeExamSubjectValue(question.subject) || String(question.subject || "General practice").trim() || "General practice";
   const topic = classifyOfficialTopic(subject, question.chapter || question.topic, `${question.topic || ""} ${question.text || ""}`);
@@ -1550,28 +1644,12 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
   </main>`;
 }
 
-async function showStudentDashboard(message = "", options = {}) {
-  leaveKiosk();
-  message = typeof message === "string" ? message : "";
+function renderStudentDashboardView(message, data, leaderboard) {
   const profile = getStudentProfile();
   const name = displayName();
-  if (options.loading) {
-    showClientLoading("Preparing your dashboard");
-    bindDesktopExit({ updates: true });
-  }
-  let results = [];
-  let details = [];
-  let leaderboard = { entries: [], own: null, participantCount: 0 };
-  try {
-    const data = await loadStudentResultData();
-    results = data.results || [];
-    details = data.details || [];
-  } catch {}
+  const results = data.results || [];
+  const details = data.details || [];
   const summary = summarizeResults(results, details);
-  if (apiEnabled()) {
-    const leaderboardPayload = await window.CrosslineApi.leaderboard({ mode: "exam", examId: summary.latest?.examId || "" }).catch(() => null);
-    leaderboard = leaderboardPayload || leaderboard;
-  }
   const latestPercent = summary.latest ? `${resultPercent(summary.latest)}%` : "--";
   app.innerHTML = showDashboardAppLayout({ profile, name, results, details, summary, latestPercent, leaderboard, message });
   bind("logout", "click", requestStudentLogout);
@@ -1607,6 +1685,38 @@ async function showStudentDashboard(message = "", options = {}) {
   bindSubjectTrendInteractions();
   bindDesktopExit({ updates: true });
   renderMath();
+}
+
+async function showStudentDashboard(message = "", options = {}) {
+  leaveKiosk();
+  message = typeof message === "string" ? message : "";
+  const revision = beginStudentView("dashboard");
+  const emptyBoard = { entries: [], own: null, participantCount: 0 };
+  let data = studentResultSnapshot();
+  let summary = summarizeResults(data.results || [], data.details || []);
+  let leaderboard = leaderboardSnapshot("exam", summary.latest?.examId || "") || emptyBoard;
+  if (options.loading && !studentDataCache.resultData) {
+    showClientLoading("Preparing your dashboard");
+    bindDesktopExit({ updates: true });
+    data = await refreshStudentResultData().catch(() => data);
+    summary = summarizeResults(data.results || [], data.details || []);
+    leaderboard = await refreshStudentLeaderboard("exam", summary.latest?.examId || "").catch(() => leaderboard) || leaderboard;
+    void refreshStudentLeaderboard("average", "").catch(() => null);
+    if (isCurrentStudentView("dashboard", revision)) renderStudentDashboardView(message, data, leaderboard);
+    return;
+  }
+  renderStudentDashboardView(message, data, leaderboard);
+  void refreshStudentResultData().then(async (freshData) => {
+    const freshSummary = summarizeResults(freshData.results || [], freshData.details || []);
+    const [freshBoard] = await Promise.all([
+      refreshStudentLeaderboard("exam", freshSummary.latest?.examId || "").catch(() => leaderboard),
+      refreshStudentLeaderboard("average", "").catch(() => null)
+    ]);
+    const resolvedBoard = freshBoard || leaderboard;
+    if (isCurrentStudentView("dashboard", revision) && (freshData !== data || resolvedBoard !== leaderboard)) {
+      renderStudentDashboardView(message, freshData, resolvedBoard);
+    }
+  }).catch(() => {});
 }
 
 function studentAvatarMarkup(profile = getStudentProfile()) {
@@ -1645,21 +1755,31 @@ function bindStudentShell() {
 
 async function hydrateNotificationBadge() {
   const localUnread = localNotifications().filter((item) => !item.readAt).length;
-  try {
-    const payload = apiEnabled() ? await window.CrosslineApi.notifications() : { unread: 0 };
+  const applyCount = (remoteUnread) => {
     const badge = document.getElementById("notification-count");
-    const unread = Number(payload.unread || 0) + localUnread;
+    const unread = Number(remoteUnread || 0) + localUnread;
     if (!badge) return;
     if (!unread) { badge.classList.add("hidden"); badge.textContent = ""; return; }
     badge.textContent = String(unread);
     badge.classList.remove("hidden");
-  } catch {}
+  };
+  if (!apiEnabled()) return applyCount(0);
+  if (studentDataCache.notificationCount !== null) applyCount(studentDataCache.notificationCount);
+  if (studentDataCache.notificationCount !== null && Date.now() - studentDataCache.notificationFetchedAt < STUDENT_CACHE_TTL) return;
+  if (!studentDataCache.notificationPromise) {
+    studentDataCache.notificationPromise = window.CrosslineApi.notifications()
+      .then((payload) => {
+        studentDataCache.notificationCount = Number(payload.unread || 0);
+        studentDataCache.notificationFetchedAt = Date.now();
+        return studentDataCache.notificationCount;
+      })
+      .finally(() => { studentDataCache.notificationPromise = null; });
+  }
+  try { applyCount(await studentDataCache.notificationPromise); } catch {}
 }
 
-async function showExamList(message = "") {
-  leaveKiosk();
+function renderExamList(message = "") {
   message = typeof message === "string" ? message : "";
-  if (apiEnabled()) { try { await refreshExamsFromApi(false); } catch {} }
   const subject = selectedExamSubject === "__unassigned__" ? "__unassigned__" : normalizeExamSubjectValue(selectedExamSubject);
   if (!subject) {
     const counts = Object.fromEntries(EXAM_SUBJECTS.map((name) => [name, exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === name).length]));
@@ -1692,23 +1812,38 @@ async function showExamList(message = "") {
   renderMath();
 }
 
-async function showStudentResults(message = "") {
+function showExamList(message = "") {
   leaveKiosk();
   message = typeof message === "string" ? message : "";
-  app.innerHTML = studentPageShell({ active: "results", title: "Your results", subtitle: "Loading your released mock exam results...", content: `<section class="dash-page-card"><p class="form-note">Loading results...</p></section>` });
-  bindStudentShell();
-  try {
-    const payload = apiEnabled() ? await window.CrosslineApi.results() : { results: getLocalResults() };
-    const results = payload.results || [];
-    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid results-page-grid">${results.length ? results.map((result) => `<article class="dash-page-card result-choice-card"><div><p class="dash-card-kicker">${result.ready ? "Result" : "Finalizing result"}</p><h2>${mathHtml(result.examTitle)}</h2><p>${result.ready ? `Score ${formatScore(result.score?.earned)} / ${formatScore(result.score?.total)}` : "Your score is being finalized. Refresh in a moment."}</p><div class="exam-meta"><span>Submitted: ${escapeHtml(formatDateTime(result.submittedAt))}</span><span>${result.ready ? "Available now" : "Finalizing"}</span></div></div><button class="${result.ready ? "dash-outline-button" : "dash-muted-button"} view-result" data-id="${escapeHtml(result.id)}" ${result.ready ? "" : "disabled"}>${result.ready ? "View full result" : "Finalizing"}</button></article>`).join("") : `<article class="dash-page-card"><h2>No submitted mock results yet</h2><p>Your full score and answer review will appear immediately after you submit a mock.</p><button id="results-start-exam" class="dash-start-button">Choose an exam</button></article>`}</section>`;
-    app.innerHTML = studentPageShell({ active: "results", title: "Your results", subtitle: "Review scores, every option you chose, correct answers, explanations, and marks.", content });
-    bindStudentShell();
-    bind("results-start-exam", "click", showExamList);
-    document.querySelectorAll(".view-result").forEach((button) => button.addEventListener("click", () => showStudentResultDetail(button.dataset.id)));
-    renderMath();
-  } catch (error) {
-    showStudentResults(error.message || "Your results could not be loaded.");
+  const revision = beginStudentView("exams");
+  renderExamList(message);
+  if (apiEnabled() && Date.now() - studentExamsFetchedAt >= STUDENT_CACHE_TTL) {
+    void refreshExamsFromApi(false).then(() => {
+      if (isCurrentStudentView("exams", revision)) renderExamList(message);
+    }).catch(() => {});
   }
+}
+
+function renderStudentResults(results = [], message = "") {
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid results-page-grid">${results.length ? results.map((result) => `<article class="dash-page-card result-choice-card"><div><p class="dash-card-kicker">${result.ready ? "Result" : "Finalizing result"}</p><h2>${mathHtml(result.examTitle)}</h2><p>${result.ready ? `Score ${formatScore(result.score?.earned)} / ${formatScore(result.score?.total)}` : "Your score is being finalized. Refresh in a moment."}</p><div class="exam-meta"><span>Submitted: ${escapeHtml(formatDateTime(result.submittedAt))}</span><span>${result.ready ? "Available now" : "Finalizing"}</span></div></div><button class="${result.ready ? "dash-outline-button" : "dash-muted-button"} view-result" data-id="${escapeHtml(result.id)}" ${result.ready ? "" : "disabled"}>${result.ready ? "View full result" : "Finalizing"}</button></article>`).join("") : `<article class="dash-page-card"><h2>No submitted mock results yet</h2><p>Your full score and answer review will appear immediately after you submit a mock.</p><button id="results-start-exam" class="dash-start-button">Choose an exam</button></article>`}</section>`;
+  app.innerHTML = studentPageShell({ active: "results", title: "Your results", subtitle: "Review scores, every option you chose, correct answers, explanations, and marks.", content });
+  bindStudentShell();
+  bind("results-start-exam", "click", showExamList);
+  document.querySelectorAll(".view-result").forEach((button) => button.addEventListener("click", () => showStudentResultDetail(button.dataset.id)));
+  renderMath();
+}
+
+function showStudentResults(message = "") {
+  leaveKiosk();
+  message = typeof message === "string" ? message : "";
+  const revision = beginStudentView("results");
+  const snapshot = studentResultSnapshot();
+  renderStudentResults(snapshot.results || [], message);
+  void refreshStudentResultData().then((data) => {
+    if (isCurrentStudentView("results", revision) && data !== snapshot) renderStudentResults(data.results || [], message);
+  }).catch((error) => {
+    if (isCurrentStudentView("results", revision)) renderStudentResults(snapshot.results || [], error.message || "Your results could not be refreshed.");
+  });
 }
 
 function resultQuestionAnchor(questionId, prefix = "all") {
@@ -1717,10 +1852,15 @@ function resultQuestionAnchor(questionId, prefix = "all") {
 
 async function showStudentResultDetail(resultId, focusQuestionId = "") {
   leaveKiosk();
-  app.innerHTML = studentPageShell({ active: "results", title: "Result review", subtitle: "Loading your answers and explanations...", content: `<section class="dash-page-card"><p class="form-note">Loading answer review...</p></section>` });
-  bindStudentShell();
+  const revision = beginStudentView("result-detail");
+  const cached = (studentResultSnapshot().details || []).find((detail) => (detail.result?.id || detail.id) === resultId);
+  if (!cached) {
+    app.innerHTML = studentPageShell({ active: "results", title: "Result review", subtitle: "Preparing your answers and explanations...", content: `<section class="dash-page-card"><p class="form-note">Preparing answer review...</p></section>` });
+    bindStudentShell();
+  }
   try {
-    const payload = apiEnabled() ? await window.CrosslineApi.result(resultId) : getLocalResults().find((result) => result.id === resultId);
+    const payload = cached || (apiEnabled() ? await window.CrosslineApi.result(resultId) : getLocalResults().find((result) => result.id === resultId));
+    if (!isCurrentStudentView("result-detail", revision)) return;
     if (!payload) return showStudentResults("Result not found.");
     const { result, questions = [] } = payload;
     if (!result.ready) return showStudentResults("This result is still pending.");
@@ -1736,16 +1876,12 @@ async function showStudentResultDetail(resultId, focusQuestionId = "") {
       setTimeout(() => focused?.scrollIntoView?.({ behavior: "smooth", block: "center" }), 120);
     }
   } catch (error) {
-    showStudentResults(error.message);
+    if (isCurrentStudentView("result-detail", revision)) showStudentResults(error.message);
   }
 }
 
-async function showWeaknessAnalysis() {
-  if (apiEnabled()) { try { await refreshExamsFromApi(false); } catch {} }
-  app.innerHTML = studentPageShell({ active: "weakness", title: "Weakness analysis", subtitle: "Loading your topic-by-topic performance...", content: `<section class="dash-page-card"><p class="form-note">Loading performance details...</p></section>` });
-  bindStudentShell();
-  const data = await loadStudentResultData().catch(() => ({ details: [] }));
-  const stats = topicPerformance(data.details || []).filter((stat) => stat.wrong || stat.skipped);
+function renderWeaknessAnalysis(details = []) {
+  const stats = topicPerformance(details).filter((stat) => stat.wrong || stat.skipped);
   const content = stats.length ? `<section class="weakness-summary"><div><strong>${stats.length}</strong><span>topics need attention</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.wrong, 0)}</strong><span>incorrect answers</span></div><div><strong>${stats.reduce((sum, stat) => sum + stat.skipped, 0)}</strong><span>skipped answers</span></div></section><section class="subject-performance-list">${stats.map((stat, index) => `<article class="dash-page-card subject-performance-card"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total} · ${stat.wrong} incorrect · ${stat.skipped} skipped</p></div><div><div class="subject-meter"><i style="--score:${stat.accuracy}%"></i></div><small>${stat.accuracy}% accuracy</small></div><button class="dash-outline-button weakness-review" data-index="${index}">Review ${stat.wrong + stat.skipped} questions</button></article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No weak topics yet</h2><p>Complete a mock to build topic-level analysis. If every released answer is correct, this page will stay clear.</p><button id="weakness-start-exam" class="dash-start-button">Choose an exam</button></section>`;
   app.innerHTML = studentPageShell({ active: "weakness", title: "Weakness analysis", subtitle: "Every topic is calculated from your real correct, incorrect, and skipped answers.", content });
   bindStudentShell();
@@ -1754,8 +1890,18 @@ async function showWeaknessAnalysis() {
   renderMath();
 }
 
+function showWeaknessAnalysis() {
+  const revision = beginStudentView("weakness");
+  const snapshot = studentResultSnapshot();
+  renderWeaknessAnalysis(snapshot.details || []);
+  void refreshStudentResultData().then((data) => {
+    if (isCurrentStudentView("weakness", revision) && data !== snapshot) renderWeaknessAnalysis(data.details || []);
+  }).catch(() => {});
+}
+
 function showWeaknessTopic(stat) {
   if (!stat) return showWeaknessAnalysis();
+  beginStudentView("weakness-topic");
   const questions = stat.questions.filter((question) => question.correct !== true);
   const content = `<div class="dash-result-summary weakness-topic-summary"><div><p class="dash-card-kicker">${escapeHtml(stat.subject)}</p><h2>${escapeHtml(stat.topic)}</h2><p>${stat.correct} correct out of ${stat.total}. Review every mistake and skip below.</p></div><button id="back-weakness" class="dash-outline-button">Back to all topics</button></div><section class="dash-review-section"><h2>Mistakes and skipped questions</h2>${questions.map((question, index) => `<div class="weakness-question-wrap">${resultQuestionHtml(question, `topic-${index}`)}<button class="dash-outline-button open-question-result" data-result-id="${escapeHtml(question.resultId)}" data-question-id="${escapeHtml(question.id)}">Open in full result</button></div>`).join("")}</section>`;
   app.innerHTML = studentPageShell({ active: "weakness", title: stat.topic, subtitle: stat.subject, content });
@@ -1770,21 +1916,33 @@ function leaderboardTableHtml(payload, emptyMessage) {
   return `<ol class="leaderboard-table">${payload.entries.map((entry) => `<li class="${entry.isCurrentUser ? "current" : ""}"><b>#${entry.rank}</b><span>${escapeHtml(entry.name)}${payload.mode === "average" ? `<small>${entry.attempts} recent ${entry.attempts === 1 ? "exam" : "exams"}</small>` : ""}</span><strong>${entry.score}%</strong></li>`).join("")}</ol>`;
 }
 
-async function showLeaderboard(examId = "", subject = "") {
-  examId = typeof examId === "string" ? examId : "";
-  subject = typeof subject === "string" ? subject : "";
-  app.innerHTML = studentPageShell({ active: "leaderboard", title: "Live leaderboard", subtitle: "Loading the latest student rankings...", content: `<section class="dash-page-card"><p class="form-note">Loading leaderboard...</p></section>` });
-  bindStudentShell();
-  const [examBoard, averageBoard] = apiEnabled() ? await Promise.all([
-    window.CrosslineApi.leaderboard({ mode: "exam", examId }).catch(() => null),
-    window.CrosslineApi.leaderboard({ mode: "average", subject }).catch(() => null)
-  ]) : [null, null];
+function renderLeaderboardPage(examBoard, averageBoard, examId = "", subject = "") {
   const filters = examBoard?.filters || averageBoard?.filters || { exams: [], subjects: [] };
   const content = examBoard || averageBoard ? `<section class="leaderboard-controls dash-page-card"><label>Exam leaderboard<select id="leaderboard-exam-filter">${filters.exams.map((exam) => `<option value="${escapeHtml(exam.id)}" ${exam.id === examBoard?.examId ? "selected" : ""}>${escapeHtml(exam.title)}</option>`).join("")}</select></label><label>Five-exam average subject<select id="leaderboard-subject-filter"><option value="">All subjects</option>${filters.subjects.map((item) => `<option value="${escapeHtml(item)}" ${item === (averageBoard?.subject === "All subjects" ? "" : averageBoard?.subject) ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label></section><section class="leaderboard-board-grid"><article class="dash-page-card leaderboard-page-card"><div class="dash-section-title"><div><p class="dash-card-kicker">Latest attempt per student</p><h2>${escapeHtml(examBoard?.examTitle || "Exam leaderboard")}</h2><p>${examBoard?.own ? `Your rank is #${examBoard.own.rank} with ${examBoard.own.score}%.` : "Complete this exam to join its ranking."}</p></div><strong>${examBoard?.participantCount || 0} students</strong></div>${leaderboardTableHtml(examBoard, "No one has completed this exam yet.")}</article><article class="dash-page-card leaderboard-page-card"><div class="dash-section-title"><div><p class="dash-card-kicker">Last five average</p><h2>${escapeHtml(averageBoard?.subject || "All subjects")}</h2><p>${averageBoard?.own ? `Your average rank is #${averageBoard.own.rank} with ${averageBoard.own.score}%.` : "Complete released exams to join this ranking."}</p></div><strong>${averageBoard?.participantCount || 0} students</strong></div>${leaderboardTableHtml(averageBoard, "No eligible results are available for this subject yet.")}</article></section>` : `<section class="dash-page-card"><h2>The leaderboard is temporarily unavailable</h2><p>Try again after the exam service reconnects.</p></section>`;
   app.innerHTML = studentPageShell({ active: "leaderboard", title: "Live leaderboard", subtitle: "Compare each exam separately or rank the last five average by subject. Only shortened display names are shown.", content });
   bindStudentShell();
   bind("leaderboard-exam-filter", "change", (event) => showLeaderboard(event.target.value, subject));
   bind("leaderboard-subject-filter", "change", (event) => showLeaderboard(examBoard?.examId || examId, event.target.value));
+}
+
+function showLeaderboard(examId = "", subject = "") {
+  examId = typeof examId === "string" ? examId : "";
+  subject = typeof subject === "string" ? subject : "";
+  const revision = beginStudentView("leaderboard");
+  const resultSnapshot = studentResultSnapshot();
+  const latestExamId = summarizeResults(resultSnapshot.results || [], resultSnapshot.details || []).latest?.examId || "";
+  const examSnapshot = leaderboardSnapshot("exam", examId) || (!examId ? leaderboardSnapshot("exam", latestExamId) : null);
+  const averageSnapshot = leaderboardSnapshot("average", subject);
+  renderLeaderboardPage(examSnapshot, averageSnapshot, examId, subject);
+  if (!apiEnabled()) return;
+  void Promise.all([
+    refreshStudentLeaderboard("exam", examId).catch(() => examSnapshot),
+    refreshStudentLeaderboard("average", subject).catch(() => averageSnapshot)
+  ]).then(([examBoard, averageBoard]) => {
+    if (isCurrentStudentView("leaderboard", revision) && (examBoard !== examSnapshot || averageBoard !== averageSnapshot)) {
+      renderLeaderboardPage(examBoard, averageBoard, examId, subject);
+    }
+  });
 }
 
 function notificationItemHtml(item) {
@@ -1825,6 +1983,8 @@ async function toggleNotificationPopover(event) {
   document.addEventListener("keydown", closeNotificationOnEscape);
   const badge = document.getElementById("notification-count");
   badge?.classList.add("hidden");
+  studentDataCache.notificationCount = 0;
+  studentDataCache.notificationFetchedAt = Date.now();
   const localBeforeRead = localNotifications();
   saveLocalNotifications(localBeforeRead.map((item) => ({ ...item, readAt: item.readAt || new Date().toISOString() })));
   const payload = apiEnabled() ? await window.CrosslineApi.notifications().catch(() => ({ notifications: [] })) : { notifications: [] };
@@ -1860,6 +2020,7 @@ async function toggleNotificationPopover(event) {
 }
 
 function showStudentSettings(message = "") {
+  beginStudentView("settings");
   message = typeof message === "string" ? message : "";
   const profile = getStudentProfile();
   const updateSettings = isDesktopClient() ? `<div class="settings-update-copy"><b>Windows app updates</b><p>Updates are verified before installation. If a previous download was interrupted, reset it here and check again.</p></div>` : "";
@@ -2363,6 +2524,10 @@ async function submitExamAndExit() {
   clearInterval(clockTimer);
   await saveSessionAnswers(true);
   await recordSessionEvent("exam_submitted", { answered, flagged, elapsedSeconds });
+  studentDataCache.resultData = null;
+  studentDataCache.resultDataFetchedAt = 0;
+  studentDataCache.leaderboards.clear();
+  studentDataCache.leaderboardFetchedAt.clear();
   const localResultId = !apiEnabled() ? saveLocalExamResult() : "";
   stopMedia();
   leaveKiosk();
