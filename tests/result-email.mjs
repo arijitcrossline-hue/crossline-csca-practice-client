@@ -24,6 +24,7 @@ assert.doesNotMatch(best.html, /Arijit <Admin>/);
 assert.match(best.html, /#1 of 18/);
 assert.match(best.html, /\+12 pts/);
 assert.match(best.html, /Previous best: 82%/);
+assert.doesNotMatch(best.html, /border-(?:top|right|bottom|left):(?:3|4)px/);
 assert.match(best.text, /Position: #1 of 18/);
 assert.match(best.text, /New Physics best: \+12 pts/);
 

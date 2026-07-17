@@ -53,7 +53,7 @@ export function buildResultEmail(result = {}) {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f1ed;">
     <tr>
       <td align="center" style="padding:28px 12px;">
-        <table role="presentation" class="email-shell" width="600" cellspacing="0" cellpadding="0" border="0" style="width:600px;max-width:600px;background:#fffdfa;border:1px solid #dfd7d1;border-top:4px solid #bd2029;border-radius:8px;overflow:hidden;">
+        <table role="presentation" class="email-shell" width="600" cellspacing="0" cellpadding="0" border="0" style="width:600px;max-width:600px;background:#fffdfa;border:1px solid #d8d0ca;border-radius:8px;overflow:hidden;">
           <tr>
             <td class="email-pad" style="padding:24px 34px 18px;border-bottom:1px solid #eee5df;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
