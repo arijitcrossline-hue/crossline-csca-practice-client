@@ -23,10 +23,13 @@ assert.match(best.html, /Arijit &lt;Admin&gt;/);
 assert.doesNotMatch(best.html, /Arijit <Admin>/);
 assert.match(best.html, /#1 of 18/);
 assert.match(best.html, /\+12 pts/);
-assert.match(best.html, /Previous best: 82%/);
+assert.match(best.html, /Your highest Physics result so far/);
+assert.doesNotMatch(best.html, />94%</);
+assert.doesNotMatch(best.html, /Open Crossline/);
 assert.doesNotMatch(best.html, /border-(?:top|right|bottom|left):(?:3|4)px/);
 assert.match(best.text, /Position: #1 of 18/);
 assert.match(best.text, /New Physics best: \+12 pts/);
+assert.doesNotMatch(best.text, /%|Open Crossline/);
 
 const first = buildResultEmail({
   studentName: "Student",
@@ -41,6 +44,6 @@ const first = buildResultEmail({
 
 assert.match(first.html, /First Physics score/);
 assert.match(first.html, /Your new starting point/);
-assert.match(first.text, /First Physics score: 75%/);
+assert.match(first.text, /First Physics score: 75 \/ 100/);
 
 console.log("Result email renderer tests passed.");

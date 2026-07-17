@@ -3,8 +3,7 @@ const DEFAULT_APP_URL = "https://exam.crosslinecscatest.com";
 export function buildResultEmail(result = {}) {
   const earned = formatScore(result.earned);
   const total = formatScore(result.total);
-  const percent = clampPercent(result.percent ?? percentage(result.earned, result.total));
-  const percentLabel = `${formatScore(percent)}%`;
+  const scoreLabel = `${earned} / ${total}`;
   const subject = cleanText(result.subject) || "your exam";
   const examTitle = cleanText(result.examTitle) || "Crossline CSCA mock exam";
   const studentName = cleanText(result.studentName) || "Student";
@@ -13,7 +12,7 @@ export function buildResultEmail(result = {}) {
   const rankLabel = Number.isFinite(Number(result.rank))
     ? `#${Math.max(1, Math.round(Number(result.rank)))}${Number.isFinite(Number(result.participants)) ? ` of ${Math.max(1, Math.round(Number(result.participants)))}` : ""}`
     : "Not ranked";
-  const achievement = achievementCopy(result, subject, percentLabel);
+  const achievement = achievementCopy(result, subject, scoreLabel);
   const subjectLine = result.isPersonalBest
     ? `New ${subject} personal best: ${earned}/${total}`
     : `Your ${subject} result: ${earned}/${total}`;
@@ -23,12 +22,10 @@ export function buildResultEmail(result = {}) {
     `Hi ${studentName},`,
     "",
     `Your result for ${examTitle} is ready.`,
-    `Score: ${earned} / ${total} (${percentLabel})`,
+    `Score: ${scoreLabel}`,
     `Position: ${rankLabel}`,
     `${achievement.label}: ${achievement.value}`,
     `Submitted: ${submitted}`,
-    "",
-    `Open Crossline: ${appUrl}`,
     "",
     "Keep practising with Crossline Education."
   ].join("\n");
@@ -80,9 +77,6 @@ export function buildResultEmail(result = {}) {
                     <span style="display:block;color:#d9cdc7;font-size:11px;font-weight:bold;text-transform:uppercase;">Final score</span>
                     <strong style="display:block;margin-top:5px;color:#ffffff;font-size:36px;line-height:1;">${escapeHtml(earned)} <span style="color:#ab9d97;font-size:21px;font-weight:normal;">/ ${escapeHtml(total)}</span></strong>
                   </td>
-                  <td align="right" valign="middle" style="padding:24px 26px;">
-                    <span style="display:inline-block;padding:10px 12px;border:1px solid #6f5f59;border-radius:7px;color:#ffffff;font-size:20px;font-weight:bold;">${escapeHtml(percentLabel)}</span>
-                  </td>
                 </tr>
               </table>
             </td>
@@ -104,9 +98,8 @@ export function buildResultEmail(result = {}) {
           <tr>
             <td class="email-pad" style="padding:0 34px 30px;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #eee5df;">
-                <tr><td style="padding:17px 0 20px;color:#7a6d67;font-size:12px;line-height:1.5;">Submitted ${escapeHtml(submitted)}</td></tr>
+                <tr><td style="padding:17px 0 0;color:#7a6d67;font-size:12px;line-height:1.5;">Submitted ${escapeHtml(submitted)}</td></tr>
               </table>
-              <a href="${escapeHtml(appUrl)}" style="display:inline-block;padding:12px 18px;border-radius:6px;background:#bd2029;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;">Open Crossline</a>
             </td>
           </tr>
           <tr>
@@ -122,14 +115,14 @@ export function buildResultEmail(result = {}) {
   return { subject: subjectLine, text, html };
 }
 
-function achievementCopy(result, subject, percentLabel) {
+function achievementCopy(result, subject, scoreLabel) {
   const previousBest = result.previousBest === null || result.previousBest === undefined ? Number.NaN : Number(result.previousBest);
   const improvement = Number(result.improvement);
   if (result.isPersonalBest && Number.isFinite(improvement) && improvement > 0) {
     return {
       label: `New ${subject} best`,
       value: `+${formatScore(improvement)} pts`,
-      detail: `Previous best: ${formatScore(previousBest)}%`,
+      detail: `Your highest ${subject} result so far`,
       background: "#eef8f2",
       color: "#176641"
     };
@@ -137,16 +130,16 @@ function achievementCopy(result, subject, percentLabel) {
   if (!Number.isFinite(previousBest)) {
     return {
       label: `First ${subject} score`,
-      value: percentLabel,
+      value: scoreLabel,
       detail: "Your new starting point",
       background: "#f1f5fb",
       color: "#315b89"
     };
   }
   return {
-    label: `${subject} best`,
-    value: `${formatScore(Math.max(previousBest, Number(result.percent) || 0))}%`,
-    detail: `This attempt: ${percentLabel}`,
+    label: `${subject} progress`,
+    value: "Keep going",
+    detail: "Your previous personal best still stands",
     background: "#f1f5fb",
     color: "#315b89"
   };
@@ -154,16 +147,6 @@ function achievementCopy(result, subject, percentLabel) {
 
 function metricCard(label, value, detail, background, color) {
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:${background};border:1px solid #e6ddd7;border-radius:8px;"><tr><td style="padding:16px;"><span style="display:block;color:#786a64;font-size:10px;font-weight:bold;text-transform:uppercase;">${escapeHtml(label)}</span><strong style="display:block;margin-top:5px;color:${color};font-size:19px;line-height:1.2;">${escapeHtml(value)}</strong><span style="display:block;margin-top:5px;color:#7b6d67;font-size:11px;line-height:1.35;">${escapeHtml(detail)}</span></td></tr></table>`;
-}
-
-function percentage(earned, total) {
-  const numericTotal = Number(total);
-  return numericTotal > 0 ? (Number(earned) / numericTotal) * 100 : 0;
-}
-
-function clampPercent(value) {
-  const percent = Number(value);
-  return Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent * 100) / 100)) : 0;
 }
 
 function formatScore(value) {
