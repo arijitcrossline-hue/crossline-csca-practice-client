@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="../src/" />
+    <title>Crossline dashboard preview</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.examRuntime = {
+        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: false }),
+        enterKiosk: async () => true,
+        leaveKiosk: async () => true,
+        onIntegrityEvent: () => () => {},
+        onOAuthComplete: () => () => {},
+        onUpdateProgress: () => () => {},
+        openExternal: async () => true
+      };
+    </script>
+    <script src="config.js"></script>
+    <script>
+      window.CROSSLINE_API_BASE = "";
+      const previewScores = [54, 63, 71, 68, 82];
+      const previewResults = previewScores.map((score, index) => {
+        const result = { id: `preview-${index}`, examTitle: `Physics Mock ${index + 1}`, submittedAt: new Date(Date.now() - (4 - index) * 86400000).toISOString(), ready: true, score: { earned: score, total: 100 } };
+        const questions = Array.from({ length: 5 }, (_, questionIndex) => ({ id: `${index}-${questionIndex}`, subject: questionIndex > 2 ? "Mathematics" : "Physics", chapter: "Mechanics", topic: "Motion", marks: 20, earnedMarks: questionIndex * 20 < score ? 20 : 0, correct: questionIndex * 20 < score, selected: 0, correctIndex: 0, answers: ["A", "B", "C", "D"] }));
+        return { ...result, result, questions };
+      }).reverse();
+      localStorage.setItem("csca-results-student@example.com", JSON.stringify(previewResults));
+    </script>
+    <script src="api.js"></script>
+    <script src="vendor/marked.umd.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

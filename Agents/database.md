@@ -30,11 +30,13 @@ Account and profile data:
 - `username`, `first_name`, `last_name`
 - `avatar_url`, either provider HTTPS URL or compressed data URL
 - `password_hash`
+- `is_admin`
+- encrypted `totp_secret_encrypted` and `totp_enabled_at`
 - `verified_at`
 - `created_at`
 - compatibility `is_premium`, currently unused by product behavior
 
-Admin users have a row so admin sessions can reference a user ID. Admin credential checking still comes from Worker environment settings.
+Administrator status belongs to the same verified student account. TOTP secrets are encrypted with the Worker MFA encryption secret before storage.
 
 ### `oauth_accounts`
 
@@ -57,7 +59,11 @@ Opaque Bearer tokens:
 - exact `student` or `admin` role
 - expiry and creation time
 
-Current TTL is 30 days. Expired rows are rejected but are not automatically swept from the table.
+Student TTL is 30 days; privileged admin sessions expire after two hours. Expired rows are rejected but are not automatically swept from the table.
+
+### `admin_audit_log`
+
+Records administrator MFA enrollment, privileged session creation, and access grants/revocations with actor, optional target email, and timestamp.
 
 ### `exams`
 
@@ -115,7 +121,7 @@ Admin-created broadcasts with title, body, kind, audience, creator, and timestam
 
 ### `notification_receipts`
 
-Composite key `(notification_id, user_id)` with `read_at`. This lets the API return per-student read state without copying notifications.
+Composite key `(notification_id, user_id)` with `read_at` and `archived_at`. This lets the API return per-student read and archive state without copying notifications.
 
 ## JSON Fields
 

@@ -41,6 +41,7 @@ function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
         this.open = false;
       };
       window.confirm = () => true;
+      window.open = () => ({ closed: false });
     }
   });
   dom.window.eval(script);
@@ -131,9 +132,8 @@ async function studentFlow() {
   assert.match(window.document.querySelector(".auth-brand").textContent, /Cross-Line/);
   assert.equal(window.document.querySelector("#facebook-sign-in"), null);
   click(window, "#auth-privacy");
-  assert.match(window.document.querySelector("#auth-legal-modal").textContent, /Camera and microphone checks/);
-  click(window, "#close-auth-legal");
   assert.equal(window.document.querySelector("#auth-legal-modal"), null);
+  assert.equal(window.document.querySelector("#admin-entry"), null);
   assert.doesNotMatch(window.document.body.textContent, /[\u3400-\u9fff]/);
   submit(window, "#login-form");
   assert.match(window.document.body.textContent, /Student dashboard/);
@@ -144,6 +144,15 @@ async function studentFlow() {
   assert.equal(window.document.querySelector("#dashboard-profile"), null);
   assert.doesNotMatch(window.document.body.textContent, /Quick Actions|Study Plan|Bookmarks/);
   assert.equal(runtimeEvents.enterKiosk, 0);
+  window.eval(`pushLocalNotification({ id: "update-test", title: "Test update", body: "Notification preview", kind: "update" })`);
+  click(window, "#dashboard-notifications");
+  await waitFor(window, "#notification-popover");
+  assert.match(window.document.querySelector("#notification-popover nav").textContent, /AllUnreadArchived/);
+  assert.doesNotMatch(window.document.querySelector("#notification-popover").textContent, /Mark read/);
+  click(window, ".notification-archive-action");
+  click(window, '[data-notification-filter="archived"]');
+  assert.match(window.document.querySelector(".notification-popover-list").textContent, /Test update/);
+  click(window, "#close-notification-popover");
   click(window, "#start-exam-dashboard");
   assert.match(window.document.body.textContent, /Choose a subject/);
   assert.match(window.document.body.textContent, /Physics|Chemistry|Mathematics|Academic Chinese/);
@@ -254,8 +263,7 @@ async function passwordResetFlow() {
 
 function adminFlow() {
   const { window } = createPortal();
-  click(window, "#admin-entry");
-  submit(window, "#admin-form");
+  window.eval("showAdminDashboard()");
   assert.match(window.document.body.textContent, /Exam library/);
   assert.match(window.document.body.textContent, /Edit details/);
   assert.doesNotMatch(window.document.body.textContent, /Student portal preview/);

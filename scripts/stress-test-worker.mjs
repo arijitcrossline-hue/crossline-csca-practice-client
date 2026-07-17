@@ -13,8 +13,9 @@ Environment variables:
   STRESS_REPEAT           Rounds per simulated user. Default: 2
   STRESS_EMAIL            Optional student email for login + /exams test
   STRESS_PASSWORD         Optional student password for login + /exams test
-  STRESS_ADMIN_EMAIL      Optional administrator email for /admin/login + /admin/exams
-  STRESS_ADMIN_PASSWORD   Optional administrator password
+  STRESS_ADMIN_EMAIL      Optional administrator student-account email
+  STRESS_ADMIN_PASSWORD   Optional administrator student-account password
+  STRESS_ADMIN_TOTP       Current six-digit authenticator code
   STRESS_EXAM_ID          Optional exam ID to exercise session creation (writes data)
   STRESS_ALLOW_WRITES     Set to true before STRESS_EXAM_ID is accepted
   STRESS_ALLOW_AUTH       Set to true before an authenticated production test runs
@@ -35,8 +36,9 @@ const email = process.env.STRESS_EMAIL || "";
 const password = process.env.STRESS_PASSWORD || "";
 const adminEmail = process.env.STRESS_ADMIN_EMAIL || "";
 const adminPassword = process.env.STRESS_ADMIN_PASSWORD || "";
+const adminTotp = process.env.STRESS_ADMIN_TOTP || "";
 const useStudentAuth = Boolean(email && password);
-const useAdminAuth = Boolean(adminEmail && adminPassword);
+const useAdminAuth = Boolean(adminEmail && adminPassword && /^\d{6}$/.test(adminTotp));
 const useAuth = useStudentAuth || useAdminAuth;
 const repeat = positiveInt(process.env.STRESS_REPEAT, useAuth ? 1 : 2);
 const examId = process.env.STRESS_EXAM_ID || "";
@@ -66,7 +68,7 @@ for (let userIndex = 0; userIndex < users; userIndex += 1) {
 
 console.log(`Stress testing ${baseUrl}`);
 console.log(`Users: ${users}, repeat: ${repeat}, requests/scenarios: ${jobs.length}, concurrency: ${concurrency}`);
-console.log(useStudentAuth ? `Scenario: /health -> /auth/login -> /exams${examId ? " -> /sessions" : ""}` : useAdminAuth ? "Scenario: /health -> /admin/login -> /admin/exams" : "Scenario: /health only. Set student or admin stress credentials to include authenticated reads.");
+console.log(useStudentAuth ? `Scenario: /health -> /auth/login -> /exams${examId ? " -> /sessions" : ""}` : useAdminAuth ? "Scenario: /health -> /auth/login -> /admin/session -> /admin/exams" : "Scenario: /health only. Set student or admin stress credentials to include authenticated reads.");
 
 await runPool(jobs, concurrency);
 printSummary(results);
@@ -74,9 +76,12 @@ printSummary(results);
 async function runScenario(userIndex, round) {
   await timed("health", () => request("/health"));
   if (useAdminAuth) {
-    const login = await timed("admin-login", () => request("/admin/login", { method: "POST", body: { email: adminEmail, password: adminPassword } }));
-    if (login.ok && login.payload?.token) await timed("admin-exams", () => request("/admin/exams", { headers: { authorization: `Bearer ${login.payload.token}` } }));
-    else results.push({ route: "admin-exams", ok: false, status: 0, ms: 0, error: `Skipped after failed admin login for user ${userIndex}, round ${round}` });
+    const login = await timed("admin-account-login", () => request("/auth/login", { method: "POST", body: { email: adminEmail, password: adminPassword } }));
+    const elevated = login.ok && login.payload?.token
+      ? await timed("admin-2fa", () => request("/admin/session", { method: "POST", headers: { authorization: `Bearer ${login.payload.token}` }, body: { code: adminTotp } }))
+      : null;
+    if (elevated?.ok && elevated.payload?.token) await timed("admin-exams", () => request("/admin/exams", { headers: { authorization: `Bearer ${elevated.payload.token}` } }));
+    else results.push({ route: "admin-exams", ok: false, status: 0, ms: 0, error: `Skipped after failed admin 2FA for user ${userIndex}, round ${round}` });
     return;
   }
   if (!useStudentAuth) return;

@@ -66,12 +66,9 @@ Callback: `https://api.crosslinecscatest.com/auth/oauth/google/callback`.
 
 ## Administrator Authentication
 
-`POST /admin/login` checks:
+Administrators use the same verified student account as the dashboard. The creator account is `arijitsumit123@gmail.com`; additional verified users can be granted `is_admin = 1` from the protected Admin access screen.
 
-- email is present in `ADMIN_EMAILS` or equals `ADMIN_EMAIL`
-- password equals `ADMIN_PASSWORD`
-
-It does not compare the user's stored password hash. If needed, a verified user row is created so the admin session has an owner. The returned role is `admin`, and the renderer stores the token in `crossline-admin-api-token`.
+`GET /admin/mfa/status`, `POST /admin/mfa/setup`, and `POST /admin/mfa/enable` configure authenticator-based TOTP. Secrets are encrypted with `ADMIN_MFA_ENCRYPTION_KEY`. `POST /admin/session` requires a valid student token plus a current six-digit code and returns a two-hour admin token stored in `crossline-admin-api-token`.
 
 Admin and student authorization are not interchangeable. Every protected handler calls `requireAuth()` with the expected role.
 
@@ -82,6 +79,7 @@ Admin and student authorization are not interchangeable. Every protected handler
 - TTL: 30 days
 - sent as `Authorization: Bearer ...`
 - role checked on every protected request
+- privileged tokens expire after two hours
 
 Do not log tokens or include them in documentation/screenshots.
 

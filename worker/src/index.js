@@ -72,12 +72,21 @@ export default {
       if (url.pathname.match(/^\/auth\/oauth\/(google|facebook)\/start$/) && request.method === "GET") return await startOAuth(request, env, url);
       if (url.pathname.match(/^\/auth\/oauth\/(google|facebook)\/callback$/) && request.method === "GET") return await completeOAuth(request, env, url);
       if (url.pathname === "/auth/oauth/complete" && request.method === "GET") return oauthCompletePage(env);
-      if (url.pathname === "/admin/login" && request.method === "POST") return await adminLogin(request, env);
+      if (url.pathname === "/admin/mfa/status" && request.method === "GET") return await adminMfaStatus(request, env);
+      if (url.pathname === "/admin/mfa/setup" && request.method === "POST") return await adminMfaSetup(request, env);
+      if (url.pathname === "/admin/mfa/enable" && request.method === "POST") return await adminMfaEnable(request, env);
+      if (url.pathname === "/admin/session" && request.method === "POST") return await createAdminSession(request, env);
+      if (url.pathname === "/admin/access" && request.method === "GET") return await adminListAccess(request, env);
+      if (url.pathname === "/admin/access" && request.method === "POST") return await adminGrantAccess(request, env);
+      if (url.pathname.match(/^\/admin\/access\/[^/]+$/) && request.method === "DELETE") return await adminRevokeAccess(request, env, url);
       if (url.pathname === "/exams" && request.method === "GET") return await listExams(request, env);
       if (url.pathname === "/results" && request.method === "GET") return await listResults(request, env);
       if (url.pathname.match(/^\/results\/[^/]+$/) && request.method === "GET") return await resultDetail(request, env, url);
       if (url.pathname === "/leaderboard" && request.method === "GET") return await studentLeaderboard(request, env);
       if (url.pathname === "/notifications" && request.method === "GET") return await listNotifications(request, env);
+      if (url.pathname === "/notifications/read" && request.method === "POST") return await markAllNotificationsRead(request, env);
+      if (url.pathname.match(/^\/notifications\/[^/]+\/archive$/) && request.method === "POST") return await setNotificationArchived(request, env, url, true);
+      if (url.pathname.match(/^\/notifications\/[^/]+\/unarchive$/) && request.method === "POST") return await setNotificationArchived(request, env, url, false);
       if (url.pathname.match(/^\/notifications\/[^/]+\/read$/) && request.method === "POST") return await markNotificationRead(request, env, url);
       if (url.pathname === "/admin/exams" && request.method === "GET") return await adminListExams(request, env);
       if (url.pathname === "/admin/exams" && request.method === "POST") return await adminCreateExam(request, env);
@@ -149,18 +158,20 @@ async function verifyEmail(request, env) {
 
   await env.DB.prepare("UPDATE users SET verified_at = ? WHERE email = ?").bind(isoNow(), email).run();
   await env.DB.prepare("DELETE FROM email_verifications WHERE email = ?").bind(email).run();
-  const user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url FROM users WHERE email = ?").bind(email).first();
-  return json({ user: publicUser(user), token: await createSession(env, user.id, "student") }, env);
+  const user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE email = ?").bind(email).first();
+  await ensureCreatorAdmin(env, user);
+  return json({ user: publicUser(user, env), token: await createSession(env, user.id, "student") }, env);
 }
 
 async function login(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
-  const row = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, password_hash, verified_at FROM users WHERE email = ?").bind(email).first();
+  const row = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin, password_hash, verified_at FROM users WHERE email = ?").bind(email).first();
   if (!row || !row.verified_at || row.password_hash !== await hashSecret(String(body.password || ""), env.PASSWORD_PEPPER || "")) {
     return json({ error: "Check your credentials or finish email verification." }, env, 401);
   }
-  return json({ user: publicUser(row), token: await createSession(env, row.id, "student") }, env);
+  await ensureCreatorAdmin(env, row);
+  return json({ user: publicUser(row, env), token: await createSession(env, row.id, "student") }, env);
 }
 
 async function requestPasswordReset(request, env) {
@@ -201,19 +212,20 @@ async function confirmPasswordReset(request, env) {
 
 async function authMe(request, env) {
   const auth = await requireAuth(request, env, "student");
-  const user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url FROM users WHERE id = ?").bind(auth.userId).first();
+  const user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE id = ?").bind(auth.userId).first();
   if (!user) {
     const error = new Error("Unauthorized");
     error.status = 401;
     throw error;
   }
-  return json({ user: publicUser(user) }, env);
+  await ensureCreatorAdmin(env, user);
+  return json({ user: publicUser(user, env) }, env);
 }
 
 async function updateProfile(request, env) {
   const auth = await requireAuth(request, env, "student");
   const body = await readJson(request);
-  const current = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url FROM users WHERE id = ?").bind(auth.userId).first();
+  const current = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE id = ?").bind(auth.userId).first();
   if (!current) {
     const error = new Error("Unauthorized");
     error.status = 401;
@@ -226,7 +238,7 @@ async function updateProfile(request, env) {
   const avatarUrl = normalizeAvatarUrl(body.avatarUrl ?? body.avatar_url ?? current.avatar_url);
   await env.DB.prepare("UPDATE users SET username = ?, first_name = ?, last_name = ?, avatar_url = ? WHERE id = ?")
     .bind(username, firstName || null, lastName || null, avatarUrl || null, auth.userId).run();
-  return json({ user: publicUser({ ...current, username, first_name: firstName, last_name: lastName, avatar_url: avatarUrl }) }, env);
+  return json({ user: publicUser({ ...current, username, first_name: firstName, last_name: lastName, avatar_url: avatarUrl }, env) }, env);
 }
 
 async function startOAuth(request, env, url) {
@@ -277,10 +289,10 @@ async function completeOAuth(request, env, url) {
   const user = await upsertOAuthUser(env, provider, profile);
   const token = await createSession(env, user.id, "student");
   if (state.desktop) {
-    const params = new URLSearchParams({ token, user: JSON.stringify(publicUser(user)) });
+    const params = new URLSearchParams({ token, user: JSON.stringify(publicUser(user, env)) });
     return Response.redirect(`${url.origin}/auth/oauth/complete?${params.toString()}`, 302);
   }
-  return oauthBrowserCompletePage(token, publicUser(user), env);
+  return oauthBrowserCompletePage(token, publicUser(user, env), env);
 }
 
 function oauthCompletePage(env) {
@@ -353,13 +365,13 @@ async function fetchOAuthProfile(provider, accessToken) {
 async function upsertOAuthUser(env, provider, profile) {
   const now = isoNow();
   const account = await env.DB.prepare("SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_subject = ?").bind(provider, profile.subject).first();
-  let user = account ? await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url FROM users WHERE id = ?").bind(account.user_id).first() : null;
-  if (!user) user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url FROM users WHERE email = ?").bind(profile.email).first();
+  let user = account ? await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE id = ?").bind(account.user_id).first() : null;
+  if (!user) user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE email = ?").bind(profile.email).first();
   if (!user) {
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id, email, username, first_name, last_name, avatar_url, password_hash, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(id, profile.email, profile.username, profile.firstName || null, profile.lastName || null, profile.avatarUrl || null, await hashSecret(`oauth:${crypto.randomUUID()}`, env.PASSWORD_PEPPER || ""), now, now).run();
-    user = { id, email: profile.email, username: profile.username, first_name: profile.firstName, last_name: profile.lastName, avatar_url: profile.avatarUrl };
+    user = { id, email: profile.email, username: profile.username, first_name: profile.firstName, last_name: profile.lastName, avatar_url: profile.avatarUrl, is_admin: profile.email === creatorAdminEmail(env) ? 1 : 0 };
   } else {
     await env.DB.prepare("UPDATE users SET first_name = COALESCE(NULLIF(?, ''), first_name), last_name = COALESCE(NULLIF(?, ''), last_name), avatar_url = COALESCE(NULLIF(?, ''), avatar_url) WHERE id = ?")
       .bind(profile.firstName, profile.lastName, profile.avatarUrl, user.id).run();
@@ -367,27 +379,87 @@ async function upsertOAuthUser(env, provider, profile) {
   }
   await env.DB.prepare("INSERT INTO oauth_accounts (provider, provider_subject, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(provider, provider_subject) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at")
     .bind(provider, profile.subject, user.id, now, now).run();
+  await ensureCreatorAdmin(env, user);
   return user;
 }
 
-async function adminLogin(request, env) {
+async function adminMfaStatus(request, env) {
+  const admin = await requireAdminAccount(request, env, "student");
+  return json({ isAdmin: true, enabled: Boolean(admin.totp_enabled_at) }, env);
+}
+
+async function adminMfaSetup(request, env) {
+  const admin = await requireAdminAccount(request, env, "student");
+  if (!env.ADMIN_MFA_ENCRYPTION_KEY) return json({ error: "Administrator MFA encryption is not configured." }, env, 503);
+  if (admin.totp_enabled_at) return json({ error: "Two-factor authentication is already enabled." }, env, 409);
+  const secret = randomBase32Secret();
+  const encrypted = await encryptTotpSecret(secret, env.ADMIN_MFA_ENCRYPTION_KEY);
+  await env.DB.prepare("UPDATE users SET totp_secret_encrypted = ? WHERE id = ?").bind(encrypted, admin.id).run();
+  const issuer = "Crossline Education";
+  const label = `${issuer}:${admin.email}`;
+  const otpauth = `otpauth://totp/${encodeURIComponent(label)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+  return json({ secret, otpauth, account: admin.email }, env);
+}
+
+async function adminMfaEnable(request, env) {
+  const admin = await requireAdminAccount(request, env, "student");
+  const body = await readJson(request);
+  const secret = await decryptStoredTotp(admin, env);
+  if (!secret || !(await verifyTotp(secret, body.code))) return json({ error: "The authenticator code is incorrect or expired." }, env, 401);
+  const now = isoNow();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET totp_enabled_at = ? WHERE id = ?").bind(now, admin.id),
+    env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'mfa_enabled', ?, ?)").bind(crypto.randomUUID(), admin.id, admin.email, now)
+  ]);
+  return json({ ok: true, enabled: true }, env);
+}
+
+async function createAdminSession(request, env) {
+  const admin = await requireAdminAccount(request, env, "student");
+  const body = await readJson(request);
+  if (!admin.totp_enabled_at) return json({ error: "Set up two-factor authentication before opening the admin panel.", setupRequired: true }, env, 403);
+  const secret = await decryptStoredTotp(admin, env);
+  if (!secret || !(await verifyTotp(secret, body.code))) return json({ error: "The authenticator code is incorrect or expired." }, env, 401);
+  const now = isoNow();
+  await env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_session_created', ?, ?)")
+    .bind(crypto.randomUUID(), admin.id, admin.email, now).run();
+  return json({ token: await createSession(env, admin.id, "admin", 2 * 60 * 60), admin: { email: admin.email } }, env);
+}
+
+async function adminListAccess(request, env) {
+  await requireAuth(request, env, "admin");
+  const rows = await env.DB.prepare("SELECT email, username, totp_enabled_at, created_at FROM users WHERE is_admin = 1 OR lower(email) = ? ORDER BY created_at")
+    .bind(creatorAdminEmail(env)).all();
+  return json({ admins: rows.results.map((row) => ({ email: row.email, username: row.username, mfaEnabled: Boolean(row.totp_enabled_at), createdAt: row.created_at })) }, env);
+}
+
+async function adminGrantAccess(request, env) {
+  const auth = await requireAuth(request, env, "admin");
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
-  const adminEmails = String(env.ADMIN_EMAILS || env.ADMIN_EMAIL || "")
-    .split(",")
-    .map(normalizeEmail)
-    .filter(Boolean);
-  if (!adminEmails.includes(email) || String(body.password || "") !== String(env.ADMIN_PASSWORD || "")) {
-    return json({ error: "Incorrect administrator credentials." }, env, 401);
-  }
-  let admin = await env.DB.prepare("SELECT id, email, username FROM users WHERE email = ?").bind(email).first();
-  if (!admin) {
-    const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO users (id, email, username, password_hash, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(id, email, deriveUsernameFromEmail(email), "admin-env-password", isoNow(), isoNow()).run();
-    admin = { id, email, username: deriveUsernameFromEmail(email) };
-  }
-  return json({ admin: { email }, token: await createSession(env, admin.id, "admin") }, env);
+  const target = await env.DB.prepare("SELECT id, email FROM users WHERE email = ? AND verified_at IS NOT NULL").bind(email).first();
+  if (!target) return json({ error: "That email must first have a verified Crossline student account." }, env, 404);
+  const now = isoNow();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET is_admin = 1 WHERE id = ?").bind(target.id),
+    env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_granted', ?, ?)").bind(crypto.randomUUID(), auth.userId, target.email, now)
+  ]);
+  return json({ ok: true, email: target.email }, env);
+}
+
+async function adminRevokeAccess(request, env, url) {
+  const auth = await requireAuth(request, env, "admin");
+  const email = normalizeEmail(decodeURIComponent(url.pathname.split("/")[3] || ""));
+  if (!email || email === creatorAdminEmail(env)) return json({ error: "The creator administrator cannot be removed." }, env, 400);
+  const target = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND is_admin = 1").bind(email).first();
+  if (!target) return json({ error: "Administrator not found." }, env, 404);
+  const now = isoNow();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET is_admin = 0, totp_secret_encrypted = NULL, totp_enabled_at = NULL WHERE id = ?").bind(target.id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND role = 'admin'").bind(target.id),
+    env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_revoked', ?, ?)").bind(crypto.randomUUID(), auth.userId, email, now)
+  ]);
+  return json({ ok: true }, env);
 }
 
 async function listExams(request, env) {
@@ -605,7 +677,7 @@ async function resultDetail(request, env, url) {
 async function listNotifications(request, env) {
   const auth = await requireAuth(request, env, "student");
   const rows = await env.DB.prepare(
-    `SELECT n.id, n.title, n.body, n.kind, n.created_at, nr.read_at
+    `SELECT n.id, n.title, n.body, n.kind, n.created_at, nr.read_at, nr.archived_at
        FROM notifications n
        LEFT JOIN notification_receipts nr ON nr.notification_id = n.id AND nr.user_id = ?
       WHERE (
@@ -621,9 +693,10 @@ async function listNotifications(request, env) {
     body: row.body,
     kind: row.kind || "info",
     createdAt: row.created_at,
-    readAt: row.read_at || null
+    readAt: row.read_at || null,
+    archivedAt: row.archived_at || null
   }));
-  return json({ notifications, unread: notifications.filter((item) => !item.readAt).length }, env);
+  return json({ notifications, unread: notifications.filter((item) => !item.readAt && !item.archivedAt).length }, env);
 }
 
 async function markNotificationRead(request, env, url) {
@@ -642,6 +715,37 @@ async function markNotificationRead(request, env, url) {
   await env.DB.prepare("INSERT INTO notification_receipts (notification_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(notification_id, user_id) DO UPDATE SET read_at = excluded.read_at")
     .bind(notificationId, auth.userId, now).run();
   return json({ ok: true, readAt: now }, env);
+}
+
+async function markAllNotificationsRead(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const now = isoNow();
+  await env.DB.prepare(
+    `INSERT INTO notification_receipts (notification_id, user_id, read_at)
+     SELECT n.id, ?, ?
+       FROM notifications n
+      WHERE (n.target_user_id IS NULL AND n.audience IN ('students', 'all')) OR n.target_user_id = ?
+     ON CONFLICT(notification_id, user_id) DO UPDATE SET read_at = excluded.read_at`
+  ).bind(auth.userId, now, auth.userId).run();
+  return json({ ok: true, readAt: now }, env);
+}
+
+async function setNotificationArchived(request, env, url, archived) {
+  const auth = await requireAuth(request, env, "student");
+  const notificationId = decodeURIComponent(url.pathname.split("/")[2]);
+  const notification = await env.DB.prepare(
+    `SELECT id FROM notifications
+      WHERE id = ?
+        AND ((target_user_id IS NULL AND audience IN ('students', 'all')) OR target_user_id = ?)`
+  ).bind(notificationId, auth.userId).first();
+  if (!notification) return json({ error: "Notification not found." }, env, 404);
+  const now = isoNow();
+  await env.DB.prepare(
+    `INSERT INTO notification_receipts (notification_id, user_id, read_at, archived_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(notification_id, user_id) DO UPDATE SET read_at = COALESCE(notification_receipts.read_at, excluded.read_at), archived_at = excluded.archived_at`
+  ).bind(notificationId, auth.userId, now, archived ? now : null).run();
+  return json({ ok: true, archivedAt: archived ? now : null }, env);
 }
 
 async function notifyUser(env, { userId, title, body, kind = "info" }) {
@@ -1402,8 +1506,16 @@ async function pairPhone(request, env) {
 }
 
 function phoneConnectPage(url, env) {
-  const code = escapeHtml(url.searchParams.get("code") || "");
-  return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crossline Phone Camera</title><style>body{font-family:Arial,sans-serif;background:#f4efe9;color:#332d2b;margin:0;padding:24px}.card{max-width:560px;margin:auto;background:#fffdfa;border:1px solid #e1d8d4;border-radius:12px;padding:22px}button{background:#b6202a;color:white;border:0;border-radius:6px;padding:12px 16px}button:disabled{opacity:.55}video{width:100%;aspect-ratio:16/9;border-radius:10px;background:#1d1716;margin:12px 0;object-fit:cover}.muted{color:#756b67}.ok{color:#237a4a}.bad{color:#b6202a}.orientation{margin:12px 0;padding:12px;border-radius:8px;background:#fff2d9;color:#6f4a00;font-weight:700}.orientation.ok{background:#e4f7ec;color:#237a4a}</style><div class="card"><h1>Connect phone camera</h1><p>Pairing code: <strong>${code}</strong></p><p class="muted">Use the front camera and keep your phone in landscape mode.</p><div id="orientation" class="orientation">Rotate your phone to landscape mode to continue.</div><video id="preview" autoplay muted playsinline></video><button id="pair" disabled>Check and start phone camera</button><p id="status"></p></div><script>let stream;const code='${code}';const button=document.getElementById('pair');const status=document.getElementById('status');const orientationBox=document.getElementById('orientation');function isLandscape(){return window.innerWidth>window.innerHeight||screen.orientation?.type?.startsWith('landscape')}function setStatus(text,kind=''){status.className=kind;status.textContent=text}function updateOrientation(){const landscape=isLandscape();button.disabled=!landscape;if(landscape){orientationBox.className='orientation ok';orientationBox.textContent='Landscape mode detected. You can continue.'}else{orientationBox.className='orientation';orientationBox.textContent='Rotate your phone to landscape mode to continue.'}}window.addEventListener('resize',updateOrientation);screen.orientation?.addEventListener?.('change',updateOrientation);updateOrientation();button.onclick=async()=>{if(!isLandscape()){updateOrientation();setStatus('Please rotate your phone to landscape mode first.','bad');return}button.disabled=true;setStatus('Opening front camera...');try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540},aspectRatio:{ideal:1.7777778}},audio:false});document.getElementById('preview').srcObject=stream;setStatus('Pairing with exam computer...');const paired=await fetch('/pair-phone',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})});const data=await paired.json().catch(()=>({}));if(!paired.ok)throw new Error(data.error||'Pairing failed.');setStatus('Phone camera connected. Keep this page open in landscape mode. Now complete the 360-degree room scan from the exam computer.','ok')}catch(error){if(stream)stream.getTracks().forEach(track=>track.stop());button.disabled=!isLandscape();setStatus(error.message,'bad')}}</script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+  const code = escapeHtml(String(url.searchParams.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12));
+  return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crossline Phone Camera</title><style>body{font-family:Arial,sans-serif;background:#f4efe9;color:#332d2b;margin:0;padding:24px}.card{max-width:560px;margin:auto;background:#fffdfa;border:1px solid #e1d8d4;border-radius:12px;padding:22px}button{background:#b6202a;color:white;border:0;border-radius:6px;padding:12px 16px}button:disabled{opacity:.55}video{width:100%;aspect-ratio:16/9;border-radius:10px;background:#1d1716;margin:12px 0;object-fit:cover}.muted{color:#756b67}.ok{color:#237a4a}.bad{color:#b6202a}.orientation{margin:12px 0;padding:12px;border-radius:8px;background:#fff2d9;color:#6f4a00;font-weight:700}.orientation.ok{background:#e4f7ec;color:#237a4a}</style><div class="card"><h1>Connect phone camera</h1><p>Pairing code: <strong>${code}</strong></p><p class="muted">Use the front camera and keep your phone in landscape mode. Crossline will request permission to keep the screen awake while connected.</p><div id="orientation" class="orientation">Rotate your phone to landscape mode to continue.</div><video id="preview" autoplay muted playsinline></video><button id="pair" disabled>Check and start phone camera</button><p id="status"></p></div><script>let stream,wakeLock;const code='${code}';const button=document.getElementById('pair');const status=document.getElementById('status');const orientationBox=document.getElementById('orientation');function isLandscape(){return window.innerWidth>window.innerHeight||screen.orientation?.type?.startsWith('landscape')}function setStatus(text,kind=''){status.className=kind;status.textContent=text}async function keepAwake(){if(!('wakeLock'in navigator))return false;try{wakeLock=await navigator.wakeLock.request('screen');return true}catch{return false}}document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream)void keepAwake()});function updateOrientation(){const landscape=isLandscape();button.disabled=!landscape;if(landscape){orientationBox.className='orientation ok';orientationBox.textContent='Landscape mode detected. You can continue.'}else{orientationBox.className='orientation';orientationBox.textContent='Rotate your phone to landscape mode to continue.'}}window.addEventListener('resize',updateOrientation);screen.orientation?.addEventListener?.('change',updateOrientation);updateOrientation();button.onclick=async()=>{if(!isLandscape()){updateOrientation();setStatus('Please rotate your phone to landscape mode first.','bad');return}button.disabled=true;setStatus('Opening front camera and keeping the display awake...');try{await keepAwake();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540},aspectRatio:{ideal:1.7777778}},audio:false});document.getElementById('preview').srcObject=stream;setStatus('Pairing with exam computer...');const paired=await fetch('/pair-phone',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})});const data=await paired.json().catch(()=>({}));if(!paired.ok)throw new Error(data.error||'Pairing failed.');setStatus('Phone camera connected. The display will stay awake while this page remains visible. Keep it open in landscape mode and complete the room scan.','ok')}catch(error){if(stream)stream.getTracks().forEach(track=>track.stop());if(wakeLock)await wakeLock.release().catch(()=>{});button.disabled=!isLandscape();setStatus(error.message,'bad')}}</script>`, { headers: {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "permissions-policy": "camera=(self), microphone=(), geolocation=()",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY"
+  } });
 }
 
 async function fetchExams(env, publishedOnly) {
@@ -1451,10 +1563,10 @@ async function pruneOldSessions(env, userId) {
   }
 }
 
-async function createSession(env, userId, role) {
+async function createSession(env, userId, role, ttlSeconds = TOKEN_TTL_SECONDS) {
   const token = crypto.randomUUID() + "." + crypto.randomUUID();
   await env.DB.prepare("INSERT INTO sessions (token, user_id, role, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(token, userId, role, new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString(), isoNow()).run();
+    .bind(token, userId, role, new Date(Date.now() + ttlSeconds * 1000).toISOString(), isoNow()).run();
   return token;
 }
 
@@ -1468,6 +1580,101 @@ async function requireAuth(request, env, role) {
     throw error;
   }
   return { userId: row.user_id, role: row.role };
+}
+
+function creatorAdminEmail(env) {
+  return normalizeEmail(env.CREATOR_ADMIN_EMAIL || "arijitsumit123@gmail.com");
+}
+
+function isAdminAccount(user, env) {
+  return Boolean(Number(user?.is_admin)) || normalizeEmail(user?.email) === creatorAdminEmail(env);
+}
+
+async function ensureCreatorAdmin(env, user) {
+  if (!user?.id || normalizeEmail(user.email) !== creatorAdminEmail(env) || Number(user.is_admin)) return;
+  await env.DB.prepare("UPDATE users SET is_admin = 1 WHERE id = ?").bind(user.id).run();
+  user.is_admin = 1;
+}
+
+async function requireAdminAccount(request, env, role = "student") {
+  const auth = await requireAuth(request, env, role);
+  const user = await env.DB.prepare("SELECT id, email, is_admin, totp_secret_encrypted, totp_enabled_at FROM users WHERE id = ?").bind(auth.userId).first();
+  if (!user || !isAdminAccount(user, env)) {
+    const error = new Error("Administrator access is not enabled for this account.");
+    error.status = 403;
+    throw error;
+  }
+  await ensureCreatorAdmin(env, user);
+  return user;
+}
+
+function randomBase32Secret() {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  return [...bytes].map((byte) => alphabet[byte & 31]).join("");
+}
+
+function base32Bytes(value) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const character of String(value || "").toUpperCase().replace(/[^A-Z2-7]/g, "")) {
+    const index = alphabet.indexOf(character);
+    if (index < 0) continue;
+    bits += index.toString(2).padStart(5, "0");
+  }
+  const bytes = [];
+  for (let index = 0; index + 8 <= bits.length; index += 8) bytes.push(parseInt(bits.slice(index, index + 8), 2));
+  return new Uint8Array(bytes);
+}
+
+async function verifyTotp(secret, code) {
+  const candidate = String(code || "").replace(/\s/g, "");
+  if (!/^\d{6}$/.test(candidate)) return false;
+  const key = await crypto.subtle.importKey("raw", base32Bytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const step = Math.floor(Date.now() / 30000);
+  for (const drift of [-1, 0, 1]) {
+    const counter = new Uint8Array(8);
+    new DataView(counter.buffer).setBigUint64(0, BigInt(step + drift));
+    const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, counter));
+    const offset = digest[digest.length - 1] & 15;
+    const value = (((digest[offset] & 127) << 24) | (digest[offset + 1] << 16) | (digest[offset + 2] << 8) | digest[offset + 3]) % 1000000;
+    if (String(value).padStart(6, "0") === candidate) return true;
+  }
+  return false;
+}
+
+async function totpEncryptionKey(secret) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(secret)));
+  return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+async function encryptTotpSecret(secret, encryptionSecret) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await totpEncryptionKey(encryptionSecret), new TextEncoder().encode(secret)));
+  return `${bytesToBase64Url(iv)}.${bytesToBase64Url(cipher)}`;
+}
+
+async function decryptStoredTotp(admin, env) {
+  if (!admin?.totp_secret_encrypted || !env.ADMIN_MFA_ENCRYPTION_KEY) return "";
+  try {
+    const [iv, cipher] = String(admin.totp_secret_encrypted).split(".");
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64UrlToBytes(iv) }, await totpEncryptionKey(env.ADMIN_MFA_ENCRYPTION_KEY), base64UrlToBytes(cipher));
+    return new TextDecoder().decode(plain);
+  } catch {
+    return "";
+  }
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(normalized + "===".slice((normalized.length + 3) % 4));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 async function sendDueResultEmails(env) {
@@ -1712,7 +1919,7 @@ function checkRateLimit(request, env, url) {
 
 function routeRateLimit(pathname, method) {
   if (pathname === "/health") return { group: "health", max: 600 };
-  if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/verify" || pathname === "/admin/login") return { group: "credential", max: 180 };
+  if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/verify" || pathname === "/admin/session" || pathname === "/admin/mfa/enable") return { group: "credential", max: 12 };
   if (pathname.startsWith("/auth/")) return { group: "auth", max: 900 };
   if (pathname.startsWith("/admin/")) return { group: "admin", max: 240 };
   if (pathname.match(/^\/sessions\/[^/]+\/status$/) && method === "GET") return { group: "session-status", max: 6000 };
@@ -1788,13 +1995,14 @@ function deriveUsernameFromEmail(email = "") {
   return normalizeUsername(base.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()));
 }
 
-function publicUser(row = {}) {
+function publicUser(row = {}, env = {}) {
   return {
     email: row.email,
     username: normalizeUsername(row.username) || deriveUsernameFromEmail(row.email),
     firstName: normalizePersonName(row.first_name),
     lastName: normalizePersonName(row.last_name),
-    avatarUrl: normalizeAvatarUrl(row.avatar_url)
+    avatarUrl: normalizeAvatarUrl(row.avatar_url),
+    isAdmin: isAdminAccount(row, env)
   };
 }
 

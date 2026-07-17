@@ -234,7 +234,13 @@ app.whenReady().then(() => {
   ipcMain.handle("start-oauth", (_event, provider) => openOAuthWindow(String(provider || "")));
   ipcMain.handle("open-external", (_event, target) => {
     const url = String(target || "");
-    if (!url.startsWith("https://discord.gg/")) throw new Error("Unsupported external link.");
+    const allowed = [
+      "https://discord.gg/",
+      "https://exam.crosslinecscatest.com/privacy",
+      "https://exam.crosslinecscatest.com/terms",
+      "https://exam.crosslinecscatest.com/data-deletion"
+    ];
+    if (!allowed.some((prefix) => url.startsWith(prefix))) throw new Error("Unsupported external link.");
     return shell.openExternal(url);
   });
   ipcMain.handle("extract-question-source", async (event, payload) => {

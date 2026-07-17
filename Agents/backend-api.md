@@ -88,13 +88,21 @@ The current UI exposes Google and intentionally hides Facebook.
 | GET | `/results/:id` | Full released answer breakdown for the owner. |
 | GET | `/leaderboard` | Exam or last-five-average ranking. |
 | GET | `/notifications` | Student notifications with read state/unread count. |
+| POST | `/notifications/read` | Mark every visible notification read when the popover opens. |
 | POST | `/notifications/:id/read` | Record a notification receipt. |
+| POST | `/notifications/:id/archive` | Archive a notification for the signed-in student. |
+| POST | `/notifications/:id/unarchive` | Restore an archived notification. |
 
 ### Administrator
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| POST | `/admin/login` | Environment-backed admin authentication. |
+| GET | `/admin/mfa/status` | Check authenticator setup for an administrator account. |
+| POST | `/admin/mfa/setup` | Create an encrypted TOTP setup secret. |
+| POST | `/admin/mfa/enable` | Verify the first code and enable 2FA. |
+| POST | `/admin/session` | Exchange a student token plus TOTP code for a two-hour admin token. |
+| GET/POST | `/admin/access` | List administrators or grant a verified student administrator access. |
+| DELETE | `/admin/access/:email` | Revoke administrator access except for the creator account. |
 | GET | `/admin/exams` | All exams, including unpublished. |
 | POST | `/admin/exams` | Create a free published exam. |
 | PATCH | `/admin/exams/:id` | Compatibility update that forces price to zero. |

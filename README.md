@@ -25,7 +25,6 @@ Use `npm run start:kiosk` to preview the fullscreen practice experience. The exi
 Prototype credentials:
 
 - Student: `student@example.com` / `demo123`
-- Administrator: `admin@crossline.test` / `admin123`
 - Email verification code: `246810`
 
 The local prototype stores demo accounts and authored exams in browser storage. Production email delivery, account data, phone pairing, answer saving, and results require the Cloudflare Worker backend.
@@ -55,15 +54,24 @@ npm run worker:migrate
 npm run worker:seed
 ```
 
+For an existing production database, apply the administrator role and MFA migration:
+
+```bash
+npm run worker:migrate:0014
+npm run worker:migrate:0015
+```
+
 Set the production secrets:
 
 ```bash
-npx wrangler secret put ADMIN_PASSWORD --config worker/wrangler.toml
 npx wrangler secret put PASSWORD_PEPPER --config worker/wrangler.toml
+npx wrangler secret put ADMIN_MFA_ENCRYPTION_KEY --config worker/wrangler.toml
 npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml
 npx wrangler secret put OAUTH_STATE_SECRET --config worker/wrangler.toml
 npx wrangler secret put GLM_API_KEY --config worker/wrangler.toml
 ```
+
+`arijitsumit123@gmail.com` is the protected creator administrator. Sign in as that student, open Settings, and configure an authenticator before entering the admin panel. Additional administrators can then be granted access from the Admin access screen.
 
 Deploy the API:
 

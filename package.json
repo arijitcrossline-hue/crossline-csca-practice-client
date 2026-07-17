@@ -1,6 +1,6 @@
 {
   "name": "csca-practice-client",
-  "version": "0.1.42",
+  "version": "0.1.43",
   "description": "A Windows-ready CSCA mock exam client with dual-camera practice checks.",
   "main": "electron/main.js",
   "scripts": {
@@ -18,6 +18,8 @@
     "worker:migrate:0009": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0009_notification_kind.sql",
     "worker:migrate:0012": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0012_all_exams_free.sql",
     "worker:migrate:0013": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0013_exam_subjects_and_targeted_notifications.sql",
+    "worker:migrate:0014": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0014_admin_roles_and_mfa.sql",
+    "worker:migrate:0015": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0015_notification_archives.sql",
     "worker:seed": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/seed.sql",
     "worker:migrate:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/schema.sql",
     "worker:seed:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/seed.sql",

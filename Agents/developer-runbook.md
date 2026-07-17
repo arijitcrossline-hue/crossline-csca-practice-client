@@ -78,7 +78,7 @@ npm run worker:deploy
 Required or feature-specific secrets:
 
 ```text
-ADMIN_PASSWORD
+ADMIN_MFA_ENCRYPTION_KEY
 PASSWORD_PEPPER
 RESEND_API_KEY
 OAUTH_STATE_SECRET
@@ -130,6 +130,7 @@ The production test logs in as admin, calls the real assistant, imports source w
 ```bash
 CROSSLINE_ADMIN_EMAIL="..." \
 CROSSLINE_ADMIN_PASSWORD="..." \
+CROSSLINE_ADMIN_TOTP="123456" \
 npm run test:production
 ```
 

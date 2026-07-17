@@ -3,6 +3,8 @@ const letterLabels = ["A", "B", "C", "D"];
 const streams = [];
 const DEMO_CODE = "246810";
 const WINDOWS_CLIENT_URL = "https://media.crosslinecscatest.com/downloads/Crossline-CSCA-Practice-Setup.exe";
+const PRIVACY_POLICY_URL = "https://exam.crosslinecscatest.com/privacy";
+const TERMS_OF_SERVICE_URL = "https://exam.crosslinecscatest.com/terms";
 const defaultQuestions = [
   {
     type: "Single choice",
@@ -139,12 +141,12 @@ function updatePanelHtml() {
   const canInstall = state.kind === "available";
   const canRestart = state.kind === "ready";
   const progress = typeof state.progress === "number" ? Math.max(0, Math.min(100, state.progress)) : null;
-  return `<div class="update-panel ${escapeHtml(state.kind)}" role="status">
+  return `<div class="update-panel ${escapeHtml(state.kind)}" data-update-kind="${escapeHtml(state.kind)}" role="status" aria-live="polite">
     <div>
-      <strong>${state.kind === "available" ? "Update available" : state.kind === "error" ? "Update issue" : "Software updates"}</strong>
-      <p>${escapeHtml(state.message)}</p>
+      <strong data-update-title>${state.kind === "available" ? "Update available" : state.kind === "error" ? "Update issue" : "Software updates"}</strong>
+      <p data-update-message>${escapeHtml(state.message)}</p>
       ${canInstall ? `<small>Current version: ${escapeHtml(current)} · Latest version: ${escapeHtml(latest)}</small>` : ""}
-      ${progress !== null ? `<div class="update-progress" aria-label="Update download progress"><div style="width: ${progress.toFixed(1)}%"></div></div><small>${progress.toFixed(0)}% downloaded${state.speed ? ` · ${escapeHtml(state.speed)}` : ""}</small>` : ""}
+      ${progress !== null ? `<div class="update-progress" aria-label="Update download progress"><div data-update-progress style="width: ${progress.toFixed(1)}%"></div></div><small data-update-progress-copy>${progress.toFixed(0)}% downloaded${state.speed ? ` · ${escapeHtml(state.speed)}` : ""}</small>` : ""}
     </div>
     <div class="update-actions">
       ${canInstall ? `<button id="install-update" class="primary-button" ${updateInstallRunning ? "disabled" : ""}>${updateInstallRunning ? "Downloading..." : "Yes, update now"}</button>` : ""}
@@ -166,6 +168,19 @@ function ensureUpdatePanelHost() {
 }
 function renderUpdatePanel() {
   const host = ensureUpdatePanelHost();
+  const existing = host.querySelector(".update-panel");
+  if (existing?.dataset.updateKind === updateState.kind && updateState.kind === "info" && typeof updateState.progress === "number") {
+    const progress = Math.max(0, Math.min(100, updateState.progress));
+    const message = existing.querySelector("[data-update-message]");
+    const bar = existing.querySelector("[data-update-progress]");
+    const copy = existing.querySelector("[data-update-progress-copy]");
+    if (message && bar && copy) {
+      message.textContent = updateState.message;
+      bar.style.width = `${progress.toFixed(1)}%`;
+      copy.textContent = `${progress.toFixed(0)}% downloaded${updateState.speed ? ` · ${updateState.speed}` : ""}`;
+      return;
+    }
+  }
   host.innerHTML = updatePanelHtml();
   bind("install-update", "click", installUpdateNow);
   bind("restart-update", "click", restartUpdateNow);
@@ -410,6 +425,10 @@ async function startSocialLogin(provider) {
     showAuth("login", error.message || "Could not open social sign-in.");
   }
 }
+async function openExternalUrl(url) {
+  if (window.examRuntime?.openExternal) return window.examRuntime.openExternal(url);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
 function readProfilePhoto(file) {
   if (!file) return Promise.resolve("");
   return new Promise((resolve) => {
@@ -420,14 +439,14 @@ function readProfilePhoto(file) {
       image.onerror = () => resolve("");
       image.onload = () => {
         const longestEdge = Math.max(image.naturalWidth, image.naturalHeight, 1);
-        const scale = Math.min(1, 320 / longestEdge);
+        const scale = Math.min(1, 180 / longestEdge);
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
         const context = canvas.getContext("2d");
         if (!context) return resolve("");
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.78));
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
       };
       image.src = String(reader.result || "");
     };
@@ -485,6 +504,10 @@ function pushLocalNotification({ id, title, body, kind = "update" }) {
 }
 function markLocalNotificationRead(id) {
   saveLocalNotifications(localNotifications().map((item) => item.id === id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item));
+}
+function setLocalNotificationArchived(id, archived) {
+  const now = new Date().toISOString();
+  saveLocalNotifications(localNotifications().map((item) => item.id === id ? { ...item, readAt: item.readAt || now, archivedAt: archived ? now : null } : item));
 }
 function noticeUpdateAvailable(result = {}) {
   const latest = String(result.latest?.version || result.version || "").trim();
@@ -806,19 +829,6 @@ function showLegalPage(pageKey) {
   </main>`;
 }
 
-function showAuthLegalModal(pageKey) {
-  document.getElementById("auth-legal-modal")?.remove();
-  const page = legalPageContent[pageKey] || legalPageContent.privacy;
-  const modal = document.createElement("div");
-  modal.id = "auth-legal-modal";
-  modal.className = "auth-legal-backdrop";
-  modal.innerHTML = `<article class="auth-legal-modal" role="dialog" aria-modal="true" aria-labelledby="auth-legal-title"><div class="auth-legal-heading"><div><p class="legal-eyebrow">Crossline CSCA Practice</p><h2 id="auth-legal-title">${escapeHtml(page.title)}</h2></div><button id="close-auth-legal" type="button" aria-label="Close">×</button></div><p>${escapeHtml(page.summary)}</p><div class="auth-legal-scroll">${page.sections.map(([heading, body]) => `<section><h3>${escapeHtml(heading)}</h3><p>${escapeHtml(body)}</p></section>`).join("")}</div></article>`;
-  document.body.appendChild(modal);
-  const close = () => modal.remove();
-  bind("close-auth-legal", "click", close);
-  modal.addEventListener("click", (event) => { if (event.target === modal) close(); });
-}
-
 function legalPageFromPath(pathname = window.location.pathname) {
   const normalized = String(pathname || "/").replace(/\/+$/, "") || "/";
   return normalized === "/privacy" ? "privacy" : normalized === "/terms" ? "terms" : normalized === "/data-deletion" ? "data-deletion" : "";
@@ -1046,11 +1056,10 @@ function showAuth(tab = "login", message = "") {
   app.innerHTML = `<main class="auth-screen">
     <section class="auth-card" aria-label="Student ${isLogin ? "login" : "registration"}">
       <div class="auth-card-heading"><div><p class="auth-eyebrow">Crossline CSCA practice</p><h1>${isLogin ? "Welcome back" : "Create your account"}</h1><p>${isLogin ? "Sign in to continue your mock exam journey." : "Set up your profile, then verify your email to begin."}</p></div><img src="assets/auth/login-books.png" alt="Books and a plant" /></div>
-      <div class="auth-social-stack"><button id="google-sign-in" type="button" class="auth-social-button"><span class="auth-social-mark google">G</span>Continue with Google</button></div>
+      <div class="auth-social-stack"><button id="google-sign-in" type="button" class="auth-social-button"><img class="auth-google-logo" src="assets/google-g.svg" alt="" />Continue with Google</button></div>
       <div class="auth-divider"><span>or use your email</span></div>
       ${authForm}
       <p class="auth-legal">By continuing, you agree to our <button id="auth-terms" type="button">Terms of Service</button> and <button id="auth-privacy" type="button">Privacy Policy</button>.</p>
-      <div class="admin-entry"><button id="admin-entry" type="button">Administrator access</button></div>
     </section>
     <aside class="auth-showcase" aria-label="Crossline Education">
       <div class="auth-brand"><img src="assets/crossline-icon.png" alt="" /><span>Cross-Line<small>Education</small></span></div>
@@ -1061,10 +1070,9 @@ function showAuth(tab = "login", message = "") {
   </main>`;
   bind("login-tab", "click", () => showAuth("login"));
   bind("register-tab", "click", () => showAuth("register"));
-  bind("admin-entry", "click", () => showAdminLogin());
   bind("google-sign-in", "click", () => startSocialLogin("google"));
-  bind("auth-terms", "click", () => showAuthLegalModal("terms"));
-  bind("auth-privacy", "click", () => showAuthLegalModal("privacy"));
+  bind("auth-terms", "click", () => openExternalUrl(TERMS_OF_SERVICE_URL));
+  bind("auth-privacy", "click", () => openExternalUrl(PRIVACY_POLICY_URL));
   bind("forgot-password", "click", showPasswordReset);
   bind("toggle-login-password", "click", () => togglePasswordVisibility("login-password", "toggle-login-password"));
   bind("toggle-register-password", "click", () => togglePasswordVisibility("register-password", "toggle-register-password"));
@@ -1420,7 +1428,7 @@ async function showStudentDashboard(message = "", options = {}) {
   bind("start-exam-dashboard", "click", showExamList);
   bind("view-results-dashboard", "click", showWeaknessAnalysis);
   bind("dash-results-cta", "click", showStudentResults);
-  bind("dashboard-notifications", "click", showNotifications);
+  bind("dashboard-notifications", "click", toggleNotificationPopover);
   ["review-skipped-dashboard", "review-wrong-dashboard"].forEach((id) => bind(id, "click", (event) => {
     const button = event.currentTarget;
     if (button.dataset.resultId) showStudentResultDetail(button.dataset.resultId, button.dataset.questionId);
@@ -1475,17 +1483,16 @@ function bindStudentShell() {
   bind("side-settings", "click", showStudentSettings);
   bind("logout", "click", requestStudentLogout);
   bind("open-profile-settings", "click", showStudentSettings);
-  bind("dashboard-notifications", "click", showNotifications);
+  bind("dashboard-notifications", "click", toggleNotificationPopover);
   void hydrateNotificationBadge();
 }
 
 async function hydrateNotificationBadge() {
   const localUnread = localNotifications().filter((item) => !item.readAt).length;
-  const localUpdateCount = ["available", "ready"].includes(updateState.kind) ? 1 : 0;
   try {
     const payload = apiEnabled() ? await window.CrosslineApi.notifications() : { unread: 0 };
     const badge = document.getElementById("notification-count");
-    const unread = Number(payload.unread || 0) + localUnread + localUpdateCount;
+    const unread = Number(payload.unread || 0) + localUnread;
     if (!badge) return;
     if (!unread) { badge.classList.add("hidden"); badge.textContent = ""; return; }
     badge.textContent = String(unread);
@@ -1537,7 +1544,7 @@ async function showStudentResults(message = "") {
   try {
     const payload = apiEnabled() ? await window.CrosslineApi.results() : { results: getLocalResults() };
     const results = payload.results || [];
-    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid results-page-grid">${results.length ? results.map((result) => `<article class="dash-page-card result-choice-card"><div><p class="dash-card-kicker">${result.ready ? "Instant result" : "Finalizing result"}</p><h2>${mathHtml(result.examTitle)}</h2><p>${result.ready ? `Score ${formatScore(result.score?.earned)} / ${formatScore(result.score?.total)}` : "Your score is being finalized. Refresh in a moment."}</p><div class="exam-meta"><span>Submitted: ${escapeHtml(formatDateTime(result.submittedAt))}</span><span>${result.ready ? "Available now" : "Finalizing"}</span></div></div><button class="${result.ready ? "dash-outline-button" : "dash-muted-button"} view-result" data-id="${escapeHtml(result.id)}" ${result.ready ? "" : "disabled"}>${result.ready ? "View full result" : "Finalizing"}</button></article>`).join("") : `<article class="dash-page-card"><h2>No submitted mock results yet</h2><p>Your full score and answer review will appear immediately after you submit a mock.</p><button id="results-start-exam" class="dash-start-button">Choose an exam</button></article>`}</section>`;
+    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid results-page-grid">${results.length ? results.map((result) => `<article class="dash-page-card result-choice-card"><div><p class="dash-card-kicker">${result.ready ? "Result" : "Finalizing result"}</p><h2>${mathHtml(result.examTitle)}</h2><p>${result.ready ? `Score ${formatScore(result.score?.earned)} / ${formatScore(result.score?.total)}` : "Your score is being finalized. Refresh in a moment."}</p><div class="exam-meta"><span>Submitted: ${escapeHtml(formatDateTime(result.submittedAt))}</span><span>${result.ready ? "Available now" : "Finalizing"}</span></div></div><button class="${result.ready ? "dash-outline-button" : "dash-muted-button"} view-result" data-id="${escapeHtml(result.id)}" ${result.ready ? "" : "disabled"}>${result.ready ? "View full result" : "Finalizing"}</button></article>`).join("") : `<article class="dash-page-card"><h2>No submitted mock results yet</h2><p>Your full score and answer review will appear immediately after you submit a mock.</p><button id="results-start-exam" class="dash-start-button">Choose an exam</button></article>`}</section>`;
     app.innerHTML = studentPageShell({ active: "results", title: "Your results", subtitle: "Review scores, every option you chose, correct answers, explanations, and marks.", content });
     bindStudentShell();
     bind("results-start-exam", "click", showExamList);
@@ -1624,22 +1631,76 @@ async function showLeaderboard(examId = "", subject = "") {
   bind("leaderboard-subject-filter", "change", (event) => showLeaderboard(examBoard?.examId || examId, event.target.value));
 }
 
-async function showNotifications() {
-  app.innerHTML = studentPageShell({ active: "dashboard", title: "Notifications", subtitle: "Loading your Crossline updates...", content: `<section class="dash-page-card"><p class="form-note">Loading notifications...</p></section>` });
-  bindStudentShell();
+function notificationItemHtml(item) {
+  const kind = String(item.kind || "info").toLowerCase();
+  const icon = kind === "result" ? "bar-chart-3" : kind === "exam" ? "clipboard-list" : kind === "update" ? "download" : "bell";
+  const archived = Boolean(item.archivedAt);
+  const unread = Boolean(item.wasUnread);
+  const archiveAction = item.transient ? "" : `<button class="notification-archive-action" data-notification-id="${escapeHtml(item.id)}" data-local="${String(item.id).startsWith("update-") ? "1" : "0"}" data-archived="${archived ? "1" : "0"}" title="${archived ? "Restore" : "Archive"}" aria-label="${archived ? "Restore" : "Archive"} ${escapeHtml(item.title)}">${uiIcon("archive")}</button>`;
+  const updateAction = item.transient ? `<button class="notification-update-action" data-update-action="1">${updateState.kind === "ready" ? "Restart and install" : "Update now"}</button>` : "";
+  return `<article class="notification-popover-item ${unread ? "unread" : ""}" data-notification-id="${escapeHtml(item.id)}"><span class="notification-popover-icon">${uiIcon(icon)}</span><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p><small>${escapeHtml(formatDateTime(item.createdAt))}</small>${updateAction}</div>${archiveAction}</article>`;
+}
+
+function closeNotificationPopover() {
+  document.getElementById("notification-popover")?.remove();
+  document.removeEventListener("keydown", closeNotificationOnEscape);
+}
+
+function closeNotificationOnEscape(event) {
+  if (event.key === "Escape") closeNotificationPopover();
+}
+
+async function toggleNotificationPopover(event) {
+  if (document.getElementById("notification-popover")) return closeNotificationPopover();
+  const trigger = event?.currentTarget || document.getElementById("dashboard-notifications");
+  const panel = document.createElement("section");
+  panel.id = "notification-popover";
+  panel.className = "notification-popover";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", "Notifications");
+  panel.innerHTML = `<header><div><strong>Notifications</strong><small>New notifications are marked read when you open this panel.</small></div><button id="close-notification-popover" aria-label="Close">×</button></header><nav aria-label="Notification filters"><button class="active" data-notification-filter="all">All</button><button data-notification-filter="unread">Unread</button><button data-notification-filter="archived">Archived</button></nav><div class="notification-popover-list"><p class="notification-popover-empty">Loading notifications...</p></div>`;
+  document.body.appendChild(panel);
+  const rect = trigger?.getBoundingClientRect?.();
+  if (rect) {
+    panel.style.setProperty("--notification-top", `${Math.min(window.innerHeight - 20, rect.bottom + 10)}px`);
+    panel.style.setProperty("--notification-right", `${Math.max(12, window.innerWidth - rect.right)}px`);
+  }
+  bind("close-notification-popover", "click", closeNotificationPopover);
+  document.addEventListener("keydown", closeNotificationOnEscape);
+  const badge = document.getElementById("notification-count");
+  badge?.classList.add("hidden");
+  const localBeforeRead = localNotifications();
+  saveLocalNotifications(localBeforeRead.map((item) => ({ ...item, readAt: item.readAt || new Date().toISOString() })));
   const payload = apiEnabled() ? await window.CrosslineApi.notifications().catch(() => ({ notifications: [] })) : { notifications: [] };
-  const notifications = [...localNotifications(), ...(payload.notifications || [])].sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
-  const updateNotification = ["available", "ready"].includes(updateState.kind) ? `<article class="dash-page-card notification-card update-notification"><div><p class="dash-card-kicker">Software update</p><h2>${updateState.kind === "ready" ? "Update ready to install" : "A new app update is available"}</h2><p>${escapeHtml(updateState.message || "Open Settings to update the Crossline Windows client.")}</p></div><button id="notification-update-action" class="dash-outline-button">${updateState.kind === "ready" ? "Restart and install" : "Update now"}</button></article>` : "";
-  const content = (notifications.length || updateNotification) ? `<section class="notification-list">${updateNotification}${notifications.map((item) => `<article class="dash-page-card notification-card ${item.readAt ? "read" : ""}"><div><p class="dash-card-kicker">${escapeHtml(item.kind || "update")}</p><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.body)}</p><small>${escapeHtml(formatDateTime(item.createdAt))}</small></div>${item.readAt ? "" : `<button class="dash-outline-button notification-read" data-id="${escapeHtml(item.id)}" data-local="${String(item.id).startsWith("update-") ? "1" : "0"}">Mark read</button>`}</article>`).join("")}</section>` : `<section class="dash-page-card"><h2>No new notifications</h2><p>Exam results and app updates from Crossline will appear here automatically.</p></section>`;
-  app.innerHTML = studentPageShell({ active: "dashboard", title: "Notifications", subtitle: "Exam results and important Crossline updates are collected here.", content });
-  bindStudentShell();
-  bind("notification-update-action", "click", updateState.kind === "ready" ? restartUpdateNow : installUpdateNow);
-  document.querySelectorAll(".notification-read").forEach((button) => button.addEventListener("click", async () => {
-    try {
-      if (button.dataset.local === "1") markLocalNotificationRead(button.dataset.id);
-      else await window.CrosslineApi.markNotificationRead(button.dataset.id);
-    } finally { showNotifications(); }
+  if (apiEnabled()) void window.CrosslineApi.markAllNotificationsRead().catch(() => {});
+  const notifications = [...localBeforeRead, ...(payload.notifications || [])].map((item) => ({ ...item, wasUnread: !item.readAt && !item.archivedAt })).sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+  if (["available", "ready"].includes(updateState.kind) && !notifications.some((item) => String(item.id).startsWith("update-") && !item.archivedAt)) notifications.unshift({ id: "current-update", kind: "update", title: updateState.kind === "ready" ? "Update ready to install" : "A new app update is available", body: updateState.message, createdAt: new Date().toISOString(), transient: true, wasUnread: false });
+  const list = panel.querySelector(".notification-popover-list");
+  if (!list) return;
+  let activeFilter = "all";
+  const renderList = () => {
+    const visible = notifications.filter((item) => activeFilter === "archived" ? item.archivedAt : activeFilter === "unread" ? item.wasUnread && !item.archivedAt : !item.archivedAt);
+    const emptyCopy = activeFilter === "archived" ? ["No archived notifications", "Archived items will remain available here."] : activeFilter === "unread" ? ["No unread notifications", "You have seen every new update."] : ["You are all caught up", "Exam results and important Crossline updates will appear here."];
+    list.innerHTML = visible.length ? visible.map(notificationItemHtml).join("") : `<div class="notification-popover-empty"><span>${uiIcon(activeFilter === "archived" ? "archive" : "bell")}</span><strong>${emptyCopy[0]}</strong><p>${emptyCopy[1]}</p></div>`;
+    list.querySelectorAll(".notification-archive-action").forEach((button) => button.addEventListener("click", async () => {
+      const item = notifications.find((candidate) => candidate.id === button.dataset.notificationId);
+      if (!item) return;
+      const archived = button.dataset.archived !== "1";
+      item.archivedAt = archived ? new Date().toISOString() : null;
+      item.wasUnread = false;
+      if (button.dataset.local === "1") setLocalNotificationArchived(item.id, archived);
+      else if (apiEnabled()) await (archived ? window.CrosslineApi.archiveNotification(item.id) : window.CrosslineApi.unarchiveNotification(item.id)).catch(() => {});
+      renderList();
+    }));
+    const updateButton = list.querySelector("[data-update-action]");
+    updateButton?.addEventListener("click", () => { closeNotificationPopover(); return updateState.kind === "ready" ? restartUpdateNow() : installUpdateNow(); });
+  };
+  panel.querySelectorAll("[data-notification-filter]").forEach((button) => button.addEventListener("click", () => {
+    activeFilter = button.dataset.notificationFilter;
+    panel.querySelectorAll("[data-notification-filter]").forEach((item) => item.classList.toggle("active", item === button));
+    renderList();
   }));
+  renderList();
 }
 
 function showStudentSettings(message = "") {
@@ -1647,15 +1708,67 @@ function showStudentSettings(message = "") {
   const profile = getStudentProfile();
   const updateSettings = isDesktopClient() ? `<div class="settings-update-copy"><b>Windows app updates</b><p>Updates are verified before installation. If a previous download was interrupted, reset it here and check again.</p></div>` : "";
   const updateActions = isDesktopClient() ? `<button id="settings-check-updates" type="button" class="dash-outline-button">Check for updates</button><button id="settings-auto-update" type="button" class="dash-outline-button">${autoUpdateEnabled() ? "Auto-update enabled" : "Enable auto-update"}</button><button id="settings-reset-update" type="button" class="dash-outline-button">Reset update download</button>` : "";
-  const content = `<section class="dash-page-card settings-card"><form id="student-settings-form"><div class="settings-profile-row"><label class="settings-avatar-picker"><span id="settings-avatar-preview">${studentAvatarMarkup(profile)}</span><input id="settings-avatar" type="file" accept="image/*" /></label><div><h2>${escapeHtml(displayName())}</h2><p>Choose a profile picture and update the name used throughout the dashboard.</p></div></div><div class="auth-name-grid"><label class="auth-field"><span>First name</span><input id="settings-first-name" value="${escapeHtml(currentUser?.firstName || currentUser?.first_name || "")}" required /></label><label class="auth-field"><span>Last name</span><input id="settings-last-name" value="${escapeHtml(currentUser?.lastName || currentUser?.last_name || "")}" required /></label></div><label class="auth-field"><span>Username</span><input id="settings-username" maxlength="40" value="${escapeHtml(currentUser?.username || "")}" required /></label><p class="form-message">${escapeHtml(message)}</p>${updateSettings}<div class="settings-actions"><button class="dash-start-button">Save profile</button>${updateActions}</div></form></section>`;
+  const adminSettings = currentUser?.isAdmin ? `<section class="dash-page-card settings-admin-card"><div><p class="dash-card-kicker">Administrator security</p><h2>Admin panel</h2><p>Privileged access uses your student account plus a six-digit authenticator code.</p></div><button id="open-admin-panel" class="dash-outline-button">Open admin panel</button></section>` : "";
+  const content = `<section class="dash-page-card settings-card"><form id="student-settings-form"><div class="settings-profile-row"><label class="settings-avatar-picker"><span id="settings-avatar-preview">${studentAvatarMarkup(profile)}</span><input id="settings-avatar" type="file" accept="image/*" /></label><div><h2>${escapeHtml(displayName())}</h2><p>Choose a profile picture and update the name used throughout the dashboard.</p></div></div><div class="auth-name-grid"><label class="auth-field"><span>First name</span><input id="settings-first-name" value="${escapeHtml(currentUser?.firstName || currentUser?.first_name || "")}" required /></label><label class="auth-field"><span>Last name</span><input id="settings-last-name" value="${escapeHtml(currentUser?.lastName || currentUser?.last_name || "")}" required /></label></div><label class="auth-field"><span>Username</span><input id="settings-username" maxlength="40" value="${escapeHtml(currentUser?.username || "")}" required /></label><p class="form-message">${escapeHtml(message)}</p>${updateSettings}<div class="settings-actions"><button class="dash-start-button">Save profile</button>${updateActions}</div></form></section>${adminSettings}`;
   app.innerHTML = studentPageShell({ active: "settings", title: "Settings", subtitle: "Manage your student profile and desktop app updates.", content });
   bindStudentShell();
   let nextPhoto = profile.photo || currentUser?.avatarUrl || "";
-  bind("settings-avatar", "change", async (event) => { nextPhoto = await readProfilePhoto(event.target.files?.[0]); const preview = document.getElementById("settings-avatar-preview"); if (preview && nextPhoto) preview.innerHTML = `<img src="${escapeHtml(nextPhoto)}" alt="Profile photo" />`; });
+  let photoChanged = false;
+  bind("settings-avatar", "change", async (event) => { nextPhoto = await readProfilePhoto(event.target.files?.[0]); photoChanged = Boolean(nextPhoto); const preview = document.getElementById("settings-avatar-preview"); if (preview && nextPhoto) preview.innerHTML = `<img src="${escapeHtml(nextPhoto)}" alt="Profile photo" />`; });
   bind("settings-check-updates", "click", () => checkForUpdates(true));
   bind("settings-reset-update", "click", resetUpdateNow);
   bind("settings-auto-update", "click", () => { setAutoUpdateEnabled(!autoUpdateEnabled()); showStudentSettings(); });
-  bind("student-settings-form", "submit", async (event) => { event.preventDefault(); const next = { username: document.getElementById("settings-username").value.trim(), firstName: document.getElementById("settings-first-name").value.trim(), lastName: document.getElementById("settings-last-name").value.trim(), avatarUrl: nextPhoto }; try { if (apiEnabled()) { const payload = await window.CrosslineApi.updateProfile(next); currentUser = payload.user; } else { currentUser = { ...currentUser, ...next }; users = users.map((user) => user.email === currentUser.email ? currentUser : user); save("csca-users", users); } saveStudentProfile({ ...getStudentProfile(), photo: nextPhoto }); showStudentSettings("Profile saved."); } catch (error) { showStudentSettings(error.message || "Your profile could not be saved."); } });
+  bind("open-admin-panel", "click", showAdminAccessGate);
+  bind("student-settings-form", "submit", async (event) => { event.preventDefault(); const next = { username: document.getElementById("settings-username").value.trim(), firstName: document.getElementById("settings-first-name").value.trim(), lastName: document.getElementById("settings-last-name").value.trim(), ...(photoChanged ? { avatarUrl: nextPhoto } : {}) }; try { if (apiEnabled()) { const payload = await window.CrosslineApi.updateProfile(next); currentUser = payload.user; } else { currentUser = { ...currentUser, ...next }; users = users.map((user) => user.email === currentUser.email ? currentUser : user); save("csca-users", users); } saveStudentProfile({ ...getStudentProfile(), photo: nextPhoto }); showStudentSettings("Profile saved."); } catch (error) { showStudentSettings(error.message || "Your profile could not be saved."); } });
+}
+
+async function showAdminAccessGate(message = "") {
+  if (!apiEnabled()) return showStudentSettings("Administrator MFA requires the production API.");
+  app.innerHTML = studentPageShell({ active: "settings", title: "Administrator security", subtitle: "Verify your identity before opening privileged controls.", content: `<section class="dash-page-card admin-access-gate"><p class="form-note">Checking two-factor authentication...</p></section>` });
+  bindStudentShell();
+  try {
+    const status = await window.CrosslineApi.adminMfaStatus();
+    const content = status.enabled
+      ? `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Two-factor authentication</p><h2>Enter your authenticator code</h2><p>Use the current six-digit code from your authenticator app. Admin sessions expire after two hours.</p><form id="admin-session-form"><label class="auth-field"><span>Authentication code</span><input id="admin-session-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required autofocus /></label><p class="form-message">${escapeHtml(message)}</p><button class="dash-start-button">Verify and continue</button></form></section>`
+      : `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Required security setup</p><h2>Protect the admin panel with 2FA</h2><p>Connect an authenticator app before the first privileged session. The setup key is shown once and stored encrypted by the API.</p><p class="form-message">${escapeHtml(message)}</p><button id="begin-admin-mfa" class="dash-start-button">Set up authenticator</button></section>`;
+    app.innerHTML = studentPageShell({ active: "settings", title: "Administrator security", subtitle: "Verify your identity before opening privileged controls.", content });
+    bindStudentShell();
+    bind("begin-admin-mfa", "click", beginAdminMfaSetup);
+    bind("admin-session-form", "submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = await window.CrosslineApi.createAdminSession(document.getElementById("admin-session-code").value);
+        window.CrosslineApi.setAdminToken(payload.token);
+        await refreshExamsFromApi(true);
+        showAdminDashboard();
+      } catch (error) { showAdminAccessGate(error.message); }
+    });
+  } catch (error) {
+    showStudentSettings(error.message || "Administrator access could not be verified.");
+  }
+}
+
+async function beginAdminMfaSetup() {
+  try {
+    const setup = await window.CrosslineApi.setupAdminMfa();
+    const content = `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Authenticator setup</p><h2>Add Crossline to your authenticator</h2><p>In Google Authenticator, Microsoft Authenticator, or 1Password, choose to enter a setup key.</p><div class="admin-mfa-secret"><span>Account</span><strong>${escapeHtml(setup.account)}</strong><span>Setup key</span><code>${escapeHtml(setup.secret)}</code></div><form id="admin-mfa-enable-form"><label class="auth-field"><span>Current six-digit code</span><input id="admin-mfa-enable-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required autofocus /></label><p class="form-message"></p><button class="dash-start-button">Enable 2FA and continue</button></form></section>`;
+    app.innerHTML = studentPageShell({ active: "settings", title: "Administrator security", subtitle: "Complete the one-time authenticator setup.", content });
+    bindStudentShell();
+    bind("admin-mfa-enable-form", "submit", async (event) => {
+      event.preventDefault();
+      const code = document.getElementById("admin-mfa-enable-code").value;
+      try {
+        await window.CrosslineApi.enableAdminMfa(code);
+        const payload = await window.CrosslineApi.createAdminSession(code);
+        window.CrosslineApi.setAdminToken(payload.token);
+        await refreshExamsFromApi(true);
+        showAdminDashboard();
+      } catch (error) {
+        const note = document.querySelector("#admin-mfa-enable-form .form-message");
+        if (note) note.textContent = error.message;
+      }
+    });
+  } catch (error) { showAdminAccessGate(error.message); }
 }
 
 function resultQuestionHtml(question, prefix = "all") {
@@ -2160,43 +2273,51 @@ function renderQuestion() {
 }
 
 function showAdminLogin(message = "") {
-  app.innerHTML = `${header(desktopExitAction(`<button id="student-entry" class="header-link">Student portal</button>`))}<main class="portal-main narrow"><section class="panel"><div class="page-intro"><h1>Administrator login</h1><p>Manage exam papers and question content.</p></div><form id="admin-form"><div class="field"><label>Admin email</label><input id="admin-email" type="email" value="${apiEnabled() ? "arijitsumit123@gmail.com" : "admin@crossline.test"}" required /></div><div class="field"><label>Password</label><input id="admin-password" type="password" value="${apiEnabled() ? "" : "admin123"}" required /></div>${localModeNote("<p class=\"form-note\">Prototype admin: admin@crossline.test / admin123</p>")}<p class="form-message">${escapeHtml(message)}</p><button class="primary-button">Log in as administrator</button></form></section></main>`;
-  bind("student-entry", "click", () => showAuth());
-  bindDesktopExit();
-  bind("admin-form", "submit", async (event) => {
-    event.preventDefault();
-    const email = document.getElementById("admin-email").value.trim().toLowerCase();
-    const password = document.getElementById("admin-password").value;
-    if (apiEnabled()) {
-      try {
-        const payload = await window.CrosslineApi.adminLogin(email, password);
-        window.CrosslineApi.setAdminToken(payload.token);
-        await refreshExamsFromApi(true);
-        return showAdminDashboard();
-      } catch (error) {
-        return showAdminLogin(error.message);
-      }
-    }
-    if (email !== "admin@crossline.test" || password !== "admin123") return showAdminLogin("Incorrect administrator credentials.");
-    showAdminDashboard();
-  });
+  window.CrosslineApi?.clearAdminToken?.();
+  if (currentUser) return showStudentSettings(message || "Your administrator session expired. Verify with 2FA to continue.");
+  showAuth("login", message || "Sign in with your account, then open the admin panel from Settings.");
 }
 function adminSkeleton(rows = 3) {
   return `<section class="admin-skeleton" aria-hidden="true">${Array.from({ length: rows }, () => `<div class="skeleton-card"><div class="skeleton-line w35"></div><div class="skeleton-line w70"></div><div class="skeleton-line w55"></div></div>`).join("")}</section>`;
 }
 function adminShell(content, active = "exams") {
-  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Log out</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>CSCA practice</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
+  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
 function bindAdminShell() {
-  bind("admin-logout", "click", () => { window.CrosslineApi?.clearAdminToken(); showAdminLogin(); });
+  bind("admin-logout", "click", () => { window.CrosslineApi?.clearAdminToken(); showStudentSettings(); });
   bind("admin-overview", "click", showAdminOverview);
   bind("admin-assistant", "click", showAdminAssistant);
   bind("admin-exams", "click", showAdminDashboard);
   bind("admin-import", "click", showQuestionImport);
   bind("admin-submissions", "click", showAdminSubmissions);
   bind("admin-notifications", "click", showAdminNotifications);
+  bind("admin-security", "click", showAdminSecurity);
   bind("admin-updates", "click", showAdminUpdates);
   bindDesktopExit({ updates: true });
+}
+async function showAdminSecurity(message = "") {
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div><section class="admin-card"><p class="form-note">Loading administrator accounts...</p></section>`, "security");
+  bindAdminShell();
+  try {
+    const payload = await window.CrosslineApi.adminAccess();
+    const rows = (payload.admins || []).map((admin) => `<li><div><strong>${escapeHtml(admin.username || admin.email)}</strong><small>${escapeHtml(admin.email)}</small></div><span class="admin-mfa-badge ${admin.mfaEnabled ? "enabled" : "pending"}">${admin.mfaEnabled ? "2FA enabled" : "2FA setup pending"}</span>${admin.email === "arijitsumit123@gmail.com" ? `<small>Creator</small>` : `<button class="danger-button revoke-admin" data-email="${escapeHtml(admin.email)}">Remove</button>`}</li>`).join("");
+    const content = `<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-card admin-access-manager"><form id="grant-admin-form"><label class="auth-field"><span>Verified student email</span><input id="grant-admin-email" type="email" placeholder="name@example.com" required /></label><button class="primary-button">Grant admin access</button></form><ul>${rows || `<li><p class="form-note">No administrator accounts found.</p></li>`}</ul></section>`;
+    app.innerHTML = adminShell(content, "security");
+    bindAdminShell();
+    bind("grant-admin-form", "submit", async (event) => {
+      event.preventDefault();
+      try {
+        const email = document.getElementById("grant-admin-email").value.trim().toLowerCase();
+        await window.CrosslineApi.grantAdminAccess(email);
+        showAdminSecurity(`Administrator access granted to ${email}.`);
+      } catch (error) { showAdminSecurity(error.message); }
+    });
+    document.querySelectorAll(".revoke-admin").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm(`Remove administrator access from ${button.dataset.email}?`)) return;
+      try { await window.CrosslineApi.revokeAdminAccess(button.dataset.email); showAdminSecurity("Administrator access removed."); }
+      catch (error) { showAdminSecurity(error.message); }
+    }));
+  } catch (error) { showAdminLogin(error.message); }
 }
 function showAdminUpdates(message = "") {
   message = typeof message === "string" ? message : "";

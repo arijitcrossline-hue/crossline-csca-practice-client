@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 const baseUrl = String(process.env.CROSSLINE_API_BASE || "https://api.crosslinecscatest.com").replace(/\/$/, "");
 const email = String(process.env.CROSSLINE_ADMIN_EMAIL || "").trim();
 const password = String(process.env.CROSSLINE_ADMIN_PASSWORD || "");
-if (!email || !password) throw new Error("Set CROSSLINE_ADMIN_EMAIL and CROSSLINE_ADMIN_PASSWORD before running this check.");
+const totp = String(process.env.CROSSLINE_ADMIN_TOTP || "").trim();
+if (!email || !password || !/^\d{6}$/.test(totp)) throw new Error("Set CROSSLINE_ADMIN_EMAIL, CROSSLINE_ADMIN_PASSWORD, and the current CROSSLINE_ADMIN_TOTP code before running this check.");
 
 async function request(path, { method = "GET", token = "", body } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -16,9 +17,11 @@ async function request(path, { method = "GET", token = "", body } = {}) {
   return payload;
 }
 
-const login = await request("/admin/login", { method: "POST", body: { email, password } });
-assert.ok(login.token, "Admin login did not return a token.");
-const token = login.token;
+const studentLogin = await request("/auth/login", { method: "POST", body: { email, password } });
+assert.ok(studentLogin.token, "Account login did not return a token.");
+const adminSession = await request("/admin/session", { method: "POST", token: studentLogin.token, body: { code: totp } });
+assert.ok(adminSession.token, "Two-factor verification did not return an admin token.");
+const token = adminSession.token;
 const tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 const assistant = await request("/admin/ai/chat", {
