@@ -481,7 +481,6 @@ function localModeNote(text) { return apiEnabled() ? "" : text; }
 function localSessionKey() { return "csca-local-current-user"; }
 function rememberLocalUser(user) { save(localSessionKey(), user?.email || ""); }
 function beginStudentView(view) {
-  void disableAdminScreenCapture();
   activeStudentView = view;
   studentViewRevision += 1;
   closeNotificationPopover();
@@ -511,6 +510,7 @@ function clearStudentSession() {
   resetStudentDataCache();
   localStorage.removeItem(localSessionKey());
   window.CrosslineApi?.clearStudentToken?.();
+  window.CrosslineApi?.clearAdminToken?.();
 }
 function requestStudentLogout() {
   if (document.getElementById("student-logout-confirm")) return;
@@ -2653,7 +2653,7 @@ function adminShell(content, active = "exams") {
   return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
 function bindAdminShell() {
-  bind("admin-logout", "click", async () => { await disableAdminScreenCapture(); window.CrosslineApi?.clearAdminToken(); showStudentSettings(); });
+  bind("admin-logout", "click", showStudentSettings);
   bind("admin-overview", "click", showAdminOverview);
   bind("admin-assistant", "click", showAdminAssistant);
   bind("admin-exams", "click", showAdminDashboard);
@@ -2673,7 +2673,7 @@ async function showAdminSecurity(message = "") {
       window.examRuntime?.getInfo?.().catch(() => null)
     ]);
     const rows = (payload.admins || []).map((admin) => `<li><div><strong>${escapeHtml(admin.username || admin.email)}</strong><small>${escapeHtml(admin.email)}</small></div><span class="admin-mfa-badge ${admin.mfaEnabled ? "enabled" : "pending"}">${admin.mfaEnabled ? "2FA enabled" : "2FA setup pending"}</span>${admin.email === "arijitsumit123@gmail.com" ? `<small>Creator</small>` : `<button class="danger-button revoke-admin" data-email="${escapeHtml(admin.email)}">Remove</button>`}</li>`).join("");
-    const captureControl = isDesktopClient() && window.examRuntime?.setScreenCaptureAllowed ? `<section class="admin-card admin-capture-card"><div><p class="admin-kicker">Device privacy</p><h2>Screen capture</h2><p>Temporarily allow this administrator to take screenshots or use screen sharing and recording tools. Protection returns automatically after 30 minutes, on exam entry, or when leaving administration.</p><p id="admin-capture-message" class="form-note"></p></div><label class="admin-capture-switch" for="admin-capture-toggle"><input id="admin-capture-toggle" type="checkbox" ${runtimeInfo?.screenCaptureAllowed ? "checked" : ""} /><span aria-hidden="true"><i></i></span><strong id="admin-capture-label">${runtimeInfo?.screenCaptureAllowed ? "Capture allowed" : "Capture blocked"}</strong></label></section>` : "";
+    const captureControl = isDesktopClient() && window.examRuntime?.setScreenCaptureAllowed ? `<section class="admin-card admin-capture-card"><div><p class="admin-kicker">Device privacy</p><h2>Screen capture</h2><p>Temporarily allow this administrator to take screenshots or use screen sharing and recording tools across both admin and student panels. Protection returns automatically after 30 minutes, when it is turned off, when the account signs out, or when the app closes.</p><p id="admin-capture-message" class="form-note"></p></div><label class="admin-capture-switch" for="admin-capture-toggle"><input id="admin-capture-toggle" type="checkbox" ${runtimeInfo?.screenCaptureAllowed ? "checked" : ""} /><span aria-hidden="true"><i></i></span><strong id="admin-capture-label">${runtimeInfo?.screenCaptureAllowed ? "Capture allowed" : "Capture blocked"}</strong></label></section>` : "";
     const content = `<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${captureControl}<section class="admin-card admin-access-manager"><form id="grant-admin-form"><label class="auth-field"><span>Verified student email</span><input id="grant-admin-email" type="email" placeholder="name@example.com" required /></label><button class="primary-button">Grant admin access</button></form><ul>${rows || `<li><p class="form-note">No administrator accounts found.</p></li>`}</ul></section>`;
     app.innerHTML = adminShell(content, "security");
     bindAdminShell();

@@ -69,7 +69,6 @@ function enforceKioskFocus() {
 }
 
 function startFocusGuard() {
-  contentProtection.protect();
   if (!practiceKiosk) return;
   kioskActive = true;
   if (!focusGuard) focusGuard = setInterval(enforceKioskFocus, 1000);

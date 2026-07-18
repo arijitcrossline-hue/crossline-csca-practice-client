@@ -264,6 +264,37 @@ async function studentFlow() {
   window.close();
 }
 
+async function adminCaptureNavigationFlow() {
+  const portal = createPortal();
+  const { window, runtimeEvents } = portal;
+  let adminTokenClears = 0;
+  window.CrosslineApi = {
+    enabled: () => false,
+    clearStudentToken: () => {},
+    clearAdminToken: () => { adminTokenClears += 1; }
+  };
+  window.eval('currentUser = { email: "arijitsumit123@gmail.com", username: "Creator Admin", isAdmin: true }');
+
+  await window.examRuntime.setScreenCaptureAllowed(true, "verified-admin");
+  window.eval('app.innerHTML = adminShell("<p>Admin panel</p>"); bindAdminShell();');
+  click(window, "#admin-logout");
+  await tick();
+
+  assert.equal(window.document.querySelector("#admin-capture-toggle"), null);
+  assert.deepEqual(runtimeEvents.captureChanges, [true]);
+  assert.equal(adminTokenClears, 0);
+
+  await window.eval("showStudentDashboard()");
+  window.eval("ensureKiosk()");
+  assert.deepEqual(runtimeEvents.captureChanges, [true]);
+
+  window.eval("clearStudentSession()");
+  await tick();
+  assert.deepEqual(runtimeEvents.captureChanges, [true, false]);
+  assert.equal(adminTokenClears, 1);
+  window.close();
+}
+
 async function registrationFlow() {
   const { window } = createPortal();
   click(window, "#register-tab");
@@ -391,6 +422,7 @@ function adminFlow() {
   await websiteRegistrationFieldsFlow();
   legalPagesFlow();
   await studentFlow();
+  await adminCaptureNavigationFlow();
   await registrationFlow();
   await passwordResetFlow();
   adminFlow();

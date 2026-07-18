@@ -38,8 +38,16 @@ async function run() {
   const main = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8");
   const preload = fs.readFileSync(path.join(root, "electron", "preload.js"), "utf8");
   const worker = fs.readFileSync(path.join(root, "worker", "src", "index.js"), "utf8");
+  const renderer = fs.readFileSync(path.join(root, "src", "app.js"), "utf8");
+  const startFocusGuard = main.match(/function startFocusGuard\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const beginStudentView = renderer.match(/function beginStudentView\(view\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const clearStudentSession = renderer.match(/function clearStudentSession\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(main, /set-screen-capture-allowed/);
   assert.match(main, /desktop-capture\/authorize/);
+  assert.doesNotMatch(startFocusGuard, /contentProtection\.protect/);
+  assert.doesNotMatch(beginStudentView, /disableAdminScreenCapture/);
+  assert.match(clearStudentSession, /disableAdminScreenCapture/);
+  assert.match(clearStudentSession, /clearAdminToken/);
   assert.match(preload, /setScreenCaptureAllowed/);
   assert.match(worker, /authorizeAdminDesktopCapture[\s\S]*requireAdminAccount\(request, env, "admin"\)/);
   console.log("Content protection security tests passed.");
