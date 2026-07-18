@@ -1,6 +1,7 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, powerSaveBlocker, session, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
+const { createContentProtectionController } = require("./content-protection");
 const { createGithubUpdateHelper } = require("./github-updater");
 const { extractQuestionSource, extractHtmlQuestionSource } = require("./source-import");
 
@@ -15,6 +16,24 @@ let focusGuardPausedUntil = 0;
 let kioskActive = false;
 let oauthWindow = null;
 const API_ORIGIN = "https://api.crosslinecscatest.com";
+
+async function authorizeAdminScreenCapture(adminToken) {
+  const response = await fetch(`${API_ORIGIN}/admin/desktop-capture/authorize`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${String(adminToken || "")}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.authorized) throw new Error(payload.error || "Administrator authorization failed.");
+  return payload;
+}
+
+const contentProtection = createContentProtectionController({
+  getWindow: () => mainWindow,
+  authorizeAdmin: authorizeAdminScreenCapture,
+  onChange: (status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("content-protection-changed", status);
+  }
+});
 
 const blockedShortcuts = [
   "Alt+Tab",
@@ -50,6 +69,7 @@ function enforceKioskFocus() {
 }
 
 function startFocusGuard() {
+  contentProtection.protect();
   if (!practiceKiosk) return;
   kioskActive = true;
   if (!focusGuard) focusGuard = setInterval(enforceKioskFocus, 1000);
@@ -95,7 +115,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.setContentProtection(true);
+  contentProtection.protect();
   mainWindow.setMenu(null);
   mainWindow.loadFile(path.join(__dirname, "..", "src", "index.html"));
 
@@ -223,7 +243,7 @@ app.whenReady().then(() => {
     platform: process.platform,
     practiceKiosk: kioskActive,
     kioskAvailable: practiceKiosk,
-    contentProtection: true,
+    ...contentProtection.status(),
     version: app.getVersion()
   }));
 
@@ -232,6 +252,10 @@ app.whenReady().then(() => {
   ipcMain.handle("install-downloaded-update", updateHelper.installDownloadedUpdate);
   ipcMain.handle("reset-update", updateHelper.resetUpdate);
   ipcMain.handle("start-oauth", (_event, provider) => openOAuthWindow(String(provider || "")));
+  ipcMain.handle("set-screen-capture-allowed", async (event, allowed, adminToken = "") => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) throw new Error("Unsupported window.");
+    return contentProtection.setAllowed(allowed === true, adminToken);
+  });
   ipcMain.handle("open-external", (_event, target) => {
     const url = String(target || "");
     const allowed = [

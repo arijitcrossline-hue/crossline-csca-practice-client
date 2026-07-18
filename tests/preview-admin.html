@@ -7,7 +7,9 @@
     <script>
       window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["\\[", "\\]"], ["$$", "$$"]] }, svg: { fontCache: "global" } };
       window.examRuntime = {
-        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: true }),
+        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: true, screenCaptureAllowed: false }),
+        setScreenCaptureAllowed: async (allowed) => ({ contentProtection: !allowed, screenCaptureAllowed: Boolean(allowed), expiresAt: allowed ? new Date(Date.now() + 1800000).toISOString() : null }),
+        onContentProtectionChanged: () => () => {},
         enterKiosk: async () => true,
         leaveKiosk: async () => true,
         installDownloadedUpdate: async () => ({ installing: true }),
@@ -24,5 +26,12 @@
     <script src="../src/api.js"></script>
     <script src="../src/vendor/marked.umd.js"></script>
     <script src="../src/app.js"></script>
+    <script>
+      currentUser = { email: "arijitsumit123@gmail.com", username: "Creator Admin", isAdmin: true };
+      window.CrosslineApi.enabled = () => true;
+      window.CrosslineApi.getAdminToken = () => "preview-admin-session";
+      window.CrosslineApi.adminAccess = async () => ({ admins: [{ email: currentUser.email, username: currentUser.username, mfaEnabled: true }] });
+      showAdminSecurity();
+    </script>
   </body>
 </html>

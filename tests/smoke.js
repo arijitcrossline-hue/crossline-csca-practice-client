@@ -7,7 +7,7 @@ const html = fs.readFileSync(path.join(__dirname, "..", "src", "index.html"), "u
 const script = fs.readFileSync(path.join(__dirname, "..", "src", "app.js"), "utf8");
 
 function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
-  const runtimeEvents = { enterKiosk: 0, leaveKiosk: 0 };
+  const runtimeEvents = { enterKiosk: 0, leaveKiosk: 0, captureChanges: [] };
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
     url: `http://localhost${pathname}`,
@@ -15,6 +15,8 @@ function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
       if (desktop) {
         window.examRuntime = {
           getInfo: async () => ({ platform: "test", practiceKiosk: false, contentProtection: true }),
+          setScreenCaptureAllowed: async (allowed) => { runtimeEvents.captureChanges.push(Boolean(allowed)); return { contentProtection: !allowed, screenCaptureAllowed: Boolean(allowed), expiresAt: null }; },
+          onContentProtectionChanged: () => () => {},
           enterKiosk: async () => { runtimeEvents.enterKiosk += 1; return true; },
           leaveKiosk: async () => { runtimeEvents.leaveKiosk += 1; return true; },
           installDownloadedUpdate: async () => ({ installing: true }),
@@ -238,6 +240,8 @@ async function studentFlow() {
   assert.doesNotMatch(window.document.body.textContent, /Loading leaderboard/);
   click(window, "#side-settings");
   assert.match(window.document.body.textContent, /Manage your student profile/);
+  assert.equal(window.document.querySelector("#admin-capture-toggle"), null);
+  assert.ok(runtimeEvents.captureChanges.every((allowed) => allowed === false));
   click(window, "#side-exams");
   assert.match(window.document.body.textContent, /Physics exams|Choose a subject/);
   click(window, "#side-dashboard");

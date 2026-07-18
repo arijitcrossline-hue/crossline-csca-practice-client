@@ -1992,6 +1992,20 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .settings-update-copy { margin: 20px 0 4px; border: 1px solid #ead8c5; border-radius: 12px; padding: 14px 16px; background: #fffaf2; }
 .settings-update-copy b { color: #33231e; }
 .settings-update-copy p { margin: 4px 0 0; color: #77645c; font-size: .88rem; line-height: 1.5; }
+.admin-capture-card { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-bottom: 18px; }
+.admin-capture-card > div { max-width: 700px; }
+.admin-capture-card h2 { margin: 0 0 7px; color: #291d19; }
+.admin-capture-card > div > p:not(.admin-kicker) { margin: 0; color: #675650; line-height: 1.5; }
+.admin-capture-card .form-note { margin-top: 10px !important; }
+.admin-capture-switch { display: grid; flex: 0 0 150px; justify-items: center; gap: 8px; color: #6c5951; font-size: .8rem; cursor: pointer; }
+.admin-capture-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.admin-capture-switch > span { position: relative; width: 54px; height: 30px; border: 1px solid #d7b8ae; border-radius: 999px; background: #eee5df; transition: background .18s ease, border-color .18s ease; }
+.admin-capture-switch > span i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(53, 32, 25, .18); transition: transform .18s ease; }
+.admin-capture-switch input:checked + span { border-color: #b91f24; background: #c9272c; }
+.admin-capture-switch input:checked + span i { transform: translateX(24px); }
+.admin-capture-switch input:focus-visible + span { outline: 2px solid #b91f24; outline-offset: 3px; }
+.admin-capture-switch input:disabled + span { opacity: .55; cursor: wait; }
+.admin-capture-switch input:checked ~ strong { color: #b91f24; }
 .admin-assistant.full .source-drop-zone { border-color: #555; color: #f4f4f4; background: #222; }
 .admin-assistant.full .source-drop-zone:hover, .admin-assistant.full .source-drop-zone:focus-visible, .admin-assistant.full .source-drop-zone.drag-active { border-color: #e86565; background: #2a2020; }
 .admin-assistant.full .source-drop-zone small { color: #aaa; }

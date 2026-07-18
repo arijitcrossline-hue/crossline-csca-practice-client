@@ -113,6 +113,7 @@ export default {
       if (url.pathname === "/admin/mfa/setup" && request.method === "POST") return await adminMfaSetup(request, env);
       if (url.pathname === "/admin/mfa/enable" && request.method === "POST") return await adminMfaEnable(request, env);
       if (url.pathname === "/admin/session" && request.method === "POST") return await createAdminSession(request, env);
+      if (url.pathname === "/admin/desktop-capture/authorize" && request.method === "POST") return await authorizeAdminDesktopCapture(request, env);
       if (url.pathname === "/admin/access" && request.method === "GET") return await adminListAccess(request, env);
       if (url.pathname === "/admin/access" && request.method === "POST") return await adminGrantAccess(request, env);
       if (url.pathname.match(/^\/admin\/access\/[^/]+$/) && request.method === "DELETE") return await adminRevokeAccess(request, env, url);
@@ -461,6 +462,14 @@ async function createAdminSession(request, env) {
   await env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_session_created', ?, ?)")
     .bind(crypto.randomUUID(), admin.id, admin.email, now).run();
   return json({ token: await createSession(env, admin.id, "admin", 2 * 60 * 60), admin: { email: admin.email } }, env);
+}
+
+async function authorizeAdminDesktopCapture(request, env) {
+  const admin = await requireAdminAccount(request, env, "admin");
+  const now = isoNow();
+  await env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'desktop_capture_authorized', ?, ?)")
+    .bind(crypto.randomUUID(), admin.id, admin.email, now).run();
+  return json({ authorized: true, allowMs: 30 * 60 * 1000 }, env);
 }
 
 async function adminListAccess(request, env) {

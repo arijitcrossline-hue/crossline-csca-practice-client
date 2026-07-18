@@ -11,7 +11,9 @@
     <div id="app"></div>
     <script>
       window.examRuntime = {
-        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: false }),
+        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: true, screenCaptureAllowed: false }),
+        setScreenCaptureAllowed: async (allowed) => ({ contentProtection: !allowed, screenCaptureAllowed: Boolean(allowed), expiresAt: allowed ? new Date(Date.now() + 1800000).toISOString() : null }),
+        onContentProtectionChanged: () => () => {},
         enterKiosk: async () => true,
         leaveKiosk: async () => true,
         onIntegrityEvent: () => () => {},

@@ -36,6 +36,7 @@
     enabled,
     get baseUrl() { return baseUrl(); },
     getStudentToken() { return localStorage.getItem(TOKEN_KEY) || ""; },
+    getAdminToken() { return localStorage.getItem(ADMIN_TOKEN_KEY) || ""; },
     setStudentToken(token) { localStorage.setItem(TOKEN_KEY, token); },
     setAdminToken(token) { localStorage.setItem(ADMIN_TOKEN_KEY, token); },
     clearStudentToken() { localStorage.removeItem(TOKEN_KEY); },

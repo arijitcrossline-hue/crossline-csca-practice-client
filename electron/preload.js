@@ -2,6 +2,13 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("examRuntime", {
   getInfo: () => ipcRenderer.invoke("runtime-info"),
+  setScreenCaptureAllowed: (allowed, adminToken) => ipcRenderer.invoke("set-screen-capture-allowed", allowed === true, adminToken),
+  onContentProtectionChanged: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("content-protection-changed", listener);
+    return () => ipcRenderer.removeListener("content-protection-changed", listener);
+  },
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   downloadUpdate: () => ipcRenderer.invoke("download-update"),
   installDownloadedUpdate: () => ipcRenderer.invoke("install-downloaded-update"),
