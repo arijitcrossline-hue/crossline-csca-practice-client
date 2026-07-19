@@ -1,6 +1,6 @@
 {
   "name": "csca-practice-client",
-  "version": "0.1.50",
+  "version": "0.1.51",
   "description": "A Windows-ready CSCA mock exam client with dual-camera practice checks.",
   "main": "electron/main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "start": "electron . --windowed",
     "start:kiosk": "electron .",
     "serve": "python3 -m http.server 4173",
-    "test": "node tests/source-import.js && node tests/update-helper.js && node tests/github-updater.js && node tests/content-protection.js && node tests/plans.mjs && node tests/result-email.mjs && node tests/smoke.js",
+    "test": "node tests/source-import.js && node tests/update-helper.js && node tests/github-updater.js && node tests/content-protection.js && node tests/plans.mjs && node tests/exam-attempts.mjs && node tests/result-email.mjs && node tests/smoke.js",
     "test:production": "node scripts/verify-production-backend.mjs",
     "stress:api": "node scripts/stress-test-worker.mjs",
     "worker:dev": "wrangler dev --config worker/wrangler.toml",
@@ -23,6 +23,7 @@
     "worker:migrate:0016": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0016_correct_january_physics_answers.sql",
     "worker:migrate:0017": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0017_style_january_physics_explanations.sql",
     "worker:migrate:0020": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0020_student_access_plans.sql",
+    "worker:migrate:0021": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/migrations/0021_free_sample_and_attempt_limit.sql",
     "worker:seed": "wrangler d1 execute crossline-mocks --remote --config worker/wrangler.toml --file worker/seed.sql",
     "worker:migrate:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/schema.sql",
     "worker:seed:local": "wrangler d1 execute crossline-mocks --local --config worker/wrangler.toml --file worker/seed.sql",

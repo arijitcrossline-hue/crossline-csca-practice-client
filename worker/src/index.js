@@ -7,12 +7,26 @@ const MAX_STORED_EXAM_SESSIONS_PER_USER = 50;
 const QUESTION_IMPORT_LIMIT = 100;
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
 const EXAM_CATEGORIES = ["official", "original"];
+export const MAX_EXAM_ATTEMPTS = 3;
 export const ACCESS_PLANS = Object.freeze([
   { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
   { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
   { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
   { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
 ]);
+
+export function resolveExamAccess({ freeSample = false, official = false, hasPlan = false, unlocked = false, mocksRemaining = 0, attemptsUsed = 0 } = {}) {
+  const used = Math.max(0, Number(attemptsUsed || 0));
+  const attemptsRemaining = Math.max(0, MAX_EXAM_ATTEMPTS - used);
+  const included = Boolean(freeSample || (hasPlan && (official || unlocked || Number(mocksRemaining || 0) > 0)));
+  return {
+    included,
+    canStart: included && attemptsRemaining > 0,
+    attemptsUsed: used,
+    attemptsRemaining,
+    limitReached: included && attemptsRemaining === 0
+  };
+}
 const CHAPTER_CATALOG = {
   Physics: [
     "Kinematics",
@@ -539,7 +553,7 @@ async function studentPlanSummary(env, userId) {
 
 async function studentPlans(request, env) {
   const auth = await requireAuth(request, env, "student");
-  return json({ plans: ACCESS_PLANS, ...(await studentPlanSummary(env, auth.userId)), paymentEnabled: false }, env);
+  return json({ plans: ACCESS_PLANS, ...(await studentPlanSummary(env, auth.userId)), paymentEnabled: false, maxAttemptsPerExam: MAX_EXAM_ATTEMPTS }, env);
 }
 
 async function adminListStudentPlans(request, env) {
@@ -564,7 +578,8 @@ async function adminListStudentPlans(request, env) {
       grantedAt: row.granted_at,
       updatedAt: row.updated_at
     })),
-    paymentEnabled: false
+    paymentEnabled: false,
+    maxAttemptsPerExam: MAX_EXAM_ATTEMPTS
   }, env);
 }
 
@@ -615,33 +630,50 @@ async function listExams(request, env) {
   const auth = await requireAuth(request, env, "student");
   const exams = await fetchExams(env, true);
   const planSummary = await studentPlanSummary(env, auth.userId);
-  const unlockRows = await env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ?").bind(auth.userId).all();
+  const [unlockRows, attemptRows] = await Promise.all([
+    env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ?").bind(auth.userId).all(),
+    env.DB.prepare("SELECT exam_id, COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND submitted_at IS NOT NULL GROUP BY exam_id").bind(auth.userId).all()
+  ]);
   const unlockedMocks = new Set(unlockRows.results.map((row) => row.exam_id));
+  const attemptsByExam = new Map(attemptRows.results.map((row) => [row.exam_id, Number(row.attempts_used || 0)]));
   const listed = exams.map((exam) => {
-    const free = !Number(exam.priceCents || 0);
     const official = normalizeExamCategory(exam.category) === "official";
     const unlocked = unlockedMocks.has(exam.id);
-    const included = Boolean(planSummary.plan) && (official || unlocked || planSummary.usage.mocksRemaining > 0);
-    const canStart = free || included;
-    const accessLabel = free
-      ? "Free for all students"
+    const access = resolveExamAccess({
+      freeSample: exam.freeSample,
+      official,
+      hasPlan: Boolean(planSummary.plan),
+      unlocked,
+      mocksRemaining: planSummary.usage.mocksRemaining,
+      attemptsUsed: attemptsByExam.get(exam.id) || 0
+    });
+    const entitlementLabel = exam.freeSample
+      ? "Free exam for every student"
       : official && planSummary.plan
         ? "Included in your package"
         : unlocked
           ? "Crossline mock unlocked"
-          : included
+          : access.included
             ? "Uses one Crossline mock slot"
             : "Package required";
+    const accessLabel = access.included
+      ? `${entitlementLabel} · ${access.attemptsRemaining} of ${MAX_EXAM_ATTEMPTS} attempts remaining`
+      : entitlementLabel;
+    const accessReason = access.limitReached
+      ? `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.`
+      : access.included
+        ? ""
+        : "Ask a Crossline administrator to assign an access package to your verified student account.";
     return {
       ...exam,
-      canStart,
+      ...access,
       accessLabel,
-      accessReason: canStart ? "" : "Ask a Crossline administrator to assign an access package to your verified student account."
+      accessReason
     };
   });
   return json({
     exams: listed,
-    access: { allExamsFree: listed.every((exam) => !Number(exam.priceCents || 0)), canStart: listed.some((exam) => exam.canStart), ...planSummary }
+    access: { freeExamId: listed.find((exam) => exam.freeSample)?.id || null, maxAttemptsPerExam: MAX_EXAM_ATTEMPTS, canStart: listed.some((exam) => exam.canStart), ...planSummary }
   }, env);
 }
 
@@ -1165,9 +1197,17 @@ function normalizeExamPricing(body = {}) {
   if (body.free === true || body.free === "true" || access === "free") return { priceCents: 0, currency: "USD" };
   const dollars = body.price !== undefined && body.price !== null && body.price !== "" ? Number(body.price) : NaN;
   const cents = Number.isFinite(dollars) ? Math.round(dollars * 100) : Number(body.priceCents ?? body.price_cents);
-  if (!Number.isFinite(cents) || cents < 1 || cents > 1_000_000) return null;
+  if (!Number.isFinite(cents) || cents < 0 || cents > 1_000_000) return null;
   const currency = String(body.currency || "USD").trim().toUpperCase().slice(0, 8) || "USD";
   return { priceCents: Math.round(cents), currency };
+}
+
+function normalizeFreeSample(body = {}, fallback = false) {
+  if (body.freeSample !== undefined) return body.freeSample === true || body.freeSample === "true";
+  if (body.free_sample !== undefined) return body.free_sample === true || body.free_sample === "true" || Number(body.free_sample) === 1;
+  if (body.free !== undefined) return body.free === true || body.free === "true";
+  if (body.access !== undefined) return String(body.access).toLowerCase() === "free";
+  return Boolean(fallback);
 }
 
 function normalizeExamSubject(value) {
@@ -1193,19 +1233,23 @@ async function adminCreateExam(request, env) {
   const category = normalizeExamCategory(body.category);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
-  const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { free: true } : body);
-  if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
+  const freeSample = normalizeFreeSample(body, false);
+  const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { priceCents: 0 } : body);
+  if (!pricing) return json({ error: "Enter a placeholder price from $0 to $10,000." }, env, 400);
   const id = slugify(title) + "-" + Date.now();
   const now = isoNow();
-  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
-    .bind(id, title, description, duration, subject, category, pricing.priceCents, pricing.currency, now, now).run();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE exams SET is_free_sample = 0 WHERE ? = 1").bind(freeSample ? 1 : 0),
+    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, is_free_sample, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)")
+      .bind(id, title, description, duration, subject, category, freeSample ? 1 : 0, pricing.priceCents, pricing.currency, now, now)
+  ]);
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id) }, env, 201);
 }
 
 async function adminUpdateExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
+  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, is_free_sample, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
   if (!existing) return json({ error: "Exam not found." }, env, 404);
   const body = await readJson(request);
   const title = body.title !== undefined ? String(body.title || "").trim().slice(0, 180) : existing.title;
@@ -1221,14 +1265,22 @@ async function adminUpdateExam(request, env, url) {
   if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
   let priceCents = Number(existing.price_cents || 0);
   let currency = String(existing.currency || "USD");
+  const freeSample = normalizeFreeSample(body, Boolean(existing.is_free_sample));
   if (body.free !== undefined || body.access !== undefined || body.price !== undefined || body.priceCents !== undefined || body.price_cents !== undefined) {
     const pricing = normalizeExamPricing(body);
-    if (!pricing) return json({ error: "Set the exam as free, or enter a price between $0.01 and $10,000." }, env, 400);
+    if (!pricing) return json({ error: "Enter a placeholder price from $0 to $10,000." }, env, 400);
     priceCents = pricing.priceCents;
     currency = pricing.currency;
   }
-  await env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, category = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
-    .bind(title, description, duration, subject, category, priceCents, currency, isoNow(), examId).run();
+  if (existing.is_free_sample && !freeSample) {
+    const otherFree = await env.DB.prepare("SELECT id FROM exams WHERE is_free_sample = 1 AND id <> ?").bind(examId).first();
+    if (!otherFree) return json({ error: "Choose another exam as the free sample before changing this one to package access." }, env, 400);
+  }
+  await env.DB.batch([
+    env.DB.prepare("UPDATE exams SET is_free_sample = 0 WHERE ? = 1 AND id <> ?").bind(freeSample ? 1 : 0, examId),
+    env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, category = ?, is_free_sample = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
+      .bind(title, description, duration, subject, category, freeSample ? 1 : 0, priceCents, currency, isoNow(), examId)
+  ]);
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === examId) }, env);
 }
 
@@ -1402,8 +1454,9 @@ function questionInsertStatement(env, { id, examId, position, question, now }) {
 async function adminDeleteExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ?").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, is_free_sample FROM exams WHERE id = ?").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
+  if (exam.is_free_sample) return json({ error: "Choose another exam as the free sample before deleting this one." }, env, 400);
   await env.DB.prepare("DELETE FROM session_events WHERE exam_session_id IN (SELECT id FROM exam_sessions WHERE exam_id = ?)").bind(examId).run();
   await env.DB.prepare("DELETE FROM exam_sessions WHERE exam_id = ?").bind(examId).run();
   await env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(examId).run();
@@ -1577,9 +1630,13 @@ async function createExamSession(request, env) {
   const auth = await requireAuth(request, env, "student");
   const body = await readJson(request);
   const examId = String(body.examId || "");
-  const exam = await env.DB.prepare("SELECT id, price_cents, category FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, is_free_sample, category FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
-  if (Number(exam.price_cents || 0) > 0) {
+  const attempts = await env.DB.prepare("SELECT COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND exam_id = ? AND submitted_at IS NOT NULL").bind(auth.userId, examId).first();
+  if (Number(attempts?.attempts_used || 0) >= MAX_EXAM_ATTEMPTS) {
+    return json({ error: `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` }, env, 409);
+  }
+  if (!exam.is_free_sample) {
     const planSummary = await studentPlanSummary(env, auth.userId);
     if (!planSummary.plan) return json({ error: "An access package is required for this exam. Ask a Crossline administrator to assign one." }, env, 402);
     if (normalizeExamCategory(exam.category) !== "official") {
@@ -1652,7 +1709,7 @@ async function saveAnswers(request, env, url, ctx) {
   const resultReleasedAt = body.submitted ? now : null;
   const answersJson = JSON.stringify(body.answers || {});
   const score = body.submitted ? await scoreExamSession(env, { ...session, answers_json: answersJson }) : null;
-  await env.DB.prepare(
+  const update = await env.DB.prepare(
     `UPDATE exam_sessions
         SET answers_json = ?,
             flags_json = ?,
@@ -1665,7 +1722,12 @@ async function saveAnswers(request, env, url, ctx) {
             score_earned = CASE WHEN ? IS NOT NULL THEN COALESCE(score_earned, ?) ELSE score_earned END,
             score_total = CASE WHEN ? IS NOT NULL THEN COALESCE(score_total, ?) ELSE score_total END,
             updated_at = ?
-      WHERE id = ? AND user_id = ?`
+      WHERE id = ? AND user_id = ?
+        AND (
+          ? IS NULL
+          OR submitted_at IS NOT NULL
+          OR (SELECT COUNT(*) FROM exam_sessions WHERE user_id = ? AND exam_id = ? AND submitted_at IS NOT NULL) < ?
+        )`
   ).bind(
     answersJson,
     JSON.stringify(body.flags || []),
@@ -1680,8 +1742,15 @@ async function saveAnswers(request, env, url, ctx) {
     score?.total ?? null,
     now,
     sessionId,
-    auth.userId
+    auth.userId,
+    submittedAt,
+    auth.userId,
+    session.exam_id,
+    MAX_EXAM_ATTEMPTS
   ).run();
+  if (firstSubmit && Number(update.meta?.changes || 0) < 1) {
+    return json({ error: `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` }, env, 409);
+  }
   if (body.submitted) {
     const followUps = [sendDueResultEmails(env).catch((error) => console.error("Immediate result email failed", error))];
     if (firstSubmit) {
@@ -1727,7 +1796,7 @@ function phoneConnectPage(url, env) {
 }
 
 async function fetchExams(env, publishedOnly) {
-  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, category, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
+  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, category, is_free_sample, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
   const exams = [];
   for (const exam of examRows.results) {
     const questions = await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all();
@@ -1739,9 +1808,10 @@ async function fetchExams(env, publishedOnly) {
       duration: exam.duration_minutes,
       subject: normalizeExamSubject(exam.subject) || "",
       category: normalizeExamCategory(exam.category),
+      freeSample: Boolean(exam.is_free_sample),
       priceCents,
       currency: String(exam.currency || "USD"),
-      free: priceCents === 0,
+      free: Boolean(exam.is_free_sample),
       questions: questions.results.map((question) => ({
         id: question.id,
         type: question.type,

@@ -103,10 +103,10 @@ const TOPIC_KEYWORDS = {
   }
 };
 const defaultExams = [
-  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 60, subject: "Physics", category: "official", free: true, priceCents: 0, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
-  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", category: "official", free: true, priceCents: 0, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
-  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", category: "original", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
-  { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
+  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 60, subject: "Physics", category: "official", free: true, freeSample: true, priceCents: 0, canStart: true, accessLabel: "Free exam for every student · 3 of 3 attempts remaining", attemptsUsed: 0, attemptsRemaining: 3, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
+  { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", category: "official", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
+  { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", category: "original", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
+  { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
 const ACCESS_PLANS = Object.freeze([
   { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
@@ -694,9 +694,9 @@ function examCategoryFieldsHtml(exam = {}) {
   return `<div class="field"><label>Exam category</label><select id="exam-category" required>${EXAM_CATEGORIES.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select></div>`;
 }
 function examAccessFieldsHtml(exam = {}) {
-  const free = examPriceCents(exam) === 0;
-  const dollars = free ? "" : (examPriceCents(exam) / 100).toFixed(2);
-  return `${examSubjectFieldsHtml(exam)}${examCategoryFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Package access</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Placeholder price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Package exams stay visible. Official past papers are included in every package; Crossline originals use one mock slot when first started.</p>`;
+  const freeSample = Boolean(exam.freeSample ?? exam.free_sample);
+  const dollars = examPriceCents(exam) ? (examPriceCents(exam) / 100).toFixed(2) : "";
+  return `${examSubjectFieldsHtml(exam)}${examCategoryFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${freeSample ? "selected" : ""}>Free sample for everyone</option><option value="package" ${freeSample ? "" : "selected"}>Package access</option></select></div><div class="field" id="exam-price-field" ${freeSample ? 'hidden' : ""}><label>Placeholder price (USD)</label><input id="exam-price" type="number" min="0" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="Price later" /></div><p class="form-note wide">Every included exam allows three submitted attempts per student. Only one published exam can be the free sample.</p>`;
 }
 function localNotifications() {
   return load("csca-local-notifications", []);
@@ -729,14 +729,15 @@ function noticeUpdateAvailable(result = {}) {
   });
 }
 function readExamAccessFields() {
-  const access = document.getElementById("exam-access")?.value === "paid" ? "paid" : "free";
-  if (access === "free") return { access: "free", free: true, price: 0 };
-  return { access: "paid", free: false, price: Number(document.getElementById("exam-price")?.value) };
+  const access = document.getElementById("exam-access")?.value === "free" ? "free" : "package";
+  if (access === "free") return { access: "free", free: true, freeSample: true, price: 0 };
+  const rawPrice = document.getElementById("exam-price")?.value;
+  return { access: "package", free: false, freeSample: false, price: rawPrice === "" ? 0 : Number(rawPrice) };
 }
 function bindExamAccessFields() {
   const access = document.getElementById("exam-access");
   const priceField = document.getElementById("exam-price-field");
-  const sync = () => { if (priceField) priceField.hidden = access?.value !== "paid"; };
+  const sync = () => { if (priceField) priceField.hidden = access?.value !== "package"; };
   access?.addEventListener("change", sync);
   sync();
 }
@@ -747,10 +748,14 @@ function normalizeApiExam(exam) {
     duration: Number(exam.duration || exam.duration_minutes || 60),
     subject: normalizeExamSubjectValue(exam.subject),
     category: normalizeExamCategoryValue(exam.category),
+    freeSample: Boolean(exam.freeSample ?? exam.free_sample),
     priceCents,
     currency: String(exam.currency || "USD"),
-    free: priceCents === 0,
+    free: Boolean(exam.freeSample ?? exam.free_sample),
     canStart: exam.canStart !== false,
+    attemptsUsed: Math.max(0, Number(exam.attemptsUsed || 0)),
+    attemptsRemaining: Math.max(0, Number(exam.attemptsRemaining ?? 3)),
+    limitReached: Boolean(exam.limitReached),
     accessLabel: exam.accessLabel || "",
     accessReason: exam.accessReason || "",
     questions: (exam.questions || []).map((question, index) => ({
@@ -1843,12 +1848,12 @@ function renderPricing(payload = localPlanPayload(), message = "") {
   const usage = payload.usage || {};
   const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
   const status = currentPlan
-    ? `<section class="pricing-current"><div><p class="dash-card-kicker">Current package</p><h2>${escapeHtml(currentPlan.name)}</h2><p>All official past-paper simulations are unlocked${currentPlan.mockLimit ? `, with ${Number(usage.mocksRemaining || 0)} of ${Number(usage.mockLimit || currentPlan.mockLimit)} Crossline mock slots remaining` : ""}.</p></div><span>Active</span></section>`
+    ? `<section class="pricing-current"><div><p class="dash-card-kicker">Current package</p><h2>${escapeHtml(currentPlan.name)}</h2><p>All official past-paper simulations are unlocked${currentPlan.mockLimit ? `, with ${Number(usage.mocksRemaining || 0)} of ${Number(usage.mockLimit || currentPlan.mockLimit)} Crossline mock slots remaining` : ""}. Every included exam allows three submitted attempts.</p></div><span>Active</span></section>`
     : `<section class="pricing-current pricing-current-empty"><div><p class="dash-card-kicker">Current package</p><h2>No package assigned</h2><p>A Crossline administrator can manually assign a package to your verified student email.</p></div><span>Not assigned</span></section>`;
   const cards = plans.map((plan) => {
     const active = currentPlan?.id === plan.id;
     const mockCopy = Number(plan.mockLimit || 0) ? `${plan.mockLimit} Crossline original mocks` : "Past-paper simulations only";
-    return `<article class="pricing-plan ${active ? "active" : ""}"><header><p>${active ? "Current package" : "Access package"}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> --</strong><span>${escapeHtml(plan.priceLabel || "Price coming soon")}</span></div><ul><li>${uiIcon("badge-check")} All official past-paper simulated tests</li><li>${uiIcon("badge-check")} ${escapeHtml(mockCopy)}</li><li>${uiIcon("badge-check")} Full results and explanations</li></ul><div class="pricing-plan-state">${active ? "Assigned to your account" : "Administrator assignment available"}</div></article>`;
+    return `<article class="pricing-plan ${active ? "active" : ""}"><header><p>${active ? "Current package" : "Access package"}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> --</strong><span>${escapeHtml(plan.priceLabel || "Price coming soon")}</span></div><ul><li>${uiIcon("badge-check")} All official past-paper simulated tests</li><li>${uiIcon("badge-check")} ${escapeHtml(mockCopy)}</li><li>${uiIcon("badge-check")} Three attempts for every included exam</li><li>${uiIcon("badge-check")} Full results and explanations</li></ul><div class="pricing-plan-state">${active ? "Assigned to your account" : "Administrator assignment available"}</div></article>`;
   }).join("");
   const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${status}<section class="pricing-grid">${cards}</section><p class="pricing-note">Online payment methods and final prices will be added later. For now, access packages are assigned manually by a Crossline administrator.</p>`;
   app.innerHTML = studentPageShell({ active: "pricing", title: "Pricing", subtitle: "Choose the amount of official past-paper practice and Crossline mock access you need.", content });
@@ -1902,7 +1907,8 @@ function renderExamList(message = "") {
   const subjectLabel = subject === "__unassigned__" ? "Unassigned" : subject;
   const examCardHtml = (exam) => {
     const canStart = exam.canStart !== false;
-    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This exam is not included in your current access package.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Package required"}</button></article>`;
+    const lockedLabel = exam.limitReached ? "Attempt limit reached" : "Package required";
+    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This exam is not included in your current access package.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin attempt ${Number(exam.attemptsUsed || 0) + 1} ${uiIcon("chevron-right")}` : lockedLabel}</button></article>`;
   };
   const categorySections = EXAM_CATEGORIES.map((category) => {
     const list = filtered.filter((exam) => normalizeExamCategoryValue(exam.category) === category.id);
@@ -2733,7 +2739,7 @@ async function showAdminStudentPlans(message = "") {
   try {
     const payload = await window.CrosslineApi.adminStudentPlans();
     const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
-    const catalog = plans.map((plan) => `<article class="admin-card admin-plan-option"><p class="admin-kicker">Access package</p><h3>${escapeHtml(plan.name)}</h3><strong>USD --</strong><small>${escapeHtml(plan.priceLabel || "Price coming soon")}</small><p>Includes every official past-paper simulated test${plan.mockLimit ? ` and ${plan.mockLimit} Crossline original mocks` : ""}.</p></article>`).join("");
+    const catalog = plans.map((plan) => `<article class="admin-card admin-plan-option"><p class="admin-kicker">Access package</p><h3>${escapeHtml(plan.name)}</h3><strong>USD --</strong><small>${escapeHtml(plan.priceLabel || "Price coming soon")}</small><p>Includes every official past-paper simulated test${plan.mockLimit ? ` and ${plan.mockLimit} Crossline original mocks` : ""}, with three attempts for each included exam.</p></article>`).join("");
     const assignments = (payload.assignments || []).map((assignment) => {
       const plan = plans.find((item) => item.id === assignment.planId);
       const usage = Number(assignment.mockLimit || 0) ? `${Number(assignment.mocksUsed || 0)} of ${Number(assignment.mockLimit || 0)} mocks used` : "Past papers only";
@@ -3593,7 +3599,7 @@ async function showAdminSubmissionDetail(submissionId) {
   }
 }
 function showCreateExam() {
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="60" required /></div>${examAccessFieldsHtml({ free: true, priceCents: 0, category: "original" })}<p id="create-exam-message" class="form-message wide"></p><button class="primary-button">Create exam</button></form></section>`);
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><h1>Create exam</h1><button id="back-admin" class="ghost-button">Back</button></div><section class="panel"><form id="create-exam-form" class="editor-grid"><div class="field wide"><label>Exam title</label><input id="exam-title" required /></div><div class="field wide"><label>Description</label><textarea id="exam-description" required></textarea></div><div class="field"><label>Duration in minutes</label><input id="exam-duration" type="number" min="1" max="480" value="60" required /></div>${examAccessFieldsHtml({ freeSample: false, priceCents: 0, category: "original" })}<p id="create-exam-message" class="form-message wide"></p><button class="primary-button">Create exam</button></form></section>`);
   bindAdminShell();
   bind("back-admin", "click", showAdminDashboard);
   bindExamAccessFields();
@@ -3611,8 +3617,8 @@ function showCreateExam() {
       if (message) message.textContent = "Choose a subject for this exam.";
       return;
     }
-    if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
-      if (message) message.textContent = "Enter a price greater than zero, or switch access to free.";
+    if (!Number.isFinite(access.price) || access.price < 0) {
+      if (message) message.textContent = "Enter a valid placeholder price, or leave it blank.";
       return;
     }
     if (apiEnabled()) {
@@ -3625,7 +3631,8 @@ function showCreateExam() {
         return;
       }
     }
-    exams.push({ id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`, ...exam, priceCents: access.free ? 0 : Math.round(access.price * 100), currency: "USD", free: access.free });
+    if (access.freeSample) exams.forEach((item) => { item.freeSample = false; item.free = false; });
+    exams.push({ id: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`, ...exam, priceCents: Math.round(access.price * 100), currency: "USD", free: access.freeSample, attemptsUsed: 0, attemptsRemaining: 3 });
     save("csca-exams", exams);
     showQuestionEditor(exams.at(-1).id);
   });
@@ -3657,8 +3664,8 @@ function showEditExamDetails(examId, message = "") {
       if (status) status.textContent = "Choose a subject for this exam.";
       return;
     }
-    if (access.access === "paid" && (!Number.isFinite(access.price) || access.price <= 0)) {
-      if (status) status.textContent = "Enter a price greater than zero, or switch access to free.";
+    if (!Number.isFinite(access.price) || access.price < 0) {
+      if (status) status.textContent = "Enter a valid placeholder price, or leave it blank.";
       return;
     }
     const updates = { title, description, duration, subject, category, ...access };
@@ -3672,7 +3679,8 @@ function showEditExamDetails(examId, message = "") {
         return;
       }
     }
-    Object.assign(exam, updates, { priceCents: access.free ? 0 : Math.round(access.price * 100), currency: "USD", free: access.free });
+    if (access.freeSample) exams.forEach((item) => { item.freeSample = false; item.free = false; });
+    Object.assign(exam, updates, { priceCents: Math.round(access.price * 100), currency: "USD", free: access.freeSample });
     save("csca-exams", exams);
     showAdminDashboard("Exam details saved.");
   });

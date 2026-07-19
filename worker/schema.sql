@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS exams (
   subject TEXT,
   category TEXT NOT NULL DEFAULT 'original',
   is_published INTEGER NOT NULL DEFAULT 1,
+  is_free_sample INTEGER NOT NULL DEFAULT 0,
   price_cents INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'USD',
   created_at TEXT NOT NULL,
@@ -142,6 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_questions_exam_position ON questions(exam_id, pos
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
 CREATE INDEX IF NOT EXISTS idx_exam_sessions_created ON exam_sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_exam_sessions_leaderboard ON exam_sessions(exam_id, score_earned DESC, score_total DESC);
+CREATE INDEX IF NOT EXISTS idx_exam_sessions_user_exam_submitted ON exam_sessions(user_id, exam_id, submitted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exams_single_free_sample ON exams(is_free_sample) WHERE is_free_sample = 1;
 CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
 

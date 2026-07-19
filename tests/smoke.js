@@ -170,7 +170,8 @@ async function studentFlow() {
   assert.match(window.document.body.textContent, /Physics|Chemistry|Mathematics|Academic Chinese/);
   click(window, ".choose-subject");
   assert.match(window.document.body.textContent, /Change subject/);
-  assert.match(window.document.body.textContent, /Free for all students/);
+  assert.match(window.document.body.textContent, /Free exam for every student/);
+  assert.match(window.document.body.textContent, /3 of 3 attempts remaining/);
   assert.doesNotMatch(window.document.body.textContent, /Buy for|Free trial|Premium|\$\d/);
   click(window, ".begin-exam");
   assert.equal(runtimeEvents.enterKiosk, 1);
@@ -363,7 +364,8 @@ async function adminFlow() {
   click(window, "#back-admin");
   click(window, "#new-exam");
   assert.ok(window.document.querySelector("#exam-access"));
-  assert.match(window.document.body.textContent, /Free for all students/);
+  assert.match(window.document.body.textContent, /Free sample for everyone/);
+  assert.match(window.document.body.textContent, /three submitted attempts per student/i);
   fill(window, "#exam-title", "Demo Created Paper");
   fill(window, "#exam-description", "Created through the administrator workflow.");
   fill(window, "#exam-duration", "45");

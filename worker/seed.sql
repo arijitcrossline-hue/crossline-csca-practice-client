@@ -1,7 +1,7 @@
-INSERT OR IGNORE INTO exams (id, title, description, duration_minutes, is_published, created_at, updated_at)
+INSERT OR IGNORE INTO exams (id, title, description, duration_minutes, is_published, is_free_sample, created_at, updated_at)
 VALUES
-  ('math-physics', 'CSCA Mathematics and Physics Mock', 'Full practice paper covering mathematics and physics fundamentals.', 90, 1, datetime('now'), datetime('now')),
-  ('math-short', 'CSCA Mathematics Quick Practice', 'A shorter warm-up paper for testing the examination workflow.', 35, 1, datetime('now'), datetime('now'));
+  ('math-physics', 'CSCA Mathematics and Physics Mock', 'Full practice paper covering mathematics and physics fundamentals.', 90, 1, 1, datetime('now'), datetime('now')),
+  ('math-short', 'CSCA Mathematics Quick Practice', 'A shorter warm-up paper for testing the examination workflow.', 35, 1, 0, datetime('now'), datetime('now'));
 
 INSERT OR IGNORE INTO questions (id, exam_id, position, type, instruction, text, answers_json, diagram, created_at, updated_at)
 VALUES
