@@ -1,4 +1,5 @@
 import { buildResultEmail } from "./result-email.mjs";
+import { buildPasswordResetEmail, buildVerificationEmail } from "./transactional-email.mjs";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -146,6 +147,7 @@ export default {
       if (url.pathname.match(/^\/results\/[^/]+$/) && request.method === "GET") return await resultDetail(request, env, url);
       if (url.pathname === "/leaderboard" && request.method === "GET") return await studentLeaderboard(request, env);
       if (url.pathname === "/notifications" && request.method === "GET") return await listNotifications(request, env);
+      if (url.pathname === "/support/bug-reports" && request.method === "POST") return await createBugReport(request, env);
       if (url.pathname === "/notifications/read" && request.method === "POST") return await markAllNotificationsRead(request, env);
       if (url.pathname.match(/^\/notifications\/[^/]+\/archive$/) && request.method === "POST") return await setNotificationArchived(request, env, url, true);
       if (url.pathname.match(/^\/notifications\/[^/]+\/unarchive$/) && request.method === "POST") return await setNotificationArchived(request, env, url, false);
@@ -162,6 +164,8 @@ export default {
       if (url.pathname.match(/^\/admin\/submissions\/[^/]+$/) && request.method === "GET") return await adminSubmissionDetail(request, env, url);
       if (url.pathname === "/admin/notifications" && request.method === "GET") return await adminListNotifications(request, env);
       if (url.pathname === "/admin/notifications" && request.method === "POST") return await adminCreateNotification(request, env);
+      if (url.pathname === "/admin/bug-reports" && request.method === "GET") return await adminListBugReports(request, env);
+      if (url.pathname.match(/^\/admin\/bug-reports\/[^/]+$/) && request.method === "PATCH") return await adminUpdateBugReport(request, env, url);
       if (url.pathname === "/admin/ai/import" && request.method === "POST") return await adminAiImport(request, env);
       if (url.pathname === "/admin/ai/chat" && request.method === "POST") return await adminAiChat(request, env);
       if (url.pathname === "/admin/ai/deploy" && request.method === "POST") return await adminAiDeploy(request, env);
@@ -978,6 +982,60 @@ async function adminCreateNotification(request, env) {
   await env.DB.prepare("INSERT INTO notifications (id, title, body, kind, audience, created_at) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(id, title, message, kind, audience, isoNow()).run();
   return json({ notification: { id, title, body: message, kind, audience } }, env, 201);
+}
+
+async function createBugReport(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const body = await readJson(request);
+  const category = ["app", "exam", "camera", "account", "other"].includes(body.category) ? body.category : "other";
+  const title = String(body.title || "").trim().slice(0, 120);
+  const details = String(body.details || "").trim().slice(0, 4000);
+  const context = String(body.context || "").trim().slice(0, 240);
+  const appVersion = String(body.appVersion || "").trim().slice(0, 40);
+  if (title.length < 4 || details.length < 10) return json({ error: "Add a short title and enough detail to reproduce the bug." }, env, 400);
+  const id = crypto.randomUUID();
+  const now = isoNow();
+  await env.DB.prepare(
+    "INSERT INTO bug_reports (id, user_id, category, title, details, context, app_version, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)"
+  ).bind(id, auth.userId, category, title, details, context || null, appVersion || null, now, now).run();
+  return json({ report: { id, status: "open", createdAt: now } }, env, 201);
+}
+
+async function adminListBugReports(request, env) {
+  await requireAuth(request, env, "admin");
+  const rows = await env.DB.prepare(
+    `SELECT b.id, b.category, b.title, b.details, b.context, b.app_version, b.status, b.created_at, b.updated_at,
+            u.email AS student_email, u.username AS student_name
+       FROM bug_reports b
+       JOIN users u ON u.id = b.user_id
+      ORDER BY CASE b.status WHEN 'open' THEN 0 ELSE 1 END, b.created_at DESC
+      LIMIT 200`
+  ).all();
+  return json({ reports: rows.results.map((row) => ({
+    id: row.id,
+    category: row.category,
+    title: row.title,
+    details: row.details,
+    context: row.context || "",
+    appVersion: row.app_version || "",
+    status: row.status,
+    studentEmail: row.student_email,
+    studentName: row.student_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  })) }, env);
+}
+
+async function adminUpdateBugReport(request, env, url) {
+  await requireAuth(request, env, "admin");
+  const id = decodeURIComponent(url.pathname.split("/")[3] || "");
+  const body = await readJson(request);
+  const status = ["open", "resolved"].includes(body.status) ? body.status : "";
+  if (!status) return json({ error: "Bug report status must be open or resolved." }, env, 400);
+  const now = isoNow();
+  const result = await env.DB.prepare("UPDATE bug_reports SET status = ?, updated_at = ? WHERE id = ?").bind(status, now, id).run();
+  if (!result.meta?.changes) return json({ error: "Bug report not found." }, env, 404);
+  return json({ report: { id, status, updatedAt: now } }, env);
 }
 
 const IMPORT_CHUNK_CHARS = 6000;
@@ -2134,7 +2192,7 @@ async function sendResultEmail(env, email, result) {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: env.VERIFY_FROM,
+      from: env.VERIFY_FROM || "Crossline Education <verify@crosslinecscatest.com>",
       to: email,
       subject: emailContent.subject,
       text: emailContent.text,
@@ -2149,6 +2207,7 @@ async function sendResultEmail(env, email, result) {
 }
 
 async function sendVerificationEmail(env, email, code) {
+  const emailContent = buildVerificationEmail({ code, appUrl: env.APP_ORIGIN });
   if (!env.RESEND_API_KEY) {
     console.log(`Verification code for ${email}: ${code}`);
     return;
@@ -2157,10 +2216,11 @@ async function sendVerificationEmail(env, email, code) {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: env.VERIFY_FROM,
+      from: env.VERIFY_FROM || "Crossline Education <verify@crosslinecscatest.com>",
       to: email,
-      subject: "Your Crossline mock exam verification code",
-      text: `Your Crossline mock exam verification code is ${code}. It expires in 15 minutes.`
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html
     })
   });
   if (!response.ok) {
@@ -2173,6 +2233,7 @@ async function sendVerificationEmail(env, email, code) {
 }
 
 async function sendPasswordResetEmail(env, email, code) {
+  const emailContent = buildPasswordResetEmail({ code, appUrl: env.APP_ORIGIN });
   if (!env.RESEND_API_KEY) {
     console.log(`Password reset code generated for ${email}.`);
     return;
@@ -2181,10 +2242,11 @@ async function sendPasswordResetEmail(env, email, code) {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: env.VERIFY_FROM,
+      from: env.VERIFY_FROM || "Crossline Education <verify@crosslinecscatest.com>",
       to: email,
-      subject: "Reset your Crossline mock exam password",
-      text: `Your Crossline password reset code is ${code}. It expires in 15 minutes. If you did not request this, you can ignore this email.`
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html
     })
   });
   if (!response.ok) {
@@ -2247,6 +2309,7 @@ function routeRateLimit(pathname, method) {
   if (pathname === "/health") return { group: "health", max: 600 };
   if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/verify" || pathname === "/admin/session" || pathname === "/admin/mfa/enable") return { group: "credential", max: 12 };
   if (pathname.startsWith("/auth/")) return { group: "auth", max: 900 };
+  if (pathname === "/support/bug-reports" && method === "POST") return { group: "bug-report", max: 15 };
   if (pathname.startsWith("/admin/")) return { group: "admin", max: 240 };
   if (pathname.match(/^\/sessions\/[^/]+\/status$/) && method === "GET") return { group: "session-status", max: 6000 };
   if (pathname === "/pair-phone") return { group: "phone-pair", max: 300 };

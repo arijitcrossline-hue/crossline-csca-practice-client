@@ -7,25 +7,26 @@
     <script>
       window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["\\[", "\\]"], ["$$", "$$"]] }, svg: { fontCache: "global" } };
       window.examRuntime = {
-        getInfo: async () => ({ platform: "preview", practiceKiosk: false, contentProtection: true, screenCaptureAllowed: false }),
+        getInfo: async () => ({ platform: "preview", version: "0.1.52-preview", practiceKiosk: false, contentProtection: true, screenCaptureAllowed: false }),
         setScreenCaptureAllowed: async (allowed) => ({ contentProtection: !allowed, screenCaptureAllowed: Boolean(allowed), expiresAt: allowed ? new Date(Date.now() + 1800000).toISOString() : null }),
         onContentProtectionChanged: () => () => {},
         enterKiosk: async () => true,
         leaveKiosk: async () => true,
+        exitApp: async () => true,
         installDownloadedUpdate: async () => ({ installing: true }),
         onIntegrityEvent: () => () => {}
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-    <link rel="stylesheet" href="../src/styles.css?v=attempts-20260719" />
+    <link rel="stylesheet" href="../src/styles.css?v=support-20260719" />
   </head>
   <body>
     <div id="app"></div>
     <script src="../src/config.js"></script>
     <script>window.CROSSLINE_API_BASE = "";</script>
-    <script src="../src/api.js?v=attempts-20260719"></script>
+    <script src="../src/api.js?v=support-20260719"></script>
     <script src="../src/vendor/marked.umd.js"></script>
-    <script src="../src/app.js?v=attempts-20260719"></script>
+    <script src="../src/app.js?v=support-20260719"></script>
     <script>
       currentUser = { email: "arijitsumit123@gmail.com", username: "Creator Admin", isAdmin: true };
       window.CrosslineApi.enabled = () => true;
@@ -34,6 +35,8 @@
       window.CrosslineApi.adminStudentPlans = async () => ({ plans: ACCESS_PLANS, assignments: [{ email: "student@example.com", username: "Demo Student", planId: "past-plus-3", mockLimit: 3, mocksUsed: 1 }], paymentEnabled: false });
       window.CrosslineApi.grantStudentPlan = async () => ({ ok: true });
       window.CrosslineApi.revokeStudentPlan = async () => ({ ok: true });
+      window.CrosslineApi.adminBugReports = async () => ({ reports: [{ id: "preview-bug", category: "app", title: "Dashboard chart overlap", details: "The activity chart overlaps the card edge at a smaller window size.", status: "open", studentEmail: "student@example.com", studentName: "Demo Student", appVersion: "0.1.52-preview", createdAt: new Date().toISOString() }] });
+      window.CrosslineApi.updateBugReport = async () => ({ ok: true });
       showAdminSecurity();
     </script>
   </body>

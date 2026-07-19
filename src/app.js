@@ -423,7 +423,17 @@ function desktopExitAction(extra = "", options = {}) {
   return `${extra}${isDesktopClient() ? `${updateButtons}<button id="exit-app" class="header-link">Exit app</button>` : ""}`;
 }
 function bindDesktopExit(options = {}) {
-  bind("exit-app", "click", () => window.examRuntime?.exitApp?.());
+  bind("exit-app", "click", async () => {
+    const confirmed = await requestConfirmation({
+      id: "exit-app-confirm",
+      kicker: "Exit application",
+      title: "Exit Crossline?",
+      message: "Are you sure you want to close the app?",
+      cancelLabel: "Keep app open",
+      confirmLabel: "Exit app"
+    });
+    if (confirmed) window.examRuntime?.exitApp?.();
+  });
   if (options.updates) {
     bind("check-updates", "click", () => checkForUpdates(true));
     bind("auto-update-toggle", "click", () => setAutoUpdateEnabled(!autoUpdateEnabled()));
@@ -533,6 +543,28 @@ function requestStudentLogout() {
   document.body.appendChild(modal);
   bind("cancel-student-logout", "click", () => modal.remove());
   bind("confirm-student-logout", "click", () => { modal.remove(); clearStudentSession(); showAuth(); });
+}
+
+function requestConfirmation({ id = "crossline-confirm", kicker = "Please confirm", title, message, cancelLabel = "Cancel", confirmLabel = "Continue" }) {
+  return new Promise((resolve) => {
+    document.getElementById(id)?.remove();
+    const modal = document.createElement("div");
+    modal.id = id;
+    modal.className = "logout-confirm-backdrop";
+    modal.innerHTML = `<section class="logout-confirm-card" role="dialog" aria-modal="true" aria-labelledby="${escapeHtml(id)}-title"><p class="dash-card-kicker">${escapeHtml(kicker)}</p><h2 id="${escapeHtml(id)}-title">${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><div><button type="button" data-confirm-cancel class="dash-outline-button">${escapeHtml(cancelLabel)}</button><button type="button" data-confirm-accept class="danger-button">${escapeHtml(confirmLabel)}</button></div></section>`;
+    const finish = (accepted) => {
+      document.removeEventListener("keydown", onKeyDown);
+      modal.remove();
+      resolve(accepted);
+    };
+    const onKeyDown = (event) => { if (event.key === "Escape") finish(false); };
+    modal.querySelector("[data-confirm-cancel]").addEventListener("click", () => finish(false));
+    modal.querySelector("[data-confirm-accept]").addEventListener("click", () => finish(true));
+    modal.addEventListener("click", (event) => { if (event.target === modal) finish(false); });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-confirm-cancel]").focus();
+  });
 }
 
 function showClientLoading(message = "Preparing your dashboard") {
@@ -1525,7 +1557,7 @@ function topicPerformance(details = []) {
 function dashboardWeaknessBars(details = []) {
   const rows = topicPerformance(details).filter((stat) => stat.wrong || stat.skipped).slice(0, 3);
   if (!rows.length) return `<p class="dash-empty">Topic insights will appear after a released result.</p>`;
-  return rows.map((stat) => `<div class="dash-weakness-row"><span>${escapeHtml(stat.topic)}<small>${escapeHtml(stat.subject)} · ${stat.correct} of ${stat.total} correct</small></span><b>${stat.weakness}%</b><i style="--w:${stat.weakness}%"></i></div>`).join("");
+  return rows.map((stat) => `<div class="dash-weakness-row"><span>${escapeHtml(stat.topic)}<small>${escapeHtml(stat.subject)} · ${stat.correct}/${stat.total}</small></span><b class="number-font">${stat.weakness}%</b><i style="--w:${stat.weakness}%"></i></div>`).join("");
 }
 
 function subjectTrendData(details = []) {
@@ -1563,7 +1595,7 @@ function dashboardSubjectGraphs(details = []) {
       const attemptLabel = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"][index] || `Attempt ${index + 1}`;
       return `<button class="subject-trend-point" data-result-id="${escapeHtml(point.resultId)}" data-score="${point.score}" style="--score:${Math.max(6, point.score)}%" aria-label="${escapeHtml(`${attemptLabel} attempt, ${point.examTitle}: ${point.score}%`)}"><span class="subject-trend-bar" aria-hidden="true"></span><small>${escapeHtml(attemptLabel)}</small><em class="subject-trend-tooltip" aria-hidden="true">${point.score}%</em></button>`;
     }).join("");
-    return `<article class="dash-performance subject-trend-card"><div class="dash-section-title"><div><span class="subject-trend-live"><i></i>Activity</span><h2>${escapeHtml(subject)}</h2><p>Last ${points.length} released ${points.length === 1 ? "attempt" : "attempts"}</p></div><strong><span data-subject-trend-value>${latestScore}</span><small>%</small></strong></div><div class="subject-trend-chart" style="--point-count:${points.length}" aria-label="${escapeHtml(subject)} score history">${bars}</div></article>`;
+    return `<article class="dash-performance subject-trend-card"><div class="dash-section-title"><div><span class="subject-trend-live"><i></i>Activity</span><h2>${escapeHtml(subject)}</h2><p>${points.length} ${points.length === 1 ? "attempt" : "attempts"}</p></div><strong class="number-font"><span data-subject-trend-value>${latestScore}</span><small>%</small></strong></div><div class="subject-trend-chart" style="--point-count:${points.length}" aria-label="${escapeHtml(subject)} score history">${bars}</div></article>`;
   }).join("");
 }
 
@@ -1610,7 +1642,6 @@ function dashboardQuestionSnippet(details = [], type = "skipped") {
   const correct = letterLabels[Number(match.correctIndex || 0)] || "A";
   return `<div class="dash-question-note">
     <b>${escapeHtml(questionTaxonomy(match).topic)}</b>
-    <p>${mathHtml(match.text || "Review this question from your latest exam.")}</p>
     <small>${escapeHtml(match.examTitle || "Practice exam")}</small>
     ${type === "wrong" ? `<div class="dash-answer-lines"><span>Your Answer: ${escapeHtml(selected)}</span><span>Correct Answer: ${escapeHtml(correct)}</span></div>` : ""}
   </div>`;
@@ -1643,8 +1674,7 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
         <button id="side-settings">${uiIcon("settings")}<span>Settings</span></button>
       </nav>
       <article class="dash-sidebar-note">
-        <b>Keep learning, stay consistent!</b>
-        <p>Small steps every day lead to big results.</p>
+        <b>Stay consistent.</b>
         <i></i>
       </article>
       <footer class="dash-user-card">
@@ -1663,8 +1693,8 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
       <span class="sr-only">Welcome back, ${escapeHtml(name)}</span>
       <header class="dash-topbar">
         <div>
-          <h1>Good morning, ${escapeHtml(name)}! <span>👋</span></h1>
-          <p>Ready to ace your next exam? Let's keep the momentum going.</p>
+          <h1>Good morning, ${escapeHtml(name)}!</h1>
+          <p>Ready for your next exam?</p>
         </div>
         <div class="dash-top-actions">
           ${isDesktopClient() ? `<button id="check-updates">Updates</button><button id="auto-update-toggle">${autoUpdateEnabled() ? "Auto-update on" : "Enable auto-update"}</button><button id="exit-app">Exit</button>` : ""}
@@ -1677,25 +1707,24 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
       <section class="dash-start-card">
         <div class="dash-start-icon">${uiIcon("square-check-big")}</div>
         <div>
-          <h2>All set for your next challenge?</h2>
-          <p>Attempt a new mock exam and track your progress.</p>
+          <h2>Start your next exam</h2>
         </div>
         <button id="start-exam-dashboard" class="dash-start-button">Start Exam ${uiIcon("chevron-right")}</button>
         <div class="dash-start-paper" aria-hidden="true"></div>
       </section>
 
       <section class="dash-metrics" aria-label="Performance overview">
-        <article class="dash-metric dash-metric-red"><i>${uiIcon("trophy")}</i><h3>Latest score</h3><strong>${escapeHtml(latestPercent)}</strong><p>${mathHtml(latestTitle)}</p><em>${leaderboard?.own ? `Live rank: #${leaderboard.own.rank}` : "No rank yet"}</em></article>
-        <article class="dash-metric dash-metric-orange"><i>${uiIcon("trending-up")}</i><h3>Average Improvement</h3><strong>${escapeHtml(improvement)}</strong><p>vs previous 5 released exams</p><em>${summary.improvement === null ? "Complete another exam to compare" : summary.improvement >= 0 ? "Your latest score is above your recent average" : "Your latest score is below your recent average"}</em></article>
-        <article class="dash-metric dash-metric-purple"><i>${uiIcon("file-text")}</i><h3>Exams Attempted</h3><strong>${attemptedCount}</strong><p>Total submitted mocks</p><em>This Month: ${summary.thisMonthCount}</em></article>
-        <article class="dash-metric dash-metric-green"><i>${uiIcon("badge-check")}</i><h3>Average Score</h3><strong>${average}%</strong><p>Across all exams</p><em>${leaderboard?.participantCount ? `${leaderboard.participantCount} active students` : "Build your first score"}</em></article>
+        <article class="dash-metric dash-metric-red"><i>${uiIcon("trophy")}</i><h3>Latest score</h3><strong class="number-font">${escapeHtml(latestPercent)}</strong><p>${mathHtml(latestTitle)}</p><em>${leaderboard?.own ? `Rank #${leaderboard.own.rank}` : "No rank yet"}</em></article>
+        <article class="dash-metric dash-metric-orange"><i>${uiIcon("trending-up")}</i><h3>Improvement</h3><strong class="number-font">${escapeHtml(improvement)}</strong><p>Last 5 exams</p></article>
+        <article class="dash-metric dash-metric-purple"><i>${uiIcon("file-text")}</i><h3>Attempts</h3><strong class="number-font">${attemptedCount}</strong><p>This month: ${summary.thisMonthCount}</p></article>
+        <article class="dash-metric dash-metric-green"><i>${uiIcon("badge-check")}</i><h3>Average</h3><strong class="number-font">${average}%</strong><p>All exams</p></article>
       </section>
 
       <section class="dash-insights">
-        <article class="dash-card"><div class="dash-card-head"><i>${uiIcon("target")}</i><div><h3>Biggest Weaknesses</h3><p>Focus on these to improve your score</p></div></div><div class="dash-weakness">${dashboardWeaknessBars(details)}</div><button id="view-results-dashboard">View Weakness Analysis ${uiIcon("chevron-right")}</button></article>
-        <article class="dash-card"><div class="dash-card-head"><i>${uiIcon("play")}</i><div><h3>Last Skipped Question</h3><p>You skipped this in your last exam</p></div></div>${dashboardQuestionSnippet(details, "skipped")}<button id="review-skipped-dashboard" ${skippedMatch ? `data-result-id="${escapeHtml(skippedMatch.resultId)}" data-question-id="${escapeHtml(skippedMatch.id)}"` : "disabled"}>Review Question ${uiIcon("chevron-right")}</button></article>
-        <article class="dash-card dash-wrong-card"><div class="dash-card-head"><i>${uiIcon("circle-x")}</i><div><h3>Last Wrong Question</h3><p>You answered incorrectly</p></div></div>${dashboardQuestionSnippet(details, "wrong")}<button id="review-wrong-dashboard" ${wrongMatch ? `data-result-id="${escapeHtml(wrongMatch.resultId)}" data-question-id="${escapeHtml(wrongMatch.id)}"` : "disabled"}>Review Solution ${uiIcon("chevron-right")}</button></article>
-        <article class="dash-card dash-results-card"><div class="dash-card-head"><i>${uiIcon("bar-chart-3")}</i><div><h3>Detailed Results</h3><p>Dive deep into your performance and track progress over time.</p></div></div><button id="dash-results-cta">View Results ${uiIcon("chevron-right")}</button><div class="dash-mini-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div></article>
+        <article class="dash-card"><div class="dash-card-head"><i>${uiIcon("target")}</i><div><h3>Biggest Weaknesses</h3></div></div><div class="dash-weakness">${dashboardWeaknessBars(details)}</div><button id="view-results-dashboard">View analysis ${uiIcon("chevron-right")}</button></article>
+        <article class="dash-card"><div class="dash-card-head"><i>${uiIcon("play")}</i><div><h3>Last Skipped</h3></div></div>${dashboardQuestionSnippet(details, "skipped")}<button id="review-skipped-dashboard" ${skippedMatch ? `data-result-id="${escapeHtml(skippedMatch.resultId)}" data-question-id="${escapeHtml(skippedMatch.id)}"` : "disabled"}>Review ${uiIcon("chevron-right")}</button></article>
+        <article class="dash-card dash-wrong-card"><div class="dash-card-head"><i>${uiIcon("circle-x")}</i><div><h3>Last Wrong</h3></div></div>${dashboardQuestionSnippet(details, "wrong")}<button id="review-wrong-dashboard" ${wrongMatch ? `data-result-id="${escapeHtml(wrongMatch.resultId)}" data-question-id="${escapeHtml(wrongMatch.id)}"` : "disabled"}>Review ${uiIcon("chevron-right")}</button></article>
+        <article class="dash-card dash-results-card"><div class="dash-card-head"><i>${uiIcon("bar-chart-3")}</i><div><h3>Results</h3></div></div><button id="dash-results-cta">View results ${uiIcon("chevron-right")}</button><div class="dash-mini-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div></article>
       </section>
 
       <section class="dash-subject-graphs" aria-label="Subject performance graphs">${dashboardSubjectGraphs(details)}</section>
@@ -1793,7 +1822,7 @@ function studentPageShell({ active = "dashboard", title, subtitle = "", content 
   return `<main class="dash-shell">
     <aside class="dash-sidebar"><div class="dash-logo"><img src="assets/crossline-icon.png" alt="" /><strong>Cross-Line</strong><span>Education</span></div>
       <nav class="dash-side-nav" aria-label="Student dashboard">${nav.map(([id, icon, label]) => `<button id="side-${id}" class="${active === id ? "active" : ""}">${uiIcon(icon)}<span>${label}</span></button>`).join("")}</nav>
-      <article class="dash-sidebar-note"><b>Keep learning, stay consistent!</b><p>Small steps every day lead to big results.</p><i></i></article>
+      <article class="dash-sidebar-note"><b>Stay consistent.</b><i></i></article>
       <footer class="dash-user-card"><button id="open-profile-settings" class="dash-avatar" aria-label="Open profile settings">${studentAvatarMarkup()}</button><div><b>${escapeHtml(name)}</b><small>CSCA Candidate</small></div><button id="logout" aria-label="Log out">⌄</button></footer>
     </aside>
     <section class="dash-main dash-page-main"><header class="dash-topbar"><div><h1>${mathHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div><div class="dash-top-actions"><button id="dashboard-notifications" aria-label="Notifications">${uiIcon("bell")}<i id="notification-count" class="hidden">0</i></button></div></header>${action}${content}</section>
@@ -1889,10 +1918,11 @@ function renderExamList(message = "") {
   if (!subject) {
     const counts = Object.fromEntries(EXAM_SUBJECTS.map((name) => [name, exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === name).length]));
     const unassignedCount = exams.filter((exam) => !normalizeExamSubjectValue(exam.subject)).length;
-    const cards = EXAM_SUBJECTS.map((name) => `<article class="dash-page-card subject-choice-card"><div><p class="dash-card-kicker">Subject paper</p><h2>${escapeHtml(name)}</h2><p>Choose ${escapeHtml(name)} to see every published paper in this category.</p><div class="exam-meta"><span>${counts[name]} exam${counts[name] === 1 ? "" : "s"}</span></div></div><button class="dash-start-button choose-subject" data-subject="${escapeHtml(name)}">View ${escapeHtml(name)} exams ${uiIcon("chevron-right")}</button></article>`).join("");
-    const unassignedCard = unassignedCount ? `<article class="dash-page-card subject-choice-card"><div><p class="dash-card-kicker">Needs subject</p><h2>Unassigned</h2><p>These papers still need a subject set in the admin exam library.</p><div class="exam-meta"><span>${unassignedCount} exam${unassignedCount === 1 ? "" : "s"}</span></div></div><button class="dash-start-button choose-subject" data-subject="__unassigned__">View unassigned exams ${uiIcon("chevron-right")}</button></article>` : "";
+    const subjectIcons = { Physics: "target", Chemistry: "badge-check", Mathematics: "chart-no-axes-column-increasing", "Academic Chinese": "book-open" };
+    const cards = EXAM_SUBJECTS.map((name) => `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon(subjectIcons[name])}</span><div><h2>${escapeHtml(name)}</h2><p class="subject-exam-count number-font">${counts[name]} exam${counts[name] === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="${escapeHtml(name)}">View ${uiIcon("chevron-right")}</button></article>`).join("");
+    const unassignedCard = unassignedCount ? `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon("file-text")}</span><div><h2>Unassigned</h2><p class="subject-exam-count number-font">${unassignedCount} exam${unassignedCount === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="__unassigned__">View ${uiIcon("chevron-right")}</button></article>` : "";
     const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid subject-choice-grid">${cards}${unassignedCard}</section>`;
-    app.innerHTML = studentPageShell({ active: "exams", title: "Choose a subject", subtitle: "Pick Physics, Chemistry, Mathematics, or Academic Chinese, then open a paper in that category.", content });
+    app.innerHTML = studentPageShell({ active: "exams", title: "Choose a subject", subtitle: "Select a subject.", content });
     bindStudentShell();
     document.querySelectorAll(".choose-subject").forEach((button) => button.addEventListener("click", () => {
       selectedExamSubject = button.dataset.subject;
@@ -2140,8 +2170,9 @@ function showStudentSettings(message = "") {
   const updateSettings = isDesktopClient() ? `<div class="settings-update-copy"><b>Windows app updates</b><p>Updates are verified before installation. If a previous download was interrupted, reset it here and check again.</p></div>` : "";
   const updateActions = isDesktopClient() ? `<button id="settings-check-updates" type="button" class="dash-outline-button">Check for updates</button><button id="settings-auto-update" type="button" class="dash-outline-button">${autoUpdateEnabled() ? "Auto-update enabled" : "Enable auto-update"}</button><button id="settings-reset-update" type="button" class="dash-outline-button">Reset update download</button>` : "";
   const adminSettings = currentUser?.isAdmin ? `<section class="dash-page-card settings-admin-card"><div><p class="dash-card-kicker">Administrator security</p><h2>Admin panel</h2><p>Privileged access uses your student account plus a six-digit authenticator code.</p></div><button id="open-admin-panel" class="dash-outline-button">Open admin panel</button></section>` : "";
-  const content = `<section class="dash-page-card settings-card"><form id="student-settings-form"><div class="settings-profile-row"><label class="settings-avatar-picker"><span id="settings-avatar-preview">${studentAvatarMarkup(profile)}</span><input id="settings-avatar" type="file" accept="image/*" /></label><div><h2>${escapeHtml(displayName())}</h2><p>Choose a profile picture and update the name used throughout the dashboard.</p></div></div><div class="auth-name-grid"><label class="auth-field"><span>First name</span><input id="settings-first-name" value="${escapeHtml(currentUser?.firstName || currentUser?.first_name || "")}" required /></label><label class="auth-field"><span>Last name</span><input id="settings-last-name" value="${escapeHtml(currentUser?.lastName || currentUser?.last_name || "")}" required /></label></div><label class="auth-field"><span>Username</span><input id="settings-username" maxlength="40" value="${escapeHtml(currentUser?.username || "")}" required /></label><p class="form-message">${escapeHtml(message)}</p>${updateSettings}<div class="settings-actions"><button class="dash-start-button">Save profile</button>${updateActions}</div></form></section>${adminSettings}`;
-  app.innerHTML = studentPageShell({ active: "settings", title: "Settings", subtitle: "Manage your student profile and desktop app updates.", content });
+  const bugReport = `<section class="dash-page-card settings-bug-card"><div class="settings-section-heading"><span>${uiIcon("circle-x")}</span><div><p class="dash-card-kicker">Support</p><h2>Report a bug</h2><p>Tell us what happened and how to reproduce it.</p></div></div><form id="student-bug-report-form"><div class="auth-name-grid"><label class="auth-field"><span>Category</span><select id="bug-category"><option value="app">App</option><option value="exam">Exam content</option><option value="camera">Camera or setup</option><option value="account">Account</option><option value="other">Other</option></select></label><label class="auth-field"><span>Short title</span><input id="bug-title" maxlength="120" placeholder="What went wrong?" required /></label></div><label class="auth-field"><span>Details</span><textarea id="bug-details" maxlength="4000" rows="5" placeholder="What did you do, what happened, and what did you expect?" required></textarea></label><div class="bug-report-actions"><p id="bug-report-message" class="form-message" aria-live="polite"></p><button id="submit-bug-report" class="dash-start-button">Send report</button></div></form></section>`;
+  const content = `<section class="dash-page-card settings-card"><form id="student-settings-form"><div class="settings-profile-row"><label class="settings-avatar-picker"><span id="settings-avatar-preview">${studentAvatarMarkup(profile)}</span><input id="settings-avatar" type="file" accept="image/*" /></label><div><h2>${escapeHtml(displayName())}</h2><p>Update your profile details.</p></div></div><div class="auth-name-grid"><label class="auth-field"><span>First name</span><input id="settings-first-name" value="${escapeHtml(currentUser?.firstName || currentUser?.first_name || "")}" required /></label><label class="auth-field"><span>Last name</span><input id="settings-last-name" value="${escapeHtml(currentUser?.lastName || currentUser?.last_name || "")}" required /></label></div><label class="auth-field"><span>Username</span><input id="settings-username" maxlength="40" value="${escapeHtml(currentUser?.username || "")}" required /></label><p class="form-message">${escapeHtml(message)}</p>${updateSettings}<div class="settings-actions"><button class="dash-start-button">Save profile</button>${updateActions}</div></form></section>${bugReport}${adminSettings}`;
+  app.innerHTML = studentPageShell({ active: "settings", title: "Settings", subtitle: "Profile, updates, and support.", content });
   bindStudentShell();
   let nextPhoto = profile.photo || currentUser?.avatarUrl || "";
   let photoChanged = false;
@@ -2151,6 +2182,30 @@ function showStudentSettings(message = "") {
   bind("settings-auto-update", "click", () => { setAutoUpdateEnabled(!autoUpdateEnabled()); showStudentSettings(); });
   bind("open-admin-panel", "click", showAdminAccessGate);
   bind("student-settings-form", "submit", async (event) => { event.preventDefault(); const next = { username: document.getElementById("settings-username").value.trim(), firstName: document.getElementById("settings-first-name").value.trim(), lastName: document.getElementById("settings-last-name").value.trim(), ...(photoChanged ? { avatarUrl: nextPhoto } : {}) }; try { if (apiEnabled()) { const payload = await window.CrosslineApi.updateProfile(next); currentUser = payload.user; } else { currentUser = { ...currentUser, ...next }; users = users.map((user) => user.email === currentUser.email ? currentUser : user); save("csca-users", users); } saveStudentProfile({ ...getStudentProfile(), photo: nextPhoto }); showStudentSettings("Profile saved."); } catch (error) { showStudentSettings(error.message || "Your profile could not be saved."); } });
+  bind("student-bug-report-form", "submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.getElementById("submit-bug-report");
+    const status = document.getElementById("bug-report-message");
+    const report = { category: document.getElementById("bug-category").value, title: document.getElementById("bug-title").value.trim(), details: document.getElementById("bug-details").value.trim(), context: "Student settings", appVersion: "" };
+    if (report.title.length < 4 || report.details.length < 10) { status.textContent = "Add a short title and a little more detail."; return; }
+    button.disabled = true;
+    button.textContent = "Sending...";
+    status.textContent = "Sending your report...";
+    try {
+      const runtimeInfo = window.examRuntime?.getInfo ? await window.examRuntime.getInfo().catch(() => null) : null;
+      report.appVersion = String(runtimeInfo?.version || "");
+      if (apiEnabled()) await window.CrosslineApi.reportBug(report);
+      else save("csca-local-bug-reports", [...load("csca-local-bug-reports", []), { ...report, id: `local-${Date.now()}`, createdAt: new Date().toISOString(), status: "open" }]);
+      form.reset();
+      status.textContent = "Report sent. Thank you for helping us improve Crossline.";
+    } catch (error) {
+      status.textContent = error.message || "The report could not be sent. Please try again.";
+    } finally {
+      button.disabled = false;
+      button.textContent = "Send report";
+    }
+  });
 }
 
 async function showAdminAccessGate(message = "") {
@@ -2627,7 +2682,22 @@ function renderExamShell() {
   bind("flag-button", "click", () => { questions[currentIndex].flagged = !questions[currentIndex].flagged; saveSessionAnswers(false); renderQuestion(); });
   bind("zoom-in", "click", () => { questionScale = Math.min(1.35, questionScale + .1); document.documentElement.style.setProperty("--question-scale", questionScale); });
   bind("zoom-out", "click", () => { questionScale = Math.max(.85, questionScale - .1); document.documentElement.style.setProperty("--question-scale", questionScale); });
-  bind("exit-button", "click", async () => { clearInterval(clockTimer); await recordSessionEvent("practice_exit", { elapsedSeconds }); stopMedia(); ensureKiosk(); showExamList(); });
+  bind("exit-button", "click", async () => {
+    const confirmed = await requestConfirmation({
+      id: "exit-practice-confirm",
+      kicker: "Active practice",
+      title: "Exit this practice?",
+      message: "Your current answers will remain saved, but this attempt will not be submitted.",
+      cancelLabel: "Continue practice",
+      confirmLabel: "Exit practice"
+    });
+    if (!confirmed) return;
+    clearInterval(clockTimer);
+    await recordSessionEvent("practice_exit", { elapsedSeconds });
+    stopMedia();
+    leaveKiosk();
+    showExamList();
+  });
   bind("submit-button", "click", () => document.getElementById("submit-dialog").showModal());
   bind("cancel-submit", "click", () => document.getElementById("submit-dialog").close());
   bind("confirm-submit", "click", submitExamAndExit);
@@ -2717,7 +2787,7 @@ function adminSkeleton(rows = 3) {
   return `<section class="admin-skeleton" aria-hidden="true">${Array.from({ length: rows }, () => `<div class="skeleton-card"><div class="skeleton-line w35"></div><div class="skeleton-line w70"></div><div class="skeleton-line w55"></div></div>`).join("")}</section>`;
 }
 function adminShell(content, active = "exams") {
-  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-student-plans" class="${active === "student-plans" ? "active" : ""}">${uiIcon("badge-check")} Student plans</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
+  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-bug-reports" class="${active === "bug-reports" ? "active" : ""}">${uiIcon("circle-x")} Bug reports</button><button id="admin-student-plans" class="${active === "student-plans" ? "active" : ""}">${uiIcon("badge-check")} Student plans</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
 function bindAdminShell() {
   bind("admin-logout", "click", showStudentSettings);
@@ -2727,6 +2797,7 @@ function bindAdminShell() {
   bind("admin-import", "click", showQuestionImport);
   bind("admin-submissions", "click", showAdminSubmissions);
   bind("admin-notifications", "click", showAdminNotifications);
+  bind("admin-bug-reports", "click", showAdminBugReports);
   bind("admin-student-plans", "click", showAdminStudentPlans);
   bind("admin-security", "click", showAdminSecurity);
   bind("admin-updates", "click", showAdminUpdates);
@@ -3523,6 +3594,34 @@ function showQuestionImport(message = "") {
       if (messageBox) messageBox.textContent = error.message || "The imported questions could not be saved.";
     }
   });
+}
+
+async function showAdminBugReports(message = "") {
+  message = typeof message === "string" ? message : "";
+  const renderReports = (reports) => {
+    const categoryLabels = { app: "App", exam: "Exam content", camera: "Camera or setup", account: "Account", other: "Other" };
+    const cards = reports.length ? reports.map((report) => `<article class="admin-card admin-bug-report ${report.status === "resolved" ? "resolved" : ""}"><header><div><p class="admin-kicker">${escapeHtml(categoryLabels[report.category] || "Other")}</p><h3>${escapeHtml(report.title)}</h3></div><span class="bug-status ${escapeHtml(report.status)}">${escapeHtml(report.status)}</span></header><p class="admin-bug-details">${mathHtml(report.details)}</p><div class="exam-meta"><span>${escapeHtml(report.studentName || report.studentEmail || "Local preview")}</span>${report.studentEmail ? `<span>${escapeHtml(report.studentEmail)}</span>` : ""}${report.appVersion ? `<span>App ${escapeHtml(report.appVersion)}</span>` : ""}<span>${escapeHtml(formatDateTime(report.createdAt))}</span></div><div class="admin-card-actions"><button class="${report.status === "resolved" ? "ghost-button" : "primary-button"} update-bug-report" data-id="${escapeHtml(report.id)}" data-status="${report.status === "resolved" ? "open" : "resolved"}">${report.status === "resolved" ? "Reopen" : "Mark resolved"}</button></div></article>`).join("") : `<section class="panel"><p class="form-note">No bug reports yet.</p></section>`;
+    app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Student support</p><h1>Bug reports</h1><p class="muted">Review issues sent from student settings.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-bug-list">${cards}</section>`, "bug-reports");
+    bindAdminShell();
+    document.querySelectorAll(".update-bug-report").forEach((button) => button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        if (apiEnabled()) await window.CrosslineApi.updateBugReport(button.dataset.id, button.dataset.status);
+        else {
+          const localReports = load("csca-local-bug-reports", []).map((report) => report.id === button.dataset.id ? { ...report, status: button.dataset.status } : report);
+          save("csca-local-bug-reports", localReports);
+        }
+        showAdminBugReports(button.dataset.status === "resolved" ? "Bug report resolved." : "Bug report reopened.");
+      } catch (error) { showAdminBugReports(error.message || "The bug report could not be updated."); }
+    }));
+  };
+  if (!apiEnabled()) return renderReports(load("csca-local-bug-reports", []));
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Student support</p><h1>Bug reports</h1><p class="muted">Loading student reports...</p></div></div>${adminSkeleton(3)}`, "bug-reports");
+  bindAdminShell();
+  try {
+    const payload = await window.CrosslineApi.adminBugReports();
+    renderReports(payload.reports || []);
+  } catch (error) { showAdminLogin(error.message); }
 }
 
 async function showAdminNotifications(message = "") {

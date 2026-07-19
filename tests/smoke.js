@@ -7,7 +7,7 @@ const html = fs.readFileSync(path.join(__dirname, "..", "src", "index.html"), "u
 const script = fs.readFileSync(path.join(__dirname, "..", "src", "app.js"), "utf8");
 
 function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
-  const runtimeEvents = { enterKiosk: 0, leaveKiosk: 0, captureChanges: [] };
+  const runtimeEvents = { enterKiosk: 0, leaveKiosk: 0, captureChanges: [], exitApp: 0 };
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
     url: `http://localhost${pathname}`,
@@ -19,6 +19,7 @@ function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
           onContentProtectionChanged: () => () => {},
           enterKiosk: async () => { runtimeEvents.enterKiosk += 1; return true; },
           leaveKiosk: async () => { runtimeEvents.leaveKiosk += 1; return true; },
+          exitApp: async () => { runtimeEvents.exitApp += 1; return true; },
           installDownloadedUpdate: async () => ({ installing: true }),
           onIntegrityEvent: () => () => {}
         };
@@ -143,6 +144,14 @@ async function studentFlow() {
   assert.match(window.document.body.textContent, /Welcome back, Demo Student/);
   assert.doesNotMatch(window.document.body.textContent, /\[object PointerEvent\]/);
   assert.match(window.document.body.textContent, /Subject performance/);
+  click(window, "#exit-app");
+  assert.ok(window.document.querySelector("#exit-app-confirm"));
+  click(window, "[data-confirm-cancel]");
+  assert.equal(runtimeEvents.exitApp, 0);
+  click(window, "#exit-app");
+  click(window, "[data-confirm-accept]");
+  await tick();
+  assert.equal(runtimeEvents.exitApp, 1);
   window.eval(`showUpdatePanel({ kind: "info", message: "Downloading update...", progress: 45, speed: "2.4 MB/s" })`);
   const progressPanel = window.document.querySelector(".update-panel");
   assert.equal(progressPanel.querySelectorAll(".update-progress-segment").length, 20);
@@ -202,6 +211,10 @@ async function studentFlow() {
   assert.equal(window.document.querySelector("#launch-exam").disabled, false);
   click(window, "#launch-exam");
   assert.match(window.document.body.textContent, /Exam in progress/);
+  click(window, "#exit-button");
+  assert.ok(window.document.querySelector("#exit-practice-confirm"));
+  click(window, "[data-confirm-cancel]");
+  assert.match(window.document.body.textContent, /Exam in progress/);
   assert.doesNotMatch(window.document.body.textContent, /Camera status/);
   click(window, 'input[name="answer"]');
   assert.equal(window.document.querySelector("#progress-ratio").textContent, "1 / 48");
@@ -247,7 +260,12 @@ async function studentFlow() {
   assert.match(window.document.body.textContent, /USD --/);
   assert.equal(window.document.querySelector("[data-payment-method]"), null);
   click(window, "#side-settings");
-  assert.match(window.document.body.textContent, /Manage your student profile/);
+  assert.match(window.document.body.textContent, /Profile, updates, and support/);
+  assert.ok(window.document.querySelector("#student-bug-report-form"));
+  fill(window, "#bug-title", "Dashboard chart issue");
+  fill(window, "#bug-details", "The dashboard chart did not update after opening a released result.");
+  submit(window, "#student-bug-report-form");
+  await waitUntil(() => assert.match(window.document.querySelector("#bug-report-message").textContent, /Report sent/));
   assert.equal(window.document.querySelector("#admin-capture-toggle"), null);
   assert.ok(runtimeEvents.captureChanges.every((allowed) => allowed === false));
   click(window, "#side-exams");

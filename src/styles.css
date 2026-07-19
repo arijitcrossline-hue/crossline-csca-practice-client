@@ -7,6 +7,7 @@
 @font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-700.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
 @font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-800.ttf") format("truetype"); font-weight: 800; font-style: normal; font-display: swap; }
 @font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-900.ttf") format("truetype"); font-weight: 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Montserrat"; src: url("assets/fonts/montserrat/Montserrat-Variable.ttf") format("truetype"); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 :root {
   color-scheme: light;
@@ -239,6 +240,26 @@ html:has(.landing-page), html:has(.dash-shell) { font-size: 16px; }
 .icon-chevron-right { --icon-url: url("assets/icons/chevron-right.svg"); }
 .icon-star { --icon-url: url("assets/icons/star.svg"); }
 .icon-archive { --icon-url: url("assets/icons/archive.svg"); }
+.icon-book-open { --icon-url: url("assets/icons/book-open.svg"); }
+.icon-chart-no-axes-column-increasing { --icon-url: url("assets/icons/chart-no-axes-column-increasing.svg"); }
+
+.number-font,
+#clock,
+#progress-ratio,
+#current-number,
+.pair-code,
+.demo-code,
+.question-cell,
+.pricing-price strong,
+.dash-result-summary h2,
+.weakness-summary strong,
+.admin-overview-card b,
+.update-progress-meta b,
+input[type="number"],
+input[inputmode="numeric"] {
+  font-family: "Montserrat", "Inter", "Segoe UI", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
 
 .landing-page {
   min-height: 100vh;
@@ -1578,6 +1599,16 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .settings-avatar-picker img { width: 100%; height: 100%; object-fit: cover; }
 .settings-avatar-picker input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.settings-bug-card { max-width: 680px; margin-top: 16px; }
+.settings-section-heading { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+.settings-section-heading > span { display: grid; flex: 0 0 auto; width: 42px; height: 42px; place-items: center; border-radius: 9px; color: #bd2029; background: #ffe8e2; }
+.settings-section-heading > span .landing-icon { width: 19px; height: 19px; }
+.settings-section-heading h2 { margin-bottom: 4px; }
+.settings-section-heading p:last-child { margin: 0; color: #75645d; font-size: .84rem; }
+.settings-bug-card textarea { min-height: 116px; resize: vertical; }
+.bug-report-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; }
+.bug-report-actions .form-message { flex: 1; margin: 0; }
+.bug-report-actions .dash-start-button { flex: 0 0 auto; }
 .dash-results-card::after,
 .dash-mini-bars {
   display: none;
@@ -1743,8 +1774,13 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .exam-choice-card.locked { opacity: 0.88; }
 .exam-choice-card.locked .dash-muted-button { cursor: not-allowed; }
 .subject-choice-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.subject-choice-card { display: flex; flex-direction: column; gap: 18px; min-height: 220px; }
-.subject-choice-card .dash-start-button { margin-top: auto; }
+.subject-choice-card { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 15px; align-items: center; min-height: 112px; padding: 19px; }
+.subject-choice-card h2 { margin: 0 0 3px; font-family: "Inter", "Segoe UI", Arial, sans-serif; font-size: 1.1rem; }
+.subject-choice-card .subject-exam-count { margin: 0; color: #796860; font-size: .78rem; font-weight: 650; }
+.subject-choice-icon { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 10px; color: #c51d23; background: #ffe9e3; }
+.subject-choice-icon .landing-icon { width: 22px; height: 22px; }
+.subject-choice-card .dash-outline-button { display: inline-flex; align-items: center; gap: 6px; padding: 10px 12px; }
+.subject-choice-card .dash-outline-button .landing-icon { width: 14px; height: 14px; }
 .subject-filter-bar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; padding: 18px 20px; border: 1px solid #ecd9c8; border-radius: 14px; background: #fffdf8; }
 .subject-filter-bar h2 { margin: 4px 0 0; font-family: "Playfair Display", Georgia, serif; font-size: 1.45rem; color: #2d201b; }
 .exam-category-block { margin: 0 0 28px; }
@@ -1758,6 +1794,14 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .admin-overview-card span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #c41d22; background: #ffe5de; }
 .admin-overview-card span .landing-icon { width: 19px; height: 19px; }
 .admin-overview-card b { color: #2c1d18; font-family: "Playfair Display", Georgia, serif; font-size: 2rem; }
+.admin-bug-list { display: grid; gap: 14px; }
+.admin-bug-report { margin: 0; }
+.admin-bug-report > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.admin-bug-report h3 { margin: 0; color: #2b201c; font-size: 1.1rem; }
+.admin-bug-details { margin: 14px 0; color: #5f514b; font-size: .88rem; line-height: 1.6; white-space: normal; }
+.admin-bug-report.resolved { opacity: .72; }
+.bug-status { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 27px; border-radius: 6px; padding: 0 9px; color: #a71921; background: #fff0eb; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.bug-status.resolved { color: #1b7049; background: #eaf7ef; }
 .admin-overview-card small { color: #745f56; }
 .admin-overview-action { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; border-color: #ecd8c3; background: linear-gradient(135deg, #fff9ef, #fff0e3); }
 .admin-overview-action h2, .import-guide h2 { margin: 0 0 7px; font-family: "Playfair Display", Georgia, serif; }
@@ -2641,6 +2685,20 @@ dialog { border: 0; border-radius: 9px; box-shadow: 0 18px 50px #1b2b4455; anima
 @media (max-width: 1120px) {
   .dash-subject-graphs, .leaderboard-board-grid { grid-template-columns: 1fr; }
 }
+
+/* Compact dashboard content keeps the existing sections easy to scan. */
+.dash-start-card { min-height: 116px; }
+.dash-start-card h2 { margin-bottom: 0; }
+.dash-metric { min-height: 152px; padding-bottom: 16px; }
+.dash-metric h3 { margin-bottom: 10px; }
+.dash-metric strong { font-family: "Montserrat", "Inter", "Segoe UI", Arial, sans-serif; }
+.dash-metric p { margin-bottom: 0; color: #6d5d56; font-size: .8rem; }
+.dash-card { min-height: 182px; }
+.dash-card-head { margin-bottom: 10px; }
+.dash-question-note { min-height: 66px; }
+.dash-question-note b { margin-bottom: 5px; }
+.dash-question-note small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subject-trend-tooltip { font-family: "Montserrat", "Inter", "Segoe UI", Arial, sans-serif; font-variant-numeric: tabular-nums; }
 
 /* Login reference fidelity: supplied study-room art remains the visual canvas. */
 .auth-screen { grid-template-columns: minmax(520px, .92fr) minmax(520px, 1.08fr); padding: clamp(28px, 4.8vw, 82px); gap: clamp(34px, 5vw, 90px); }
