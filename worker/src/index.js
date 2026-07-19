@@ -651,18 +651,9 @@ async function listExams(request, env) {
       mocksRemaining: planSummary.usage.mocksRemaining,
       attemptsUsed: attemptsByExam.get(exam.id) || 0
     });
-    const entitlementLabel = exam.freeSample
-      ? "Free exam for every student"
-      : official && planSummary.plan
-        ? "Included in your package"
-        : unlocked
-          ? "Crossline mock unlocked"
-          : access.included
-            ? "Uses one Crossline mock slot"
-            : "Package required";
     const accessLabel = access.included
-      ? `${entitlementLabel} · ${access.attemptsRemaining} of ${MAX_EXAM_ATTEMPTS} attempts remaining`
-      : entitlementLabel;
+      ? `${access.attemptsRemaining} ${access.attemptsRemaining === 1 ? "attempt" : "attempts"} remaining`
+      : "Package required";
     const accessReason = access.limitReached
       ? `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.`
       : access.included

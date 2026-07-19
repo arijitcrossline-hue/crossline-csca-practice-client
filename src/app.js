@@ -103,7 +103,7 @@ const TOPIC_KEYWORDS = {
   }
 };
 const defaultExams = [
-  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 60, subject: "Physics", category: "official", free: true, freeSample: true, priceCents: 0, canStart: true, accessLabel: "Free exam for every student · 3 of 3 attempts remaining", attemptsUsed: 0, attemptsRemaining: 3, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
+  { id: "physics-mock", title: "CSCA Physics Mock", description: "Full practice paper covering physics fundamentals.", duration: 60, subject: "Physics", category: "official", free: true, freeSample: true, priceCents: 0, canStart: true, accessLabel: "3 attempts remaining", attemptsUsed: 0, attemptsRemaining: 3, questions: Array.from({ length: 48 }, (_, index) => ({ ...defaultQuestions[index % 2] })) },
   { id: "math-short", title: "CSCA Mathematics Quick Practice", description: "A shorter warm-up paper for testing the examination workflow.", duration: 35, subject: "Mathematics", category: "official", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: defaultQuestions.slice(2).map((question) => ({ ...question })) },
   { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", category: "original", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
   { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
@@ -659,6 +659,10 @@ function examPriceCents(exam = {}) {
   return Math.max(0, Math.round(Number(exam.priceCents ?? exam.price_cents ?? 0)));
 }
 function formatExamAccess(exam = {}) {
+  if (exam.canStart !== false || exam.limitReached) {
+    const remaining = Math.max(0, Number(exam.attemptsRemaining ?? 3));
+    return `${remaining} ${remaining === 1 ? "attempt" : "attempts"} remaining`;
+  }
   if (exam.accessLabel) return String(exam.accessLabel);
   const cents = examPriceCents(exam);
   if (!cents) return "Free for all students";
@@ -1918,7 +1922,7 @@ function renderExamList(message = "") {
   if (!subject) {
     const counts = Object.fromEntries(EXAM_SUBJECTS.map((name) => [name, exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === name).length]));
     const unassignedCount = exams.filter((exam) => !normalizeExamSubjectValue(exam.subject)).length;
-    const subjectIcons = { Physics: "target", Chemistry: "badge-check", Mathematics: "chart-no-axes-column-increasing", "Academic Chinese": "book-open" };
+    const subjectIcons = { Physics: "atom", Chemistry: "flask-conical", Mathematics: "calculator", "Academic Chinese": "languages" };
     const cards = EXAM_SUBJECTS.map((name) => `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon(subjectIcons[name])}</span><div><h2>${escapeHtml(name)}</h2><p class="subject-exam-count number-font">${counts[name]} exam${counts[name] === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="${escapeHtml(name)}">View ${uiIcon("chevron-right")}</button></article>`).join("");
     const unassignedCard = unassignedCount ? `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon("file-text")}</span><div><h2>Unassigned</h2><p class="subject-exam-count number-font">${unassignedCount} exam${unassignedCount === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="__unassigned__">View ${uiIcon("chevron-right")}</button></article>` : "";
     const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid subject-choice-grid">${cards}${unassignedCard}</section>`;

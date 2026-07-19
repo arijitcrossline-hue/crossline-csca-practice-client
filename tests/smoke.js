@@ -177,10 +177,14 @@ async function studentFlow() {
   click(window, "#start-exam-dashboard");
   assert.match(window.document.body.textContent, /Choose a subject/);
   assert.match(window.document.body.textContent, /Physics|Chemistry|Mathematics|Academic Chinese/);
+  assert.ok(window.document.querySelector(".icon-atom"));
+  assert.ok(window.document.querySelector(".icon-flask-conical"));
+  assert.ok(window.document.querySelector(".icon-calculator"));
+  assert.ok(window.document.querySelector(".icon-languages"));
   click(window, ".choose-subject");
   assert.match(window.document.body.textContent, /Change subject/);
-  assert.match(window.document.body.textContent, /Free exam for every student/);
-  assert.match(window.document.body.textContent, /3 of 3 attempts remaining/);
+  assert.match(window.document.body.textContent, /3 attempts remaining/);
+  assert.doesNotMatch(window.document.body.textContent, /Free exam for every student|3 of 3 attempts remaining/);
   assert.doesNotMatch(window.document.body.textContent, /Buy for|Free trial|Premium|\$\d/);
   click(window, ".begin-exam");
   assert.equal(runtimeEvents.enterKiosk, 1);

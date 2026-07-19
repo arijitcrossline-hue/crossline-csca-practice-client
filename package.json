@@ -1,6 +1,6 @@
 {
   "name": "csca-practice-client",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "description": "A Windows-ready CSCA mock exam client with dual-camera practice checks.",
   "main": "electron/main.js",
   "scripts": {

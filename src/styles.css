@@ -242,6 +242,10 @@ html:has(.landing-page), html:has(.dash-shell) { font-size: 16px; }
 .icon-archive { --icon-url: url("assets/icons/archive.svg"); }
 .icon-book-open { --icon-url: url("assets/icons/book-open.svg"); }
 .icon-chart-no-axes-column-increasing { --icon-url: url("assets/icons/chart-no-axes-column-increasing.svg"); }
+.icon-atom { --icon-url: url("assets/icons/atom.svg"); }
+.icon-flask-conical { --icon-url: url("assets/icons/flask-conical.svg"); }
+.icon-calculator { --icon-url: url("assets/icons/calculator.svg"); }
+.icon-languages { --icon-url: url("assets/icons/languages.svg"); }
 
 .number-font,
 #clock,
