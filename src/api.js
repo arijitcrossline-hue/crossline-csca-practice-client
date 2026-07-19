@@ -58,6 +58,7 @@
     enableAdminMfa(code) { return request("/admin/mfa/enable", { method: "POST", body: { code } }); },
     createAdminSession(code) { return request("/admin/session", { method: "POST", body: { code } }); },
     exams() { return request("/exams"); },
+    plans() { return request("/plans"); },
     results() { return request("/results"); },
     result(id) { return request(`/results/${encodeURIComponent(id)}`); },
     leaderboard(filters = {}) {
@@ -74,6 +75,9 @@
     adminAccess() { return request("/admin/access", { admin: true }); },
     grantAdminAccess(email) { return request("/admin/access", { method: "POST", admin: true, body: { email } }); },
     revokeAdminAccess(email) { return request(`/admin/access/${encodeURIComponent(email)}`, { method: "DELETE", admin: true }); },
+    adminStudentPlans() { return request("/admin/student-plans", { admin: true }); },
+    grantStudentPlan(email, planId) { return request("/admin/student-plans", { method: "POST", admin: true, body: { email, planId } }); },
+    revokeStudentPlan(email) { return request(`/admin/student-plans/${encodeURIComponent(email)}`, { method: "DELETE", admin: true }); },
     createNotification(notification) { return request("/admin/notifications", { method: "POST", admin: true, body: notification }); },
     aiImport(source) { return request("/admin/ai/import", { method: "POST", admin: true, body: source }); },
     aiChat(messages, attachment = null) { return request("/admin/ai/chat", { method: "POST", admin: true, body: { messages, attachment } }); },

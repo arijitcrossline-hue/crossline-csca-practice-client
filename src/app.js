@@ -108,6 +108,12 @@ const defaultExams = [
   { id: "chemistry-mock", title: "CSCA Chemistry Practice", description: "Chemistry fundamentals for CSCA preparation.", duration: 60, subject: "Chemistry", category: "original", free: true, priceCents: 0, questions: defaultQuestions.slice(0, 2).map((question) => ({ ...question, subject: "Chemistry", chapter: "Solutions and pH", topic: "Solutions and pH" })) },
   { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: true, priceCents: 0, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
+const ACCESS_PLANS = Object.freeze([
+  { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
+  { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
+  { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
+  { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+]);
 let selectedExamSubject = load("csca-exam-subject", "");
 
 let exams = load("csca-exams", defaultExams);
@@ -150,7 +156,10 @@ const studentDataCache = {
   leaderboardPromises: new Map(),
   notificationCount: null,
   notificationFetchedAt: 0,
-  notificationPromise: null
+  notificationPromise: null,
+  planData: null,
+  planFetchedAt: 0,
+  planPromise: null
 };
 let sourceImportProgressUnsubscribe = null;
 let adminAssistantMessages = [];
@@ -499,6 +508,9 @@ function resetStudentDataCache() {
   studentDataCache.notificationCount = null;
   studentDataCache.notificationFetchedAt = 0;
   studentDataCache.notificationPromise = null;
+  studentDataCache.planData = null;
+  studentDataCache.planFetchedAt = 0;
+  studentDataCache.planPromise = null;
   studentExamsFetchedAt = 0;
 }
 function clearStudentSession() {
@@ -615,6 +627,7 @@ function examPriceCents(exam = {}) {
   return Math.max(0, Math.round(Number(exam.priceCents ?? exam.price_cents ?? 0)));
 }
 function formatExamAccess(exam = {}) {
+  if (exam.accessLabel) return String(exam.accessLabel);
   const cents = examPriceCents(exam);
   if (!cents) return "Free for all students";
   const amount = (cents / 100).toFixed(2).replace(/\.00$/, "");
@@ -683,7 +696,7 @@ function examCategoryFieldsHtml(exam = {}) {
 function examAccessFieldsHtml(exam = {}) {
   const free = examPriceCents(exam) === 0;
   const dollars = free ? "" : (examPriceCents(exam) / 100).toFixed(2);
-  return `${examSubjectFieldsHtml(exam)}${examCategoryFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Paid exam</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Paid exams stay visible to students but cannot be started until payment unlock is added.</p>`;
+  return `${examSubjectFieldsHtml(exam)}${examCategoryFieldsHtml(exam)}<div class="field"><label>Student access</label><select id="exam-access"><option value="free" ${free ? "selected" : ""}>Free for all students</option><option value="paid" ${free ? "" : "selected"}>Package access</option></select></div><div class="field" id="exam-price-field" ${free ? 'hidden' : ""}><label>Placeholder price (USD)</label><input id="exam-price" type="number" min="0.01" max="10000" step="0.01" value="${escapeHtml(dollars)}" placeholder="9.99" /></div><p class="form-note wide">Package exams stay visible. Official past papers are included in every package; Crossline originals use one mock slot when first started.</p>`;
 }
 function localNotifications() {
   return load("csca-local-notifications", []);
@@ -737,7 +750,8 @@ function normalizeApiExam(exam) {
     priceCents,
     currency: String(exam.currency || "USD"),
     free: priceCents === 0,
-    canStart: exam.canStart !== false && priceCents === 0,
+    canStart: exam.canStart !== false,
+    accessLabel: exam.accessLabel || "",
     accessReason: exam.accessReason || "",
     questions: (exam.questions || []).map((question, index) => ({
       type: question.type || "Single choice",
@@ -1620,6 +1634,7 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
         <button id="side-results">${uiIcon("bar-chart-3")}<span>Results</span></button>
         <button id="side-weakness">${uiIcon("target")}<span>Weakness Analysis</span></button>
         <button id="side-leaderboard">${uiIcon("trophy")}<span>Leaderboard</span></button>
+        <button id="side-pricing">${uiIcon("badge-check")}<span>Pricing</span></button>
         <button id="side-settings">${uiIcon("settings")}<span>Settings</span></button>
       </nav>
       <article class="dash-sidebar-note">
@@ -1696,6 +1711,7 @@ function renderStudentDashboardView(message, data, leaderboard) {
   bind("side-results", "click", showStudentResults);
   bind("side-weakness", "click", showWeaknessAnalysis);
   bind("side-leaderboard", "click", showLeaderboard);
+  bind("side-pricing", "click", showPricing);
   bind("side-settings", "click", showStudentSettings);
   bind("start-exam-dashboard", "click", showExamList);
   bind("view-results-dashboard", "click", showWeaknessAnalysis);
@@ -1767,7 +1783,7 @@ function studentPageShell({ active = "dashboard", title, subtitle = "", content 
   const name = displayName();
   const nav = [
     ["dashboard", "house", "Dashboard"], ["exams", "clipboard-list", "Exams"], ["results", "bar-chart-3", "Results"],
-    ["weakness", "target", "Weakness Analysis"], ["leaderboard", "trophy", "Leaderboard"], ["settings", "settings", "Settings"]
+    ["weakness", "target", "Weakness Analysis"], ["leaderboard", "trophy", "Leaderboard"], ["pricing", "badge-check", "Pricing"], ["settings", "settings", "Settings"]
   ];
   return `<main class="dash-shell">
     <aside class="dash-sidebar"><div class="dash-logo"><img src="assets/crossline-icon.png" alt="" /><strong>Cross-Line</strong><span>Education</span></div>
@@ -1785,6 +1801,7 @@ function bindStudentShell() {
   bind("side-results", "click", showStudentResults);
   bind("side-weakness", "click", showWeaknessAnalysis);
   bind("side-leaderboard", "click", showLeaderboard);
+  bind("side-pricing", "click", showPricing);
   bind("side-settings", "click", showStudentSettings);
   bind("logout", "click", requestStudentLogout);
   bind("open-profile-settings", "click", showStudentSettings);
@@ -1817,6 +1834,50 @@ async function hydrateNotificationBadge() {
   try { applyCount(await studentDataCache.notificationPromise); } catch {}
 }
 
+function localPlanPayload() {
+  return { plans: ACCESS_PLANS, plan: null, usage: { mockLimit: 0, mocksUsed: 0, mocksRemaining: 0 }, paymentEnabled: false };
+}
+
+function renderPricing(payload = localPlanPayload(), message = "") {
+  const currentPlan = payload.plan || null;
+  const usage = payload.usage || {};
+  const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
+  const status = currentPlan
+    ? `<section class="pricing-current"><div><p class="dash-card-kicker">Current package</p><h2>${escapeHtml(currentPlan.name)}</h2><p>All official past-paper simulations are unlocked${currentPlan.mockLimit ? `, with ${Number(usage.mocksRemaining || 0)} of ${Number(usage.mockLimit || currentPlan.mockLimit)} Crossline mock slots remaining` : ""}.</p></div><span>Active</span></section>`
+    : `<section class="pricing-current pricing-current-empty"><div><p class="dash-card-kicker">Current package</p><h2>No package assigned</h2><p>A Crossline administrator can manually assign a package to your verified student email.</p></div><span>Not assigned</span></section>`;
+  const cards = plans.map((plan) => {
+    const active = currentPlan?.id === plan.id;
+    const mockCopy = Number(plan.mockLimit || 0) ? `${plan.mockLimit} Crossline original mocks` : "Past-paper simulations only";
+    return `<article class="pricing-plan ${active ? "active" : ""}"><header><p>${active ? "Current package" : "Access package"}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> --</strong><span>${escapeHtml(plan.priceLabel || "Price coming soon")}</span></div><ul><li>${uiIcon("badge-check")} All official past-paper simulated tests</li><li>${uiIcon("badge-check")} ${escapeHtml(mockCopy)}</li><li>${uiIcon("badge-check")} Full results and explanations</li></ul><div class="pricing-plan-state">${active ? "Assigned to your account" : "Administrator assignment available"}</div></article>`;
+  }).join("");
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${status}<section class="pricing-grid">${cards}</section><p class="pricing-note">Online payment methods and final prices will be added later. For now, access packages are assigned manually by a Crossline administrator.</p>`;
+  app.innerHTML = studentPageShell({ active: "pricing", title: "Pricing", subtitle: "Choose the amount of official past-paper practice and Crossline mock access you need.", content });
+  bindStudentShell();
+}
+
+async function showPricing(message = "") {
+  message = typeof message === "string" ? message : "";
+  const revision = beginStudentView("pricing");
+  renderPricing(studentDataCache.planData || localPlanPayload(), message);
+  if (!apiEnabled()) return;
+  if (studentDataCache.planData && Date.now() - studentDataCache.planFetchedAt < STUDENT_CACHE_TTL) return;
+  if (!studentDataCache.planPromise) {
+    studentDataCache.planPromise = window.CrosslineApi.plans()
+      .then((payload) => {
+        studentDataCache.planData = payload;
+        studentDataCache.planFetchedAt = Date.now();
+        return payload;
+      })
+      .finally(() => { studentDataCache.planPromise = null; });
+  }
+  try {
+    const payload = await studentDataCache.planPromise;
+    if (isCurrentStudentView("pricing", revision)) renderPricing(payload, message);
+  } catch (error) {
+    if (isCurrentStudentView("pricing", revision)) renderPricing(studentDataCache.planData || localPlanPayload(), error.message || "Package status could not be refreshed.");
+  }
+}
+
 function renderExamList(message = "") {
   message = typeof message === "string" ? message : "";
   const subject = selectedExamSubject === "__unassigned__" ? "__unassigned__" : normalizeExamSubjectValue(selectedExamSubject);
@@ -1840,8 +1901,8 @@ function renderExamList(message = "") {
     : exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === subject);
   const subjectLabel = subject === "__unassigned__" ? "Unassigned" : subject;
   const examCardHtml = (exam) => {
-    const canStart = exam.canStart !== false && examPriceCents(exam) === 0;
-    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This paid exam is not unlocked for your account yet.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Paid · locked"}</button></article>`;
+    const canStart = exam.canStart !== false;
+    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This exam is not included in your current access package.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin setup ${uiIcon("chevron-right")}` : "Package required"}</button></article>`;
   };
   const categorySections = EXAM_CATEGORIES.map((category) => {
     const list = filtered.filter((exam) => normalizeExamCategoryValue(exam.category) === category.id);
@@ -2650,7 +2711,7 @@ function adminSkeleton(rows = 3) {
   return `<section class="admin-skeleton" aria-hidden="true">${Array.from({ length: rows }, () => `<div class="skeleton-card"><div class="skeleton-line w35"></div><div class="skeleton-line w70"></div><div class="skeleton-line w55"></div></div>`).join("")}</section>`;
 }
 function adminShell(content, active = "exams") {
-  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
+  return `${header(desktopExitAction(`<span>Crossline administration</span><button id="admin-logout" class="header-link">Return to student settings</button>`, { updates: true }))}<main class="admin-layout admin-layout-modern"><aside class="admin-nav"><div class="admin-nav-brand"><img src="assets/crossline-icon.png" alt="" /><div><strong>Admin workspace</strong><small>2FA protected</small></div></div><button id="admin-overview" class="${active === "overview" ? "active" : ""}">${uiIcon("layout-dashboard")} Overview</button><button id="admin-assistant" class="${active === "assistant" ? "active" : ""}">${uiIcon("star")} GLM assistant</button><button id="admin-exams" class="${active === "exams" ? "active" : ""}">${uiIcon("clipboard-list")} Exam library</button><button id="admin-import" class="${active === "import" ? "active" : ""}">${uiIcon("file-text")} Import questions</button><button id="admin-submissions" class="${active === "submissions" ? "active" : ""}">${uiIcon("bar-chart-3")} Student attempts</button><button id="admin-notifications" class="${active === "notifications" ? "active" : ""}">${uiIcon("bell")} Notifications</button><button id="admin-student-plans" class="${active === "student-plans" ? "active" : ""}">${uiIcon("badge-check")} Student plans</button><button id="admin-security" class="${active === "security" ? "active" : ""}">${uiIcon("settings")} Admin access</button><button id="admin-updates" class="${active === "updates" ? "active" : ""}">${uiIcon("download")} Updates</button></aside><section class="admin-workspace">${content}</section></main>`;
 }
 function bindAdminShell() {
   bind("admin-logout", "click", showStudentSettings);
@@ -2660,9 +2721,44 @@ function bindAdminShell() {
   bind("admin-import", "click", showQuestionImport);
   bind("admin-submissions", "click", showAdminSubmissions);
   bind("admin-notifications", "click", showAdminNotifications);
+  bind("admin-student-plans", "click", showAdminStudentPlans);
   bind("admin-security", "click", showAdminSecurity);
   bind("admin-updates", "click", showAdminUpdates);
   bindDesktopExit({ updates: true });
+}
+async function showAdminStudentPlans(message = "") {
+  message = typeof message === "string" ? message : "";
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Manual access</p><h1>Student plans</h1><p class="muted">Assign access packages to verified student accounts while online payments are being prepared.</p></div></div><section class="admin-card"><p class="form-note">Loading package assignments...</p></section>`, "student-plans");
+  bindAdminShell();
+  try {
+    const payload = await window.CrosslineApi.adminStudentPlans();
+    const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
+    const catalog = plans.map((plan) => `<article class="admin-card admin-plan-option"><p class="admin-kicker">Access package</p><h3>${escapeHtml(plan.name)}</h3><strong>USD --</strong><small>${escapeHtml(plan.priceLabel || "Price coming soon")}</small><p>Includes every official past-paper simulated test${plan.mockLimit ? ` and ${plan.mockLimit} Crossline original mocks` : ""}.</p></article>`).join("");
+    const assignments = (payload.assignments || []).map((assignment) => {
+      const plan = plans.find((item) => item.id === assignment.planId);
+      const usage = Number(assignment.mockLimit || 0) ? `${Number(assignment.mocksUsed || 0)} of ${Number(assignment.mockLimit || 0)} mocks used` : "Past papers only";
+      return `<li><div><strong>${escapeHtml(assignment.username || assignment.email)}</strong><small>${escapeHtml(assignment.email)}</small></div><div><b>${escapeHtml(plan?.name || assignment.planId)}</b><small>${escapeHtml(usage)}</small></div><button class="danger-button revoke-student-plan" data-email="${escapeHtml(assignment.email)}">Revoke</button></li>`;
+    }).join("");
+    const content = `<div class="admin-toolbar"><div><p class="admin-kicker">Manual access</p><h1>Student plans</h1><p class="muted">Assign access packages to verified student accounts while online payments are being prepared.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-plan-catalog">${catalog}</section><section class="admin-card admin-plan-grant"><div><p class="admin-kicker">Grant or replace package</p><h2>Assign student access</h2><p>Reassigning a package resets that student's selected Crossline mock slots.</p></div><form id="grant-student-plan-form"><label class="auth-field"><span>Verified student email</span><input id="student-plan-email" type="email" placeholder="student@example.com" required /></label><label class="auth-field"><span>Access package</span><select id="student-plan-id">${plans.map((plan) => `<option value="${escapeHtml(plan.id)}">${escapeHtml(plan.name)}</option>`).join("")}</select></label><button class="primary-button">Assign package</button></form></section><section class="admin-card admin-plan-assignments"><div><p class="admin-kicker">Active assignments</p><h2>Student access</h2></div><ul>${assignments || `<li class="admin-plan-empty"><p class="form-note">No student packages have been assigned yet.</p></li>`}</ul></section>`;
+    app.innerHTML = adminShell(content, "student-plans");
+    bindAdminShell();
+    bind("grant-student-plan-form", "submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("student-plan-email").value.trim().toLowerCase();
+      const planId = document.getElementById("student-plan-id").value;
+      try {
+        await window.CrosslineApi.grantStudentPlan(email, planId);
+        showAdminStudentPlans(`Access package assigned to ${email}.`);
+      } catch (error) { showAdminStudentPlans(error.message); }
+    });
+    document.querySelectorAll(".revoke-student-plan").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm(`Revoke the access package for ${button.dataset.email}?`)) return;
+      try {
+        await window.CrosslineApi.revokeStudentPlan(button.dataset.email);
+        showAdminStudentPlans(`Access package revoked for ${button.dataset.email}.`);
+      } catch (error) { showAdminStudentPlans(error.message); }
+    }));
+  } catch (error) { showAdminLogin(error.message); }
 }
 async function showAdminSecurity(message = "") {
   app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div><section class="admin-card"><p class="form-note">Loading administrator accounts...</p></section>`, "security");

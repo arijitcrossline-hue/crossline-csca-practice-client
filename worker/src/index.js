@@ -7,6 +7,12 @@ const MAX_STORED_EXAM_SESSIONS_PER_USER = 50;
 const QUESTION_IMPORT_LIMIT = 100;
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
 const EXAM_CATEGORIES = ["official", "original"];
+export const ACCESS_PLANS = Object.freeze([
+  { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
+  { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
+  { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
+  { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+]);
 const CHAPTER_CATALOG = {
   Physics: [
     "Kinematics",
@@ -117,6 +123,10 @@ export default {
       if (url.pathname === "/admin/access" && request.method === "GET") return await adminListAccess(request, env);
       if (url.pathname === "/admin/access" && request.method === "POST") return await adminGrantAccess(request, env);
       if (url.pathname.match(/^\/admin\/access\/[^/]+$/) && request.method === "DELETE") return await adminRevokeAccess(request, env, url);
+      if (url.pathname === "/plans" && request.method === "GET") return await studentPlans(request, env);
+      if (url.pathname === "/admin/student-plans" && request.method === "GET") return await adminListStudentPlans(request, env);
+      if (url.pathname === "/admin/student-plans" && request.method === "POST") return await adminGrantStudentPlan(request, env);
+      if (url.pathname.match(/^\/admin\/student-plans\/[^/]+$/) && request.method === "DELETE") return await adminRevokeStudentPlan(request, env, url);
       if (url.pathname === "/exams" && request.method === "GET") return await listExams(request, env);
       if (url.pathname === "/results" && request.method === "GET") return await listResults(request, env);
       if (url.pathname.match(/^\/results\/[^/]+$/) && request.method === "GET") return await resultDetail(request, env, url);
@@ -508,20 +518,130 @@ async function adminRevokeAccess(request, env, url) {
   return json({ ok: true }, env);
 }
 
+function accessPlanById(planId) {
+  return ACCESS_PLANS.find((plan) => plan.id === String(planId || "")) || null;
+}
+
+async function studentPlanSummary(env, userId) {
+  const assignment = await env.DB.prepare(
+    "SELECT plan_id, mock_limit, granted_at, updated_at FROM student_plans WHERE user_id = ?"
+  ).bind(userId).first();
+  const usedRow = await env.DB.prepare("SELECT COUNT(*) AS used FROM student_mock_unlocks WHERE user_id = ?").bind(userId).first();
+  const used = Math.max(0, Number(usedRow?.used || 0));
+  const definition = accessPlanById(assignment?.plan_id);
+  if (!assignment || !definition) return { plan: null, usage: { mockLimit: 0, mocksUsed: used, mocksRemaining: 0 } };
+  const mockLimit = Math.max(0, Number(assignment.mock_limit || definition.mockLimit));
+  return {
+    plan: { ...definition, mockLimit, grantedAt: assignment.granted_at, updatedAt: assignment.updated_at },
+    usage: { mockLimit, mocksUsed: used, mocksRemaining: Math.max(0, mockLimit - used) }
+  };
+}
+
+async function studentPlans(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  return json({ plans: ACCESS_PLANS, ...(await studentPlanSummary(env, auth.userId)), paymentEnabled: false }, env);
+}
+
+async function adminListStudentPlans(request, env) {
+  await requireAuth(request, env, "admin");
+  const rows = await env.DB.prepare(
+    `SELECT u.email, u.username, sp.plan_id, sp.mock_limit, sp.granted_at, sp.updated_at, COUNT(smu.exam_id) AS mocks_used
+       FROM student_plans sp
+       JOIN users u ON u.id = sp.user_id
+       LEFT JOIN student_mock_unlocks smu ON smu.user_id = sp.user_id
+      GROUP BY u.id, u.email, u.username, sp.plan_id, sp.mock_limit, sp.granted_at, sp.updated_at
+      ORDER BY sp.updated_at DESC
+      LIMIT 100`
+  ).all();
+  return json({
+    plans: ACCESS_PLANS,
+    assignments: rows.results.map((row) => ({
+      email: row.email,
+      username: row.username,
+      planId: row.plan_id,
+      mockLimit: Number(row.mock_limit || 0),
+      mocksUsed: Number(row.mocks_used || 0),
+      grantedAt: row.granted_at,
+      updatedAt: row.updated_at
+    })),
+    paymentEnabled: false
+  }, env);
+}
+
+async function adminGrantStudentPlan(request, env) {
+  const auth = await requireAuth(request, env, "admin");
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const plan = accessPlanById(body.planId);
+  if (!email || !plan) return json({ error: "Choose a valid student email and access package." }, env, 400);
+  const target = await env.DB.prepare("SELECT id, email FROM users WHERE email = ? AND verified_at IS NOT NULL").bind(email).first();
+  if (!target) return json({ error: "That email must first have a verified Crossline student account." }, env, 404);
+  const now = isoNow();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO student_plans (user_id, plan_id, mock_limit, granted_by, granted_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET plan_id = excluded.plan_id, mock_limit = excluded.mock_limit, granted_by = excluded.granted_by, granted_at = excluded.granted_at, updated_at = excluded.updated_at`
+    ).bind(target.id, plan.id, plan.mockLimit, auth.userId, now, now),
+    env.DB.prepare("DELETE FROM student_mock_unlocks WHERE user_id = ?").bind(target.id),
+    env.DB.prepare("INSERT INTO notifications (id, title, body, kind, audience, target_user_id, created_by, created_at) VALUES (?, 'Access package updated', ?, 'access', 'students', ?, ?, ?)")
+      .bind(crypto.randomUUID(), `${plan.name} has been assigned to your account.`, target.id, auth.userId, now),
+    env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(crypto.randomUUID(), auth.userId, `student_plan_granted:${plan.id}`, target.email, now)
+  ]);
+  return json({ ok: true, email: target.email, plan }, env);
+}
+
+async function adminRevokeStudentPlan(request, env, url) {
+  const auth = await requireAuth(request, env, "admin");
+  const email = normalizeEmail(decodeURIComponent(url.pathname.split("/")[3] || ""));
+  const target = email ? await env.DB.prepare("SELECT id, email FROM users WHERE email = ?").bind(email).first() : null;
+  if (!target) return json({ error: "Student package not found." }, env, 404);
+  const assignment = await env.DB.prepare("SELECT user_id FROM student_plans WHERE user_id = ?").bind(target.id).first();
+  if (!assignment) return json({ error: "Student package not found." }, env, 404);
+  const now = isoNow();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM student_mock_unlocks WHERE user_id = ?").bind(target.id),
+    env.DB.prepare("DELETE FROM student_plans WHERE user_id = ?").bind(target.id),
+    env.DB.prepare("INSERT INTO notifications (id, title, body, kind, audience, target_user_id, created_by, created_at) VALUES (?, 'Access package removed', 'Your manually assigned Crossline access package has been removed. Contact Crossline if this is unexpected.', 'access', 'students', ?, ?, ?)")
+      .bind(crypto.randomUUID(), target.id, auth.userId, now),
+    env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'student_plan_revoked', ?, ?)")
+      .bind(crypto.randomUUID(), auth.userId, target.email, now)
+  ]);
+  return json({ ok: true }, env);
+}
+
 async function listExams(request, env) {
-  await requireAuth(request, env, "student");
+  const auth = await requireAuth(request, env, "student");
   const exams = await fetchExams(env, true);
+  const planSummary = await studentPlanSummary(env, auth.userId);
+  const unlockRows = await env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ?").bind(auth.userId).all();
+  const unlockedMocks = new Set(unlockRows.results.map((row) => row.exam_id));
   const listed = exams.map((exam) => {
     const free = !Number(exam.priceCents || 0);
+    const official = normalizeExamCategory(exam.category) === "official";
+    const unlocked = unlockedMocks.has(exam.id);
+    const included = Boolean(planSummary.plan) && (official || unlocked || planSummary.usage.mocksRemaining > 0);
+    const canStart = free || included;
+    const accessLabel = free
+      ? "Free for all students"
+      : official && planSummary.plan
+        ? "Included in your package"
+        : unlocked
+          ? "Crossline mock unlocked"
+          : included
+            ? "Uses one Crossline mock slot"
+            : "Package required";
     return {
       ...exam,
-      canStart: free,
-      accessReason: free ? "" : "This exam is paid. Ask Crossline to unlock access, or choose a free paper."
+      canStart,
+      accessLabel,
+      accessReason: canStart ? "" : "Ask a Crossline administrator to assign an access package to your verified student account."
     };
   });
   return json({
     exams: listed,
-    access: { allExamsFree: listed.every((exam) => exam.canStart), canStart: listed.some((exam) => exam.canStart) }
+    access: { allExamsFree: listed.every((exam) => !Number(exam.priceCents || 0)), canStart: listed.some((exam) => exam.canStart), ...planSummary }
   }, env);
 }
 
@@ -1457,9 +1577,26 @@ async function createExamSession(request, env) {
   const auth = await requireAuth(request, env, "student");
   const body = await readJson(request);
   const examId = String(body.examId || "");
-  const exam = await env.DB.prepare("SELECT id, price_cents FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, price_cents, category FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
-  if (Number(exam.price_cents || 0) > 0) return json({ error: "This exam is paid and is not unlocked for your account yet." }, env, 402);
+  if (Number(exam.price_cents || 0) > 0) {
+    const planSummary = await studentPlanSummary(env, auth.userId);
+    if (!planSummary.plan) return json({ error: "An access package is required for this exam. Ask a Crossline administrator to assign one." }, env, 402);
+    if (normalizeExamCategory(exam.category) !== "official") {
+      const existing = await env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ? AND exam_id = ?").bind(auth.userId, examId).first();
+      if (!existing) {
+        if (planSummary.usage.mocksRemaining < 1) return json({ error: "Your Crossline mock allowance has been used. Ask an administrator to change your package." }, env, 402);
+        const now = isoNow();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO student_mock_unlocks (user_id, exam_id, unlocked_at)
+           SELECT ?, ?, ?
+            WHERE (SELECT mock_limit FROM student_plans WHERE user_id = ?) > (SELECT COUNT(*) FROM student_mock_unlocks WHERE user_id = ?)`
+        ).bind(auth.userId, examId, now, auth.userId, auth.userId).run();
+        const unlocked = await env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ? AND exam_id = ?").bind(auth.userId, examId).first();
+        if (!unlocked) return json({ error: "Your Crossline mock allowance has been used. Ask an administrator to change your package." }, env, 402);
+      }
+    }
+  }
   const id = crypto.randomUUID();
   const code = randomPairingCode();
   const now = isoNow();

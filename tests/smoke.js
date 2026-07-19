@@ -238,6 +238,13 @@ async function studentFlow() {
   click(window, "#side-leaderboard");
   assert.match(window.document.body.textContent, /Live leaderboard/);
   assert.doesNotMatch(window.document.body.textContent, /Loading leaderboard/);
+  click(window, "#side-pricing");
+  assert.match(window.document.body.textContent, /Pricing/);
+  assert.equal(window.document.querySelectorAll(".pricing-plan").length, 4);
+  assert.match(window.document.body.textContent, /All past-paper simulated tests/);
+  assert.match(window.document.body.textContent, /Past papers \+ 10 Crossline mocks/);
+  assert.match(window.document.body.textContent, /USD --/);
+  assert.equal(window.document.querySelector("[data-payment-method]"), null);
   click(window, "#side-settings");
   assert.match(window.document.body.textContent, /Manage your student profile/);
   assert.equal(window.document.querySelector("#admin-capture-toggle"), null);
@@ -331,7 +338,7 @@ async function passwordResetFlow() {
   window.close();
 }
 
-function adminFlow() {
+async function adminFlow() {
   const { window } = createPortal();
   window.eval("showAdminDashboard()");
   assert.match(window.document.body.textContent, /Exam library/);
@@ -414,6 +421,29 @@ function adminFlow() {
   assert.match(htmlExplanation, /\$E=mc\^2\$/);
   assert.doesNotMatch(htmlExplanation, /script/i);
   assert.match(window.eval(`contentHtml(${JSON.stringify("Plain $x^2$ line")})`), /Plain \$x\^2\$ line/);
+
+  const grantedPlans = [];
+  let studentPlanLoads = 0;
+  window.CrosslineApi = {
+    enabled: () => false,
+    adminStudentPlans: async () => { studentPlanLoads += 1; return { plans: [
+      { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
+      { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
+      { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
+      { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+    ], assignments: [], paymentEnabled: false }; },
+    grantStudentPlan: async (email, planId) => { grantedPlans.push({ email, planId }); return { ok: true }; },
+    revokeStudentPlan: async () => ({ ok: true })
+  };
+  click(window, "#admin-student-plans");
+  await waitFor(window, "#grant-student-plan-form");
+  assert.equal(window.document.querySelectorAll(".admin-plan-option").length, 4);
+  assert.match(window.document.body.textContent, /Assign student access/);
+  fill(window, "#student-plan-email", "learner@example.com");
+  fill(window, "#student-plan-id", "past-plus-5");
+  submit(window, "#grant-student-plan-form");
+  await waitUntil(() => assert.deepEqual(grantedPlans, [{ email: "learner@example.com", planId: "past-plus-5" }]));
+  await waitUntil(() => assert.equal(studentPlanLoads, 2));
   window.close();
 }
 
@@ -425,6 +455,6 @@ function adminFlow() {
   await adminCaptureNavigationFlow();
   await registrationFlow();
   await passwordResetFlow();
-  adminFlow();
+  await adminFlow();
   console.log("CSCA portal smoke test passed.");
 })();
