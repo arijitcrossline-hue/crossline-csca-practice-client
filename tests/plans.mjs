@@ -10,11 +10,22 @@ const api = fs.readFileSync(path.join(root, "src", "api.js"), "utf8");
 const migration = fs.readFileSync(path.join(root, "worker", "migrations", "0020_student_access_plans.sql"), "utf8");
 
 assert.deepEqual(ACCESS_PLANS.map((plan) => [plan.id, plan.mockLimit]), [
-  ["past-papers", 0],
+  ["free", 1],
   ["past-plus-3", 3],
-  ["past-plus-5", 5],
-  ["past-plus-10", 10]
+  ["past-plus-5", 5]
 ]);
+assert.deepEqual(ACCESS_PLANS.find((plan) => plan.id === "past-plus-3").subjectPrices, {
+  1: 17,
+  2: 27,
+  3: 34.99,
+  4: 40
+});
+assert.deepEqual(ACCESS_PLANS.find((plan) => plan.id === "past-plus-5").subjectPrices, {
+  1: 27,
+  2: 47,
+  3: 59,
+  4: 67
+});
 for (const plan of ACCESS_PLANS) assert.match(renderer, new RegExp(plan.id.replaceAll("-", "\\-")));
 assert.match(renderer, /canStart: exam\.canStart !== false/);
 assert.doesNotMatch(renderer, /canStart: exam\.canStart !== false && priceCents === 0/);

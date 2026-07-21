@@ -10,6 +10,21 @@
     return Boolean(baseUrl());
   }
 
+  function storedToken(key) {
+    return sessionStorage.getItem(key) || localStorage.getItem(key) || "";
+  }
+
+  function setStoredToken(key, token, persistent = true) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+    (persistent ? localStorage : sessionStorage).setItem(key, token);
+  }
+
+  function clearStoredToken(key) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+
   function questionWithImageAsset(question = {}) {
     const image = typeof question.image === "string" && question.image
       ? { filename: question.imageFilename || "question-image.png", mimeType: question.imageMimeType || (question.image.match(/^data:([^;]+)/)?.[1] || "image/png"), dataUrl: question.image }
@@ -20,7 +35,7 @@
   async function request(path, options = {}) {
     if (!enabled()) throw new Error("Backend API is not configured.");
     const headers = { "content-type": "application/json", ...(options.headers || {}) };
-    const token = options.admin ? localStorage.getItem(ADMIN_TOKEN_KEY) : localStorage.getItem(TOKEN_KEY);
+    const token = storedToken(options.admin ? ADMIN_TOKEN_KEY : TOKEN_KEY);
     if (token) headers.authorization = `Bearer ${token}`;
     const response = await fetch(`${baseUrl()}${path}`, {
       ...options,
@@ -35,12 +50,12 @@
   window.CrosslineApi = {
     enabled,
     get baseUrl() { return baseUrl(); },
-    getStudentToken() { return localStorage.getItem(TOKEN_KEY) || ""; },
-    getAdminToken() { return localStorage.getItem(ADMIN_TOKEN_KEY) || ""; },
-    setStudentToken(token) { localStorage.setItem(TOKEN_KEY, token); },
-    setAdminToken(token) { localStorage.setItem(ADMIN_TOKEN_KEY, token); },
-    clearStudentToken() { localStorage.removeItem(TOKEN_KEY); },
-    clearAdminToken() { localStorage.removeItem(ADMIN_TOKEN_KEY); },
+    getStudentToken() { return storedToken(TOKEN_KEY); },
+    getAdminToken() { return storedToken(ADMIN_TOKEN_KEY); },
+    setStudentToken(token, persistent = true) { setStoredToken(TOKEN_KEY, token, persistent); },
+    setAdminToken(token, persistent = true) { setStoredToken(ADMIN_TOKEN_KEY, token, persistent); },
+    clearStudentToken() { clearStoredToken(TOKEN_KEY); },
+    clearAdminToken() { clearStoredToken(ADMIN_TOKEN_KEY); },
     register(email, password, username, profile = {}) { return request("/auth/register", { method: "POST", body: { email, password, username, ...profile } }); },
     verify(email, code) { return request("/auth/verify", { method: "POST", body: { email, code } }); },
     login(email, password) { return request("/auth/login", { method: "POST", body: { email, password } }); },

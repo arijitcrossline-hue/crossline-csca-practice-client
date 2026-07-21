@@ -10,10 +10,24 @@ const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"
 const EXAM_CATEGORIES = ["official", "original"];
 export const MAX_EXAM_ATTEMPTS = 3;
 export const ACCESS_PLANS = Object.freeze([
-  { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
-  { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
-  { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
-  { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+  { id: "free", name: "Free starter", mockLimit: 1, priceUsd: 0, priceLabel: "Free", free: true },
+  {
+    id: "past-plus-3",
+    name: "Past papers + 3 Crossline mocks",
+    mockLimit: 3,
+    priceUsd: 17,
+    priceLabel: "$17–$40",
+    popular: true,
+    subjectPrices: { 1: 17, 2: 27, 3: 34.99, 4: 40 }
+  },
+  {
+    id: "past-plus-5",
+    name: "Past papers + 5 Crossline mocks",
+    mockLimit: 5,
+    priceUsd: 27,
+    priceLabel: "$27–$67",
+    subjectPrices: { 1: 27, 2: 47, 3: 59, 4: 67 }
+  }
 ]);
 
 export function resolveExamAccess({ freeSample = false, official = false, hasPlan = false, unlocked = false, mocksRemaining = 0, attemptsUsed = 0 } = {}) {

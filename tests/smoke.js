@@ -45,6 +45,16 @@ function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
       };
       window.confirm = () => true;
       window.open = () => ({ closed: false });
+      window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+      window.cancelAnimationFrame = (id) => clearTimeout(id);
+      window.matchMedia = (query) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {}
+      });
     }
   });
   dom.window.eval(script);
@@ -131,8 +141,9 @@ async function studentFlow() {
   const portal = createPortal();
   const { window, runtimeEvents } = portal;
   assert.match(window.document.body.textContent, /Welcome back/);
-  assert.match(window.document.querySelector(".auth-brand img").src, /crossline-icon\.png/);
-  assert.match(window.document.querySelector(".auth-brand").textContent, /Cross-Line/);
+  assert.match(window.document.querySelector(".auth-v2-brand img").src, /crossline-icon\.png/);
+  assert.match(window.document.querySelector(".auth-v2-brand").textContent, /Crossline/);
+  assert.match(window.document.querySelector(".auth-v2-brand").textContent, /CSCA Practice/);
   assert.equal(window.document.querySelector("#facebook-sign-in"), null);
   click(window, "#auth-privacy");
   assert.equal(window.document.querySelector("#auth-legal-modal"), null);
@@ -258,10 +269,10 @@ async function studentFlow() {
   assert.doesNotMatch(window.document.body.textContent, /Loading leaderboard/);
   click(window, "#side-pricing");
   assert.match(window.document.body.textContent, /Pricing/);
-  assert.equal(window.document.querySelectorAll(".pricing-plan").length, 4);
-  assert.match(window.document.body.textContent, /All past-paper simulated tests/);
-  assert.match(window.document.body.textContent, /Past papers \+ 10 Crossline mocks/);
-  assert.match(window.document.body.textContent, /USD --/);
+  assert.equal(window.document.querySelectorAll(".pricing-plan").length, 3);
+  assert.match(window.document.body.textContent, /Past papers \+ 3 Crossline mocks/);
+  assert.match(window.document.body.textContent, /Past papers \+ 5 Crossline mocks/);
+  assert.match(window.document.body.textContent, /USD \$17/);
   assert.equal(window.document.querySelector("[data-payment-method]"), null);
   click(window, "#side-settings");
   assert.match(window.document.body.textContent, /Profile, updates, and support/);
@@ -327,16 +338,21 @@ async function adminCaptureNavigationFlow() {
 
 async function registrationFlow() {
   const { window } = createPortal();
-  click(window, "#register-tab");
-  fill(window, "#register-first-name", "Arijit");
-  fill(window, "#register-last-name", "Sumit");
-  fill(window, "#register-username", "Arijit");
-  fill(window, "#register-email", "new.student@example.com");
-  fill(window, "#register-password", "secret12");
-  submit(window, "#register-form");
+  click(window, "[data-create-account]");
+  fill(window, "#website-register-first-name", "Arijit");
+  fill(window, "#website-register-last-name", "Sumit");
+  fill(window, "#website-register-username", "Arijit");
+  fill(window, "#website-register-email", "new.student@example.com");
+  fill(window, "#website-register-password", "secret12");
+  submit(window, "#website-register-form");
   assert.match(window.document.body.textContent, /Verify your email/);
-  fill(window, "#verify-code", "246810");
-  submit(window, "#verify-form");
+  fill(window, "#website-verify-code", "246810");
+  submit(window, "#website-verify-form");
+  assert.match(window.document.body.textContent, /Your account is ready/);
+  click(window, "[data-sign-in]");
+  fill(window, "#login-email", "new.student@example.com");
+  fill(window, "#login-password", "secret12");
+  submit(window, "#login-form");
   await waitFor(window, "#start-exam-dashboard");
   assert.match(window.document.body.textContent, /Welcome back, Arijit/);
   window.close();
@@ -451,17 +467,15 @@ async function adminFlow() {
   window.CrosslineApi = {
     enabled: () => false,
     adminStudentPlans: async () => { studentPlanLoads += 1; return { plans: [
-      { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
-      { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
-      { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
-      { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+      { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceUsd: 17, priceLabel: "$17–$40" },
+      { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceUsd: 27, priceLabel: "$27–$67" }
     ], assignments: [], paymentEnabled: false }; },
     grantStudentPlan: async (email, planId) => { grantedPlans.push({ email, planId }); return { ok: true }; },
     revokeStudentPlan: async () => ({ ok: true })
   };
   click(window, "#admin-student-plans");
   await waitFor(window, "#grant-student-plan-form");
-  assert.equal(window.document.querySelectorAll(".admin-plan-option").length, 4);
+  assert.equal(window.document.querySelectorAll(".admin-plan-option").length, 2);
   assert.match(window.document.body.textContent, /Assign student access/);
   fill(window, "#student-plan-email", "learner@example.com");
   fill(window, "#student-plan-id", "past-plus-5");

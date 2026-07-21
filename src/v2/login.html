@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sign in — Crossline CSCA Practice</title>
+<meta name="description" content="Sign in to your Crossline CSCA Practice account to continue your mock exam journey." />
+<style>
+/* ============================================================
+   Crossline login v2 — standalone, self-contained.
+   Mirrors the real auth flow (email/password, Google OAuth,
+   forgot password, demo creds) but with a more polished split
+   layout. Does NOT touch production app.js/styles.css.
+   ============================================================ */
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-400.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-600.ttf') format('truetype'); font-weight: 500 600; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-700.ttf') format('truetype'); font-weight: 700 900; font-display: swap; }
+@font-face { font-family: 'Montserrat'; src: url('../assets/fonts/montserrat/Montserrat-Variable.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../assets/fonts/playfair/PlayfairDisplay-700.ttf') format('truetype'); font-weight: 600 700; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../assets/fonts/playfair/PlayfairDisplay-800.ttf') format('truetype'); font-weight: 800 900; font-display: swap; }
+
+:root {
+  --red: #B32024;
+  --red-deep: #8F1720;
+  --red-bright: #D71920;
+  --red-soft: #FCEDEC;
+  --paper: #FBF8F3;
+  --paper-warm: #F4EEE4;
+  --ink: #2B2018;
+  --ink-2: #5A463E;
+  --muted: #9A8478;
+  --line: #E8DDD0;
+  --field-bg: #FFFEF9;
+  --green: #1B9C5A;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 17.5px; }
+html, body { height: 100%; }
+body {
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; }
+input { font: inherit; }
+img { display: block; max-width: 100%; }
+
+/* ---------- Two-panel layout ---------- */
+.screen { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+
+/* ---------- LEFT: form panel ---------- */
+.form-panel {
+  display: flex; flex-direction: column;
+  padding: 40px clamp(40px, 6vw, 80px);
+  background: var(--paper);
+  position: relative;
+}
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: auto;
+}
+.brand { display: inline-flex; align-items: center; gap: 11px; }
+.brand img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 8px rgba(179,32,36,.22); }
+.brand-word { display: flex; flex-direction: column; line-height: 1; }
+.brand-word b { font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800; font-size: 1.1rem; color: var(--ink); letter-spacing: -.02em; }
+.brand-word small { display: block; margin-top: 4px; font-family: 'Montserrat', 'Inter', sans-serif; font-size: .52rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--red); }
+.back-link { font-size: .88rem; font-weight: 600; color: var(--ink-2); display: inline-flex; align-items: center; gap: 7px; transition: color .15s; }
+.back-link:hover { color: var(--red); }
+.back-link svg { width: 16px; height: 16px; }
+
+.form-wrap {
+  width: 100%; max-width: 410px; margin: auto; padding: 40px 0;
+}
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--red); margin-bottom: 16px;
+}
+.eyebrow::before { content:''; width: 22px; height: 2px; background: var(--red); }
+.form-wrap h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 800; font-size: clamp(2rem, 3.4vw, 2.7rem);
+  letter-spacing: -.03em; line-height: 1.05; color: var(--ink);
+  margin-bottom: 12px;
+}
+.form-wrap .sub { font-size: 1rem; color: var(--ink-2); margin-bottom: 32px; }
+
+/* Google button */
+.google-btn {
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  width: 100%; padding: 14px 18px; border-radius: 12px;
+  background: #fff; border: 1.5px solid var(--line);
+  font-family: 'Inter'; font-weight: 600; font-size: .96rem; color: var(--ink);
+  transition: all .18s ease;
+}
+.google-btn:hover { border-color: #C9B6A8; box-shadow: 0 8px 18px rgba(111,62,33,.08); transform: translateY(-1px); }
+.google-btn img { width: 20px; height: 20px; }
+
+.divider { display: flex; align-items: center; gap: 14px; margin: 24px 0 20px; color: var(--muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.divider::before, .divider::after { content:''; height: 1px; flex: 1; background: var(--line); }
+
+/* Fields */
+form { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field label { font-size: .82rem; font-weight: 700; color: var(--ink-2); }
+.input-wrap { position: relative; }
+.input-wrap input {
+  width: 100%; min-height: 52px; border: 1.5px solid var(--line);
+  border-radius: 12px; padding: 14px 16px; color: var(--ink);
+  background: var(--field-bg); outline: none;
+  transition: border-color .18s, box-shadow .18s;
+}
+.input-wrap input::placeholder { color: #B8A89B; }
+.input-wrap input:focus { border-color: var(--red-bright); box-shadow: 0 0 0 4px rgba(215,25,32,.10); }
+.input-wrap .toggle {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted); font-size: .8rem; font-weight: 600;
+  padding: 4px 8px; border-radius: 6px;
+}
+.input-wrap .toggle:hover { color: var(--red); }
+.input-wrap .icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+.input-wrap .icon svg { width: 18px; height: 18px; display: block; }
+.input-wrap.with-icon input { padding-left: 44px; }
+
+.row-between { display: flex; align-items: center; justify-content: space-between; }
+.remember { display: inline-flex; align-items: center; gap: 8px; font-size: .86rem; color: var(--ink-2); cursor: pointer; }
+.remember input { width: 16px; height: 16px; accent-color: var(--red); cursor: pointer; }
+.forgot { font-size: .86rem; font-weight: 600; color: var(--red); transition: color .15s; }
+.forgot:hover { color: var(--red-deep); text-decoration: underline; }
+
+.submit-btn {
+  margin-top: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; min-height: 54px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, var(--red) 0%, var(--red-deep) 100%);
+  color: #fff; font-family: 'Inter'; font-weight: 700; font-size: 1rem; letter-spacing: -.005em;
+  box-shadow: 0 10px 24px rgba(179,32,36,.28);
+  transition: transform .18s, box-shadow .18s, opacity .18s;
+}
+.submit-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 32px rgba(179,32,36,.36); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn svg { width: 18px; height: 18px; transition: transform .18s; }
+.submit-btn:hover svg { transform: translateX(3px); }
+.submit-btn:disabled { cursor: wait; opacity: .72; transform: none; box-shadow: 0 8px 18px rgba(179,32,36,.18); }
+.form-status { min-height: 22px; font-size: .82rem; color: var(--ink-2); }
+.form-status.error { color: var(--red-deep); }
+.form-status.success { color: var(--green); }
+.verification-code { text-align: center; font-family: 'Montserrat', 'Inter', sans-serif; font-size: 1.4rem; letter-spacing: .18em; }
+.reset-actions { display: grid; gap: 10px; }
+.text-btn { border: 0; background: transparent; color: var(--red); font-weight: 700; }
+.text-btn:hover { text-decoration: underline; }
+
+.demo-note {
+  margin-top: 18px; padding: 12px 14px; background: var(--paper-warm);
+  border: 1px dashed #D4BFAE; border-radius: 10px;
+  font-size: .82rem; color: var(--ink-2); text-align: center;
+}
+.demo-note code { font-family: 'SF Mono', Menlo, monospace; font-weight: 600; color: var(--red); background: var(--red-soft); padding: 1px 6px; border-radius: 4px; }
+
+.signup { text-align: center; margin-top: 24px; font-size: .92rem; color: var(--ink-2); }
+.signup a { color: var(--red); font-weight: 700; }
+.signup a:hover { text-decoration: underline; }
+
+.legal { margin-top: auto; padding-top: 32px; font-size: .78rem; color: var(--muted); text-align: center; }
+.legal a { color: var(--ink-2); font-weight: 600; }
+.legal a:hover { color: var(--red); }
+
+/* ---------- RIGHT: showcase panel ---------- */
+.showcase {
+  position: relative; overflow: hidden;
+  background: linear-gradient(150deg, #8F1720 0%, #B32024 45%, #D3352F 100%);
+  color: #fff;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 48px clamp(36px, 5vw, 64px);
+}
+.showcase::before {
+  content:''; position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(255,255,255,.10), transparent 40%),
+    radial-gradient(circle at 10% 90%, rgba(0,0,0,.12), transparent 45%);
+  pointer-events: none;
+}
+.show-brand { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+.show-brand img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.show-brand .brand-word b { color: #fff; font-size: 1.2rem; }
+.show-brand .brand-word small { color: rgba(255,255,255,.85); }
+
+.show-copy { position: relative; max-width: 440px; }
+.show-copy h2 {
+  font-family: 'Playfair Display', Georgia, serif; font-weight: 800;
+  font-size: clamp(1.9rem, 3vw, 2.7rem); line-height: 1.06; letter-spacing: -.03em;
+  margin-bottom: 18px;
+}
+.show-copy h2 em { font-style: italic; color: #FFD9D6; }
+.show-copy p { font-size: 1.02rem; line-height: 1.6; color: rgba(255,238,232,.88); margin-bottom: 32px; }
+
+.show-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; position: relative; }
+.show-stat { padding: 18px 16px; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; backdrop-filter: blur(8px); }
+.show-stat b { font-family: 'Playfair Display', Georgia, serif; font-weight: 800; font-size: 1.7rem; line-height: 1; display: block; }
+.show-stat small { font-size: .76rem; color: rgba(255,238,232,.78); margin-top: 6px; display: block; }
+
+.show-foot { position: relative; display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: rgba(0,0,0,.16); border-radius: 12px; border: 1px solid rgba(255,255,255,.12); max-width: 380px; }
+.show-foot .tick { width: 30px; height: 30px; border-radius: 50%; background: var(--green); display: grid; place-items: center; flex-shrink: 0; }
+.show-foot .tick svg { width: 16px; height: 16px; color: #fff; }
+.show-foot b { font-size: .9rem; display: block; }
+.show-foot small { font-size: .76rem; color: rgba(255,238,232,.72); }
+
+/* floating decorative shapes */
+.blob { position: absolute; border-radius: 50%; background: rgba(255,255,255,.06); pointer-events: none; }
+.blob-1 { width: 220px; height: 220px; top: -60px; right: -50px; }
+.blob-2 { width: 140px; height: 140px; bottom: 120px; right: 40px; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 960px) {
+  .screen { grid-template-columns: 1fr; }
+  .showcase { display: none; }
+  .form-panel { padding: 32px 28px; min-height: 100vh; }
+}
+@media (max-width: 480px) {
+  .form-wrap { padding: 24px 0; }
+  .show-stats { grid-template-columns: 1fr; }
+}
+
+/* subtle entrance */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.form-wrap > * { animation: rise .5s ease both; }
+.form-wrap > *:nth-child(2) { animation-delay: .05s; }
+.form-wrap > *:nth-child(3) { animation-delay: .10s; }
+.form-wrap > *:nth-child(4) { animation-delay: .15s; }
+.form-wrap > *:nth-child(5) { animation-delay: .20s; }
+</style>
+</head>
+<body data-auth-page="login">
+<main class="screen">
+
+  <!-- ===== LEFT: form ===== -->
+  <section class="form-panel">
+    <div class="topbar">
+      <a class="brand" href="/">
+        <img src="../assets/crossline-icon.png" alt="" />
+        <span class="brand-word"><b>Crossline</b><small>CSCA Practice</small></span>
+      </a>
+      <a class="back-link" href="/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back to home
+      </a>
+    </div>
+
+    <div class="form-wrap">
+      <span class="eyebrow">Welcome back</span>
+      <h1>Sign in to your account</h1>
+      <p class="sub">Continue your CSCA mock exam practice right where you left off.</p>
+
+      <button class="google-btn" id="google-auth" type="button">
+        <img src="../assets/google-g.svg" alt="" />
+        Continue with Google
+      </button>
+
+      <div class="divider"><span>or sign in with email</span></div>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="email">Email address</label>
+          <div class="input-wrap with-icon">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            </span>
+            <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-wrap with-icon">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <input id="password" type="password" autocomplete="current-password" placeholder="Enter your password" required />
+            <button class="toggle" type="button" id="toggle-pw">Show</button>
+          </div>
+        </div>
+
+        <div class="row-between">
+          <label class="remember"><input id="remember-session" type="checkbox" checked /> Keep me signed in</label>
+          <a class="forgot" href="#" id="forgot">Forgot password?</a>
+        </div>
+
+        <p class="form-status" id="auth-status" role="status" aria-live="polite"></p>
+
+        <button class="submit-btn" type="submit">
+          Sign in
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+
+      <p class="signup">New to Crossline? <a href="/create-account">Create an account</a></p>
+    </div>
+
+    <p class="legal">
+      By continuing, you agree to our <a href="https://exam.crosslinecscatest.com/terms">Terms</a> and <a href="https://exam.crosslinecscatest.com/privacy">Privacy Policy</a>.
+    </p>
+  </section>
+
+  <!-- ===== RIGHT: showcase ===== -->
+  <aside class="showcase">
+    <span class="blob blob-1"></span>
+    <span class="blob blob-2"></span>
+
+    <div class="show-brand">
+      <img src="../assets/crossline-icon.png" alt="" />
+      <span class="brand-word"><b>Crossline</b><small>CSCA Practice</small></span>
+    </div>
+
+    <div class="show-copy">
+      <h2>Ace every mock exam. <em>Track every step forward.</em></h2>
+      <p>Two-camera pre-exam setup, a 48-question timed interface, marks-based scoring, and a dashboard that shows exactly where you lose marks.</p>
+
+      <div class="show-stats">
+        <div class="show-stat"><b>48</b><small>questions per mock</small></div>
+        <div class="show-stat"><b>4</b><small>subjects covered</small></div>
+        <div class="show-stat"><b>100%</b><small>marks-based</small></div>
+      </div>
+    </div>
+
+    <div class="show-foot">
+      <span class="tick">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </span>
+      <div>
+        <b>Your progress. Our priority.</b>
+        <small>Secure, private, and built for serious candidates.</small>
+      </div>
+    </div>
+  </aside>
+
+</main>
+
+<script src="../config.js"></script>
+<script src="../api.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>

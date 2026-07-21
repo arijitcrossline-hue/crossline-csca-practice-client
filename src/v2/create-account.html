@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Create your account — Crossline CSCA Practice</title>
+<meta name="description" content="Create your Crossline CSCA Practice account. Register, verify your email, then sign in inside the Windows app to take your first mock exam." />
+<style>
+/* ============================================================
+   Crossline create-account v2 — standalone, self-contained.
+   Mirrors the real registration flow (first/last name, username,
+   email, password, optional photo, email verification) with the
+   same split-layout design language as login.html.
+   Does NOT touch production app.js/styles.css.
+   ============================================================ */
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-400.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-600.ttf') format('truetype'); font-weight: 500 600; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('../assets/fonts/inter/Inter-700.ttf') format('truetype'); font-weight: 700 900; font-display: swap; }
+@font-face { font-family: 'Montserrat'; src: url('../assets/fonts/montserrat/Montserrat-Variable.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../assets/fonts/playfair/PlayfairDisplay-700.ttf') format('truetype'); font-weight: 600 700; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../assets/fonts/playfair/PlayfairDisplay-800.ttf') format('truetype'); font-weight: 800 900; font-display: swap; }
+
+:root {
+  --red: #B32024;
+  --red-deep: #8F1720;
+  --red-bright: #D71920;
+  --red-soft: #FCEDEC;
+  --paper: #FBF8F3;
+  --paper-warm: #F4EEE4;
+  --ink: #2B2018;
+  --ink-2: #5A463E;
+  --muted: #9A8478;
+  --line: #E8DDD0;
+  --field-bg: #FFFEF9;
+  --green: #1B9C5A;
+  --amber: #C2760A;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 17.5px; }
+html, body { height: 100%; }
+body {
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; }
+input { font: inherit; }
+img { display: block; max-width: 100%; }
+
+/* ---------- Two-panel layout ---------- */
+.screen { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+
+/* ---------- LEFT: form panel ---------- */
+.form-panel {
+  display: flex; flex-direction: column;
+  padding: 40px clamp(40px, 6vw, 80px);
+  background: var(--paper);
+  position: relative;
+  overflow-y: auto;
+}
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: auto;
+}
+.brand { display: inline-flex; align-items: center; gap: 11px; }
+.brand img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 8px rgba(179,32,36,.22); }
+.brand-word { display: flex; flex-direction: column; line-height: 1; }
+.brand-word b { font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800; font-size: 1.1rem; color: var(--ink); letter-spacing: -.02em; }
+.brand-word small { display: block; margin-top: 4px; font-family: 'Montserrat', 'Inter', sans-serif; font-size: .52rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--red); }
+.back-link { font-size: .88rem; font-weight: 600; color: var(--ink-2); display: inline-flex; align-items: center; gap: 7px; transition: color .15s; }
+.back-link:hover { color: var(--red); }
+.back-link svg { width: 16px; height: 16px; }
+
+.form-wrap {
+  width: 100%; max-width: 440px; margin: auto; padding: 36px 0;
+}
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--red); margin-bottom: 16px;
+}
+.eyebrow::before { content:''; width: 22px; height: 2px; background: var(--red); }
+.form-wrap h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 800; font-size: clamp(1.9rem, 3.2vw, 2.5rem);
+  letter-spacing: -.03em; line-height: 1.05; color: var(--ink);
+  margin-bottom: 12px;
+}
+.form-wrap .sub { font-size: .98rem; color: var(--ink-2); margin-bottom: 28px; }
+
+/* Steps indicator */
+.steps { display: flex; align-items: center; gap: 8px; margin-bottom: 28px; }
+.step-dot { display: flex; align-items: center; gap: 8px; }
+.step-dot .num {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: 'Inter'; font-weight: 700; font-size: .8rem;
+  background: var(--paper-warm); color: var(--muted);
+  border: 1.5px solid var(--line);
+  transition: all .2s;
+}
+.step-dot .label { font-size: .78rem; font-weight: 600; color: var(--muted); transition: color .2s; }
+.step-dot.active .num { background: var(--red); color: #fff; border-color: var(--red); box-shadow: 0 4px 10px rgba(179,32,36,.28); }
+.step-dot.active .label { color: var(--ink); }
+.step-dot.done .num { background: var(--green); color: #fff; border-color: var(--green); }
+.step-bar { flex: 1; height: 2px; background: var(--line); border-radius: 1px; }
+.step-bar.done { background: var(--green); }
+
+/* Google button */
+.google-btn {
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  width: 100%; padding: 14px 18px; border-radius: 12px;
+  background: #fff; border: 1.5px solid var(--line);
+  font-family: 'Inter'; font-weight: 600; font-size: .96rem; color: var(--ink);
+  transition: all .18s ease;
+}
+.google-btn:hover { border-color: #C9B6A8; box-shadow: 0 8px 18px rgba(111,62,33,.08); transform: translateY(-1px); }
+.google-btn img { width: 20px; height: 20px; }
+
+.divider { display: flex; align-items: center; gap: 14px; margin: 22px 0 18px; color: var(--muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.divider::before, .divider::after { content:''; height: 1px; flex: 1; background: var(--line); }
+
+/* Fields */
+form { display: flex; flex-direction: column; gap: 15px; }
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field label { font-size: .82rem; font-weight: 700; color: var(--ink-2); }
+.field .hint { font-size: .74rem; color: var(--muted); font-weight: 500; }
+.name-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.input-wrap { position: relative; }
+.input-wrap input {
+  width: 100%; min-height: 50px; border: 1.5px solid var(--line);
+  border-radius: 12px; padding: 13px 16px; color: var(--ink);
+  background: var(--field-bg); outline: none;
+  transition: border-color .18s, box-shadow .18s;
+}
+.input-wrap input::placeholder { color: #B8A89B; }
+.input-wrap input:focus { border-color: var(--red-bright); box-shadow: 0 0 0 4px rgba(215,25,32,.10); }
+.input-wrap .toggle {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted); font-size: .8rem; font-weight: 600;
+  padding: 4px 8px; border-radius: 6px;
+}
+.input-wrap .toggle:hover { color: var(--red); }
+.input-wrap .icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+.input-wrap .icon svg { width: 18px; height: 18px; display: block; }
+.input-wrap.with-icon input { padding-left: 44px; }
+
+/* Password strength meter */
+.pw-strength { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.pw-bars { display: flex; gap: 4px; flex: 1; }
+.pw-bars span { height: 4px; flex: 1; border-radius: 2px; background: var(--line); transition: background .2s; }
+.pw-bars.s1 span:nth-child(1) { background: var(--red); }
+.pw-bars.s2 span:nth-child(-n+2) { background: var(--amber); }
+.pw-bars.s3 span:nth-child(-n+3) { background: var(--amber); }
+.pw-bars.s4 span { background: var(--green); }
+.pw-label { font-size: .74rem; font-weight: 600; color: var(--muted); min-width: 60px; text-align: right; }
+.pw-label.weak { color: var(--red); }
+.pw-label.medium { color: var(--amber); }
+.pw-label.strong { color: var(--green); }
+
+/* Avatar picker */
+.avatar-row { display: flex; align-items: center; gap: 14px; padding: 14px; background: var(--paper-warm); border: 1.5px dashed #D4BFAE; border-radius: 12px; margin-bottom: 4px; }
+.avatar-picker { position: relative; width: 56px; height: 56px; border-radius: 50%; background: #fff; border: 1.5px solid var(--line); display: grid; place-items: center; flex-shrink: 0; cursor: pointer; overflow: hidden; transition: border-color .18s; }
+.avatar-picker:hover { border-color: var(--red); }
+.avatar-picker img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-picker .cam { color: var(--muted); display: grid; place-items: center; }
+.avatar-picker .cam svg { width: 22px; height: 22px; }
+.avatar-picker input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.avatar-row .meta b { font-size: .9rem; display: block; color: var(--ink); }
+.avatar-row .meta small { font-size: .78rem; color: var(--muted); }
+
+.submit-btn {
+  margin-top: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; min-height: 54px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, var(--red) 0%, var(--red-deep) 100%);
+  color: #fff; font-family: 'Inter'; font-weight: 700; font-size: 1rem; letter-spacing: -.005em;
+  box-shadow: 0 10px 24px rgba(179,32,36,.28);
+  transition: transform .18s, box-shadow .18s, opacity .18s;
+}
+.submit-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 32px rgba(179,32,36,.36); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn svg { width: 18px; height: 18px; transition: transform .18s; }
+.submit-btn:hover svg { transform: translateX(3px); }
+.submit-btn:disabled { cursor: wait; opacity: .72; transform: none; box-shadow: 0 8px 18px rgba(179,32,36,.18); }
+.form-status { min-height: 22px; font-size: .82rem; color: var(--ink-2); }
+.form-status.error { color: var(--red-deep); }
+.form-status.success { color: var(--green); }
+.verification-code { text-align: center; font-family: 'Montserrat', 'Inter', sans-serif; font-size: 1.4rem; letter-spacing: .18em; }
+.account-actions { display: grid; gap: 11px; }
+.secondary-action { display: flex; align-items: center; justify-content: center; min-height: 50px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-weight: 700; }
+.secondary-action:hover { border-color: #C9B6A8; }
+.text-btn { border: 0; background: transparent; color: var(--red); font-weight: 700; }
+.text-btn:hover { text-decoration: underline; }
+
+.verify-note { margin-top: 16px; padding: 12px 14px; background: var(--red-soft); border: 1px solid #F0CCC8; border-radius: 10px; font-size: .82rem; color: var(--ink-2); display: flex; gap: 9px; align-items: flex-start; }
+.verify-note svg { width: 16px; height: 16px; color: var(--red); flex-shrink: 0; margin-top: 1px; }
+
+.signin { text-align: center; margin-top: 22px; font-size: .92rem; color: var(--ink-2); }
+.signin a { color: var(--red); font-weight: 700; }
+.signin a:hover { text-decoration: underline; }
+
+.legal { margin-top: auto; padding-top: 28px; font-size: .78rem; color: var(--muted); text-align: center; }
+.legal a { color: var(--ink-2); font-weight: 600; }
+.legal a:hover { color: var(--red); }
+
+/* ---------- RIGHT: showcase panel ---------- */
+.showcase {
+  position: relative; overflow: hidden;
+  background: linear-gradient(150deg, #8F1720 0%, #B32024 45%, #D3352F 100%);
+  color: #fff;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 48px clamp(36px, 5vw, 64px);
+}
+.showcase::before {
+  content:''; position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(255,255,255,.10), transparent 40%),
+    radial-gradient(circle at 10% 90%, rgba(0,0,0,.12), transparent 45%);
+  pointer-events: none;
+}
+.show-brand { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+.show-brand img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.show-brand .brand-word b { color: #fff; font-size: 1.2rem; }
+.show-brand .brand-word small { color: rgba(255,255,255,.85); }
+
+.show-copy { position: relative; max-width: 440px; }
+.show-copy h2 {
+  font-family: 'Playfair Display', Georgia, serif; font-weight: 800;
+  font-size: clamp(1.8rem, 2.9vw, 2.5rem); line-height: 1.08; letter-spacing: -.03em;
+  margin-bottom: 18px;
+}
+.show-copy h2 em { font-style: italic; color: #FFD9D6; }
+.show-copy > p { font-size: 1rem; line-height: 1.6; color: rgba(255,238,232,.88); margin-bottom: 28px; }
+
+.benefits { display: grid; gap: 14px; position: relative; }
+.benefit { display: flex; align-items: flex-start; gap: 13px; padding: 15px 16px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; backdrop-filter: blur(8px); }
+.benefit .b-icon { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,255,255,.14); display: grid; place-items: center; flex-shrink: 0; }
+.benefit .b-icon svg { width: 18px; height: 18px; color: #FFD9D6; }
+.benefit b { font-size: .92rem; display: block; margin-bottom: 2px; }
+.benefit small { font-size: .8rem; color: rgba(255,238,232,.74); line-height: 1.45; }
+
+.show-foot { position: relative; display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: rgba(0,0,0,.16); border-radius: 12px; border: 1px solid rgba(255,255,255,.12); max-width: 380px; }
+.show-foot .tick { width: 30px; height: 30px; border-radius: 50%; background: var(--green); display: grid; place-items: center; flex-shrink: 0; }
+.show-foot .tick svg { width: 16px; height: 16px; color: #fff; }
+.show-foot b { font-size: .9rem; display: block; }
+.show-foot small { font-size: .76rem; color: rgba(255,238,232,.72); }
+
+/* floating decorative shapes */
+.blob { position: absolute; border-radius: 50%; background: rgba(255,255,255,.06); pointer-events: none; }
+.blob-1 { width: 220px; height: 220px; top: -60px; right: -50px; }
+.blob-2 { width: 140px; height: 140px; bottom: 160px; right: 30px; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 960px) {
+  .screen { grid-template-columns: 1fr; }
+  .showcase { display: none; }
+  .form-panel { padding: 32px 28px; min-height: 100vh; }
+}
+@media (max-width: 480px) {
+  .form-wrap { padding: 24px 0; }
+  .name-grid { grid-template-columns: 1fr; }
+  .steps .label { display: none; }
+}
+
+/* subtle entrance */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.form-wrap > * { animation: rise .5s ease both; }
+.form-wrap > *:nth-child(2) { animation-delay: .05s; }
+.form-wrap > *:nth-child(3) { animation-delay: .10s; }
+.form-wrap > *:nth-child(4) { animation-delay: .15s; }
+.form-wrap > *:nth-child(5) { animation-delay: .20s; }
+.form-wrap > *:nth-child(6) { animation-delay: .25s; }
+</style>
+</head>
+<body data-auth-page="register">
+<main class="screen">
+
+  <!-- ===== LEFT: form ===== -->
+  <section class="form-panel">
+    <div class="topbar">
+      <a class="brand" href="/">
+        <img src="../assets/crossline-icon.png" alt="" />
+        <span class="brand-word"><b>Crossline</b><small>CSCA Practice</small></span>
+      </a>
+      <a class="back-link" href="/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back to home
+      </a>
+    </div>
+
+    <div class="form-wrap">
+      <span class="eyebrow">Get started</span>
+      <h1>Create your account</h1>
+      <p class="sub">Register here, verify your email, then sign in inside the Windows app to take your first mock.</p>
+
+      <!-- Step indicator -->
+      <div class="steps">
+        <div class="step-dot active">
+          <span class="num">1</span><span class="label">Details</span>
+        </div>
+        <span class="step-bar"></span>
+        <div class="step-dot">
+          <span class="num">2</span><span class="label">Verify email</span>
+        </div>
+        <span class="step-bar"></span>
+        <div class="step-dot">
+          <span class="num">3</span><span class="label">Practice</span>
+        </div>
+      </div>
+
+      <button class="google-btn" id="google-auth" type="button">
+        <img src="../assets/google-g.svg" alt="" />
+        Sign up with Google
+      </button>
+
+      <div class="divider"><span>or sign up with email</span></div>
+
+      <form id="register-form" novalidate>
+        <!-- Optional avatar -->
+        <div class="avatar-row">
+          <label class="avatar-picker" for="avatar">
+            <span id="avatar-preview">
+              <span class="cam">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+              </span>
+            </span>
+            <input id="avatar" type="file" accept="image/*" />
+          </label>
+          <div class="meta">
+            <b>Profile picture</b>
+            <small>Optional. You can change this later in Settings.</small>
+          </div>
+        </div>
+
+        <div class="name-grid">
+          <div class="field">
+            <label for="first-name">First name</label>
+            <div class="input-wrap">
+              <input id="first-name" type="text" autocomplete="given-name" maxlength="60" placeholder="Arijit" required />
+            </div>
+          </div>
+          <div class="field">
+            <label for="last-name">Last name</label>
+            <div class="input-wrap">
+              <input id="last-name" type="text" autocomplete="family-name" maxlength="60" placeholder="Bhowmik" required />
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="username">Username</label>
+          <div class="input-wrap with-icon">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            <input id="username" type="text" autocomplete="username" maxlength="40" placeholder="Example: Arijit" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="email">Email address</label>
+          <div class="input-wrap with-icon">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            </span>
+            <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">Create password</label>
+          <div class="input-wrap with-icon">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <input id="password" type="password" autocomplete="new-password" minlength="6" placeholder="At least 6 characters" required />
+            <button class="toggle" type="button" id="toggle-pw">Show</button>
+          </div>
+          <div class="pw-strength" id="pw-strength" style="display:none;">
+            <div class="pw-bars"><span></span><span></span><span></span><span></span></div>
+            <span class="pw-label">Weak</span>
+          </div>
+          <span class="hint">Must be at least 6 characters.</span>
+        </div>
+
+        <p class="form-status" id="auth-status" role="status" aria-live="polite"></p>
+
+        <button class="submit-btn" type="submit">
+          Create account
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+
+      <div class="verify-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        <span>We'll email a 6-digit verification code to confirm your address before your first exam.</span>
+      </div>
+
+      <p class="signin">Already have an account? <a href="/login">Sign in</a></p>
+    </div>
+
+    <p class="legal">
+      By continuing, you agree to our <a href="https://exam.crosslinecscatest.com/terms">Terms</a> and <a href="https://exam.crosslinecscatest.com/privacy">Privacy Policy</a>.
+    </p>
+  </section>
+
+  <!-- ===== RIGHT: showcase ===== -->
+  <aside class="showcase">
+    <span class="blob blob-1"></span>
+    <span class="blob blob-2"></span>
+
+    <div class="show-brand">
+      <img src="../assets/crossline-icon.png" alt="" />
+      <span class="brand-word"><b>Crossline</b><small>CSCA Practice</small></span>
+    </div>
+
+    <div class="show-copy">
+      <h2>Start practicing <em>the smart way.</em></h2>
+      <p>One account unlocks every official CSCA past-paper mock, marks-based scoring, and a dashboard built to show you exactly what to study next.</p>
+
+      <div class="benefits">
+        <div class="benefit">
+          <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+          <div><b>Full results &amp; explanations</b><small>Every question comes with the correct answer and a written explanation.</small></div>
+        </div>
+        <div class="benefit">
+          <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span>
+          <div><b>Weakness analysis</b><small>See your accuracy broken down by subject, chapter, and topic.</small></div>
+        </div>
+        <div class="benefit">
+          <span class="b-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>
+          <div><b>Track your progress</b><small>Watch your scores climb across every mock you take.</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="show-foot">
+      <span class="tick">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </span>
+      <div>
+        <b>Free to start.</b>
+        <small>Create your account now — pick a plan when you're ready.</small>
+      </div>
+    </div>
+  </aside>
+
+</main>
+
+<script src="../config.js"></script>
+<script src="../api.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>

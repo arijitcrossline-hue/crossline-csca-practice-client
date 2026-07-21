@@ -8,7 +8,7 @@
     "start": "electron . --windowed",
     "start:kiosk": "electron .",
     "serve": "python3 -m http.server 4173",
-    "test": "node tests/source-import.js && node tests/update-helper.js && node tests/github-updater.js && node tests/content-protection.js && node tests/plans.mjs && node tests/exam-attempts.mjs && node tests/result-email.mjs && node tests/transactional-email.mjs && node tests/bug-reports.mjs && node tests/smoke.js",
+    "test": "node tests/source-import.js && node tests/update-helper.js && node tests/github-updater.js && node tests/content-protection.js && node tests/plans.mjs && node tests/exam-attempts.mjs && node tests/result-email.mjs && node tests/transactional-email.mjs && node tests/bug-reports.mjs && node tests/v2-auth.mjs && node tests/smoke.js",
     "test:production": "node scripts/verify-production-backend.mjs",
     "stress:api": "node scripts/stress-test-worker.mjs",
     "worker:dev": "wrangler dev --config worker/wrangler.toml",

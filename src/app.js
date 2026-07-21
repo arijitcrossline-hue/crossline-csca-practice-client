@@ -5,6 +5,7 @@ const DEMO_CODE = "246810";
 const WINDOWS_CLIENT_URL = "https://media.crosslinecscatest.com/downloads/Crossline-CSCA-Practice-Setup.exe";
 const PRIVACY_POLICY_URL = "https://exam.crosslinecscatest.com/privacy";
 const TERMS_OF_SERVICE_URL = "https://exam.crosslinecscatest.com/terms";
+const OFFICIAL_WEBSITE_URL = "https://www.crosslineedu.com/";
 const defaultQuestions = [
   {
     type: "Single choice",
@@ -109,11 +110,212 @@ const defaultExams = [
   { id: "chinese-mock", title: "Academic Chinese Practice", description: "Academic Chinese reading and language practice.", duration: 45, subject: "Academic Chinese", category: "original", free: false, freeSample: false, priceCents: 0, canStart: false, accessLabel: "Package required", accessReason: "Ask a Crossline administrator to assign an access package.", attemptsUsed: 0, attemptsRemaining: 3, questions: [{ type: "Single choice", subject: "Academic Chinese", chapter: "Reading", topic: "Comprehension", instruction: "Choose the best answer.", text: "Which option best completes the academic sentence?", answers: ["therefore", "because of", "in spite", "as if"], correctIndex: 0, marks: 1 }] }
 ];
 const ACCESS_PLANS = Object.freeze([
-  { id: "past-papers", name: "All past-paper simulated tests", mockLimit: 0, priceLabel: "Price coming soon" },
-  { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3, priceLabel: "Price coming soon" },
-  { id: "past-plus-5", name: "Past papers + 5 Crossline mocks", mockLimit: 5, priceLabel: "Price coming soon" },
-  { id: "past-plus-10", name: "Past papers + 10 Crossline mocks", mockLimit: 10, priceLabel: "Price coming soon" }
+  {
+    id: "free",
+    name: "Free starter",
+    mockLimit: 1,
+    priceUsd: 0,
+    priceLabel: "Free",
+    free: true,
+    blurb: "Try Crossline free with one fully simulated practice exam.",
+    feats: [
+      "1 Fully simulated practice exam",
+      "Browse and study the free past-paper library anytime",
+      "Full marks-based results, explanations & weakness analysis",
+      "Three submitted attempts for every included exam"
+    ]
+  },
+  {
+    id: "past-plus-3",
+    name: "Past papers + 3 Crossline mocks",
+    mockLimit: 3,
+    priceUsd: 17,
+    priceLabel: "$17–$40",
+    popular: true,
+    blurb: "All official past papers plus three Crossline original mock exams. Pick how many subjects you need.",
+    subjectPrices: { 1: 17, 2: 27, 3: 34.99, 4: 40 }
+  },
+  {
+    id: "past-plus-5",
+    name: "Past papers + 5 Crossline mocks",
+    mockLimit: 5,
+    priceUsd: 27,
+    priceLabel: "$27–$67",
+    blurb: "All official past papers plus five Crossline original mock exams. Pick how many subjects you need.",
+    subjectPrices: { 1: 27, 2: 47, 3: 59, 4: 67 }
+  }
 ]);
+
+function formatPlanUsd(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "-";
+  if (Number.isInteger(n)) return `$${n}`;
+  return `$${n.toFixed(2)}`;
+}
+
+function planSubjectCount(plan, subjects = 1) {
+  const prices = plan?.subjectPrices;
+  if (!prices) return 1;
+  const key = Number(subjects);
+  return prices[key] != null ? key : Number(Object.keys(prices)[0] || 1);
+}
+
+function planPriceForSubjects(plan, subjects = 1) {
+  if (plan?.free || Number(plan?.priceUsd) === 0) return 0;
+  const count = planSubjectCount(plan, subjects);
+  if (plan?.subjectPrices && plan.subjectPrices[count] != null) return Number(plan.subjectPrices[count]);
+  return Number(plan?.priceUsd);
+}
+
+function planFeatureList(plan, subjects = 1) {
+  if (Array.isArray(plan.feats) && plan.feats.length) return plan.feats;
+  if (plan.free) {
+    return [
+      "1 Fully simulated practice exam",
+      "Browse and study the free past-paper library anytime",
+      "Full marks-based results, explanations & weakness analysis",
+      "Three submitted attempts for every included exam"
+    ];
+  }
+  const count = planSubjectCount(plan, subjects);
+  const subjectLabel = count === 1 ? "1 subject" : `${count} subjects`;
+  const shared = [
+    "Browse and study the free past-paper library anytime",
+    "Full marks-based results, explanations & weakness analysis",
+    "Three submitted attempts for every included exam"
+  ];
+  if (Number(plan.mockLimit)) {
+    return [
+      `All official past paper mocks for ${subjectLabel}`,
+      `${plan.mockLimit} Crossline original mock exams`,
+      ...shared
+    ];
+  }
+  return [
+    `All official past paper mocks for ${subjectLabel}`,
+    ...shared
+  ];
+}
+
+function planPriceLabel(plan, subjects) {
+  if (plan.free || Number(plan.priceUsd) === 0) return { amount: "$0", note: "Free forever" };
+  if (plan.subjectPrices && subjects == null) {
+    return { amount: plan.priceLabel || formatPlanUsd(plan.priceUsd), note: "USD · one-time" };
+  }
+  return { amount: formatPlanUsd(planPriceForSubjects(plan, subjects ?? 1)), note: "USD · one-time" };
+}
+
+function planKicker(plan) {
+  if (plan.free) return "Free";
+  if (Number(plan.mockLimit)) return `${plan.mockLimit} Crossline mocks`;
+  return "Past papers";
+}
+
+function paidAccessPlans() {
+  return ACCESS_PLANS.filter((plan) => !plan.free);
+}
+
+function landingPricingCardsHtml() {
+  const free = ACCESS_PLANS.find((plan) => plan.free);
+  const plus3 = ACCESS_PLANS.find((plan) => plan.id === "past-plus-3");
+  const plus5 = ACCESS_PLANS.find((plan) => plan.id === "past-plus-5");
+  const check = uiIcon("badge-check");
+  const defaultSubjects = 1;
+
+  const subjectSwitcher = (plan) => {
+    const prices = plan.subjectPrices || {};
+    const options = [1, 2, 3, 4].map((count) => {
+      const active = count === defaultSubjects;
+      return `<button type="button" class="cx-price-tier ${active ? "is-active" : ""}" data-subjects="${count}" data-price="${Number(prices[count])}" aria-pressed="${active ? "true" : "false"}" aria-label="${count} ${count === 1 ? "subject" : "subjects"}">${count}</button>`;
+    }).join("");
+    return `<div class="cx-price-tier-row cx-price-subject-row" role="group" aria-label="Choose number of subjects"><span class="cx-price-tier-thumb" data-subject-thumb aria-hidden="true"></span>${options}</div><p class="cx-price-subject-hint">subjects</p>`;
+  };
+
+  const card = ({
+    label,
+    amount,
+    unit,
+    note,
+    feats,
+    cta,
+    ctaClass,
+    footer,
+    popular = false,
+    free = false,
+    extras = "",
+    amountAttr = "",
+    featsAttr = "",
+    noteAttr = "",
+    magnetic = false,
+    subjectCard = false
+  }) => {
+    const button = magnetic
+      ? `<span class="cx-magnetic" data-cx-magnetic><button class="cx-btn ${ctaClass} cx-btn-lg cx-price-cta" data-create-account type="button">${cta}</button></span>`
+      : `<button class="cx-btn ${ctaClass} cx-btn-lg cx-price-cta" data-create-account type="button">${cta}</button>`;
+    return `<article class="cx-price-card ${popular ? "cx-price-popular" : "cx-price-side"} ${free ? "cx-price-free" : ""}" ${subjectCard ? `data-subject-card data-plan-id="${escapeHtml(subjectCard)}"` : ""}>
+      ${popular ? `<span class="cx-price-badge">★ Popular</span>` : ""}
+      <p class="cx-price-label">${escapeHtml(label)}</p>
+      ${extras}
+      <div class="cx-price-amount">
+        <strong class="number-font" ${amountAttr}>${escapeHtml(amount)}</strong>
+        ${unit ? `<span class="cx-price-unit">${escapeHtml(unit)}</span>` : ""}
+      </div>
+      <p class="cx-price-note" ${noteAttr}>${escapeHtml(note)}</p>
+      <ul class="cx-price-feats" ${featsAttr}>${feats.map((f) => `<li>${check}<span>${escapeHtml(f)}</span></li>`).join("")}</ul>
+      <hr class="cx-price-rule" />
+      ${button}
+      <p class="cx-price-foot">${escapeHtml(footer)}</p>
+    </article>`;
+  };
+
+  const freeCard = free ? card({
+    label: "FREE",
+    amount: "$0",
+    unit: "",
+    note: "free forever",
+    feats: planFeatureList(free),
+    cta: "Start free",
+    ctaClass: "cx-btn-ghost",
+    footer: "Perfect for trying Crossline first",
+    free: true
+  }) : "";
+
+  const plus3Card = plus3 ? card({
+    label: "PAST + 3",
+    amount: formatPlanUsd(planPriceForSubjects(plus3, defaultSubjects)),
+    unit: "/ one-time",
+    note: "billed once",
+    feats: planFeatureList(plus3, defaultSubjects),
+    cta: "Get started",
+    ctaClass: "cx-btn-primary",
+    footer: "Ideal for serious CSCA prep",
+    popular: true,
+    extras: subjectSwitcher(plus3),
+    amountAttr: "data-subject-price",
+    featsAttr: "data-subject-feats",
+    noteAttr: "data-subject-note",
+    magnetic: true,
+    subjectCard: plus3.id
+  }) : "";
+
+  const plus5Card = plus5 ? card({
+    label: "PAST + 5",
+    amount: formatPlanUsd(planPriceForSubjects(plus5, defaultSubjects)),
+    unit: "/ one-time",
+    note: "billed once",
+    feats: planFeatureList(plus5, defaultSubjects),
+    cta: "Get started",
+    ctaClass: "cx-btn-ghost",
+    footer: "More Crossline mocks for deeper practice",
+    extras: subjectSwitcher(plus5),
+    amountAttr: "data-subject-price",
+    featsAttr: "data-subject-feats",
+    noteAttr: "data-subject-note",
+    subjectCard: plus5.id
+  }) : "";
+
+  return `${freeCard}${plus3Card}${plus5Card}`;
+}
 let selectedExamSubject = load("csca-exam-subject", "");
 
 let exams = load("csca-exams", defaultExams);
@@ -175,6 +377,10 @@ function mathHtml(value = "") { return escapeHtml(value).replace(/\n/g, "<br />"
 function looksLikeHtml(value = "") {
   return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
 }
+function looksLikeMarkdownTable(value = "") {
+  const text = String(value || "");
+  return /^\s*\|.+\|\s*$/m.test(text) && /^\s*\|?\s*:?-{3,}/m.test(text);
+}
 function sanitizeHtmlFragment(html = "") {
   const documentNode = new DOMParser().parseFromString(`<div>${String(html || "")}</div>`, "text/html");
   const allowed = new Set(["DIV", "P", "BR", "STRONG", "B", "EM", "I", "U", "DEL", "SUB", "SUP", "UL", "OL", "LI", "H1", "H2", "H3", "H4", "BLOCKQUOTE", "PRE", "CODE", "A", "HR", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "SPAN", "IMG"]);
@@ -206,6 +412,8 @@ function contentHtml(value = "") {
   const text = String(value ?? "");
   if (!text) return "";
   if (looksLikeHtml(text)) return sanitizeHtmlFragment(text);
+  // Keep GFM pipe tables readable in exam prompts (e.g. Chemistry operation tables).
+  if (looksLikeMarkdownTable(text)) return markdownHtml(text);
   return mathHtml(text);
 }
 function markdownHtml(value = "") {
@@ -924,102 +1132,201 @@ function windowsDownloadLogo(className = "windows-download-logo") {
 function showDownloadLanding() {
   stopMedia();
   app.innerHTML = `
-  <main class="landing-page">
-    <section class="landing-shell">
-      <nav class="landing-nav">
-        <a class="landing-brand" href="#top" aria-label="Crossline Education">
-          <img class="landing-brand-mark" src="assets/crossline-icon.png" alt="" />
-          <span class="landing-brand-word">Cross-Line<small>Education</small></span>
-        </a>
-        <div class="landing-nav-actions">
-          <button class="landing-account-cta" data-create-account type="button">Create account</button>
-          <a id="header-download" class="landing-nav-download disabled-link" href="#" aria-disabled="true">${uiIcon("download")}<span>Download app</span></a>
+  <main class="cx-landing">
+    <nav class="cx-nav">
+      <a class="cx-brand" href="#top" aria-label="Crossline CSCA Practice">
+        <img class="cx-brand-mark" src="assets/crossline-icon.png" alt="" />
+        <span class="cx-brand-word">Crossline<small>CSCA Practice</small></span>
+      </a>
+      <div class="cx-nav-right">
+        <div class="cx-nav-links">
+          <a href="#how">Features</a>
+          <a href="#pricing">Pricing</a>
         </div>
-      </nav>
-
-      <div class="landing-hero" id="top">
-        <div class="landing-copy">
-          <h1>
-            <span class="landing-title-line">Smart Mock Exam</span>
-            <span class="landing-title-line">Software for <span class="landing-title-highlight">Real Results.</span></span>
-          </h1>
-          <p>Create your account on the website, download the Windows client, then log in inside the app to take the mock exam.</p>
-          <div class="landing-cta-row">
-            <a class="landing-download download-button disabled-link" id="client-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
-            <button class="landing-secondary-action" data-create-account type="button">Create account</button>
-          </div>
-          <p class="landing-download-note" id="download-note">Windows 10 or newer is recommended. Download the app, run it, then sign in inside the client.</p>
-        </div>
-
-        <div class="landing-showcase" id="dashboard-preview">
-          <article class="landing-app-window">
-            <div class="landing-window-inner">
-              <aside class="landing-app-sidebar">
-                <div class="landing-app-logo"><img src="assets/crossline-icon.png" alt="" /><span>Cross-Line<small>Education</small></span></div>
-                <b>${uiIcon("house")}<span>Dashboard</span></b>
-                <span>${uiIcon("clipboard-list")}<span>Exams</span></span>
-                <span>${uiIcon("bar-chart-3")}<span>Results</span></span>
-                <span>${uiIcon("target")}<span>Weakness Analysis</span></span>
-                <span>${uiIcon("trophy")}<span>Leaderboard</span></span>
-                <div class="landing-mini-user"><i>LC</i><small>Liam Carter<br />CSCA Candidate</small></div>
-              </aside>
-              <section class="landing-app-main">
-                <div class="landing-app-header">
-                  <div><h2>Good morning, Liam! 👋</h2><p>Ready to ace your next exam? Let's keep the momentum going.</p></div>
-                  <div class="landing-app-icons"><span>${uiIcon("bell")}</span></div>
-                </div>
-                <div class="landing-start-card">
-                  <span class="landing-start-symbol">${uiIcon("square-check-big")}</span><div><b>All set for your next challenge?</b><small>Attempt a new mock exam and track your progress.</small></div><button>Start Exam ${uiIcon("chevron-right")}</button>
-                </div>
-                <div class="landing-stat-grid">
-                  <div><i>${uiIcon("trophy")}</i><small>Latest Score</small><strong>78.5%</strong><em>CSCA Mock Exam 12</em></div>
-                  <div><i>${uiIcon("trending-up")}</i><small>Average Improvement</small><strong>+12.4%</strong><em>vs last 5 exams</em></div>
-                  <div><i>${uiIcon("file-text")}</i><small>Exams Attempted</small><strong>16</strong><em>Total Mock Exams</em></div>
-                  <div><i>${uiIcon("badge-check")}</i><small>Average Score</small><strong>71.3%</strong><em>Across all exams</em></div>
-                </div>
-                <div class="landing-card-grid">
-                  <div><b>Biggest Weaknesses</b><span>Chemistry <i style="--w:42%"></i></span><span>Physics <i style="--w:48%"></i></span><span>Academic Chinese <i style="--w:53%"></i></span></div>
-                  <div><b>Last Skipped Question</b><p>Physics • Work, Energy &amp; Power</p><small>A body of mass m is projected vertically upward...</small></div>
-                  <div><b>Detailed Results</b><p>Dive deep into your performance and track progress over time.</p><button>View Results ${uiIcon("chevron-right")}</button></div>
-                </div>
-                <div class="landing-chart-card" id="results">
-                  <div class="landing-chart-head"><b>Past Exam Performance</b><span>All Exams ${uiIcon("chevron-right")}</span></div>
-                  <svg viewBox="0 0 680 170" role="img" aria-label="Past exam performance from 52.1 percent to 78.5 percent">
-                    <defs><linearGradient id="landingChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f05b53" stop-opacity=".28"/><stop offset="1" stop-color="#f05b53" stop-opacity=".04"/></linearGradient></defs>
-                    <g class="chart-grid">
-                      <line x1="58" y1="30" x2="650" y2="30"/><line x1="58" y1="62" x2="650" y2="62"/><line x1="58" y1="94" x2="650" y2="94"/><line x1="58" y1="126" x2="650" y2="126"/><line x1="58" y1="142" x2="650" y2="142"/>
-                    </g>
-                    <g class="chart-y"><text x="6" y="34">100%</text><text x="16" y="66">75%</text><text x="16" y="98">50%</text><text x="16" y="130">25%</text><text x="22" y="146">0%</text></g>
-                    <polygon points="70,92 184,84 298,75 412,65 526,58 640,48 640,142 70,142" fill="url(#landingChartFill)"/>
-                    <polyline points="70,92 184,84 298,75 412,65 526,58 640,48" fill="none" stroke="#d71920" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-                    <g class="chart-points" fill="#d71920">
-                      <circle cx="70" cy="92" r="6"/><circle cx="184" cy="84" r="6"/><circle cx="298" cy="75" r="6"/><circle cx="412" cy="65" r="6"/><circle cx="526" cy="58" r="6"/><circle cx="640" cy="48" r="6"/>
-                    </g>
-                    <g class="chart-values"><text x="70" y="80">52.1%</text><text x="184" y="72">58.4%</text><text x="298" y="63">64.2%</text><text x="412" y="53">69.8%</text><text x="526" y="46">72.6%</text><text x="640" y="36">78.5%</text></g>
-                    <g class="chart-x"><text x="70" y="153">Mock 7</text><text x="184" y="153">Mock 8</text><text x="298" y="153">Mock 9</text><text x="412" y="153">Mock 10</text><text x="526" y="153">Mock 11</text><text x="640" y="153">Mock 12</text></g>
-                  </svg>
-                </div>
-              </section>
-            </div>
-          </article>
+        <div class="cx-nav-actions">
+          <button class="cx-btn cx-btn-ghost cx-btn-nav cx-nav-secondary" data-sign-in type="button">Sign in</button>
+          <button class="cx-btn cx-btn-primary cx-btn-nav" data-create-account type="button"><span class="cx-nav-cta-full">Get started for free</span><span class="cx-nav-cta-short">Get started</span></button>
         </div>
       </div>
+    </nav>
 
-      <section class="landing-feature-strip" aria-label="Key benefits">
-        <article><span>${uiIcon("trending-up", "landing-icon feature-icon")}</span><div><h3>Track Performance</h3><p>Monitor scores and accuracy with clear analytics.</p></div></article>
-        <article><span>${uiIcon("target", "landing-icon feature-icon")}</span><div><h3>Identify Weaknesses</h3><p>Find weak topics and focus on what matters most.</p></div></article>
-        <article><span>${uiIcon("bar-chart-3", "landing-icon feature-icon")}</span><div><h3>Improve Consistently</h3><p>Practice smarter and see measurable improvement.</p></div></article>
-      </section>
+    <section class="cx-hero" id="top">
+      <div class="cx-hero-center">
+        <a class="cx-announce" href="${OFFICIAL_WEBSITE_URL}" target="_blank" rel="noopener noreferrer">
+          <span class="cx-announce-badge">
+            <svg class="cx-announce-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+            Announcement
+          </span>
+          <span class="cx-announce-text">Visit the official Crossline website</span>
+          <svg class="cx-announce-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+        <h1 class="cx-hero-title" aria-label="Train for the real CSCA exam.">
+          <span class="cx-word">Train</span>
+          <span class="cx-word">for</span>
+          <span class="cx-word">the</span>
+          <span class="cx-word">real</span>
+          <span class="cx-word cx-accent">CSCA</span>
+          <span class="cx-word">exam.</span>
+        </h1>
+        <p class="cx-hero-sub">Two-camera pre-exam setup, a 48-question timed interface, and marks-based scoring built to feel like exam day.</p>
 
-      <section class="landing-final-cta" id="download">
-        <h2>Download the Crossline Windows app</h2>
-        <p>The website is only the product page. Exams run inside the Windows client.</p>
-        <a class="landing-download download-button disabled-link" id="cta-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
-      </section>
+        <div class="cx-cta-row cx-cta-center">
+          <a class="cx-btn cx-btn-primary cx-btn-lg download-button disabled-link" id="client-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
+        </div>
+
+        <div class="cx-hero-frame">
+          <div class="cx-hero-frame-inner">
+            <img class="cx-shot" src="assets/landing/product/dashboard.png?v=2" alt="Crossline student dashboard with score cards, start-exam banner, and weakness summary" width="1280" height="800" />
+          </div>
+          <figure class="cx-hero-float">
+            <img src="assets/landing/hero-exam-desk.png?v=2" alt="Student taking a Crossline CSCA physics mock on a laptop with working shown on a desk whiteboard" width="1024" height="768" />
+          </figure>
+        </div>
+      </div>
+      <div class="cx-hero-fade" aria-hidden="true"></div>
     </section>
+
+    <section class="cx-band cx-band-paper" id="how">
+      <div class="cx-band-inner">
+        <div class="cx-band-head">
+          <p class="cx-kicker cx-kicker-red">How it works</p>
+          <h2>Three steps from setup to scored result</h2>
+          <p class="cx-band-lead">Verify equipment, sit a timed mock, then see where you lost marks.</p>
+        </div>
+
+        <div class="cx-feature-flow" data-feature-flow>
+          <div class="cx-feature-steps" role="tablist" aria-label="How Crossline works">
+            <button type="button" class="cx-feature-step is-active" role="tab" aria-selected="true" data-feature-step="0">
+              <span class="cx-feature-rail" aria-hidden="true"><span class="cx-feature-rail-fill"></span></span>
+              <span class="cx-feature-icon">${uiIcon("square-check-big")}</span>
+              <span class="cx-feature-copy">
+                <strong>1. Set up like exam day</strong>
+                <span>Webcam, mic, network check, phone camera, and room scan.</span>
+              </span>
+            </button>
+            <button type="button" class="cx-feature-step" role="tab" aria-selected="false" data-feature-step="1">
+              <span class="cx-feature-rail" aria-hidden="true"><span class="cx-feature-rail-fill"></span></span>
+              <span class="cx-feature-icon">${uiIcon("layout-dashboard")}</span>
+              <span class="cx-feature-copy">
+                <strong>2. Sit the timed mock</strong>
+                <span>Live clock, flag for review, and the same exam-day flow.</span>
+              </span>
+            </button>
+            <button type="button" class="cx-feature-step" role="tab" aria-selected="false" data-feature-step="2">
+              <span class="cx-feature-rail" aria-hidden="true"><span class="cx-feature-rail-fill"></span></span>
+              <span class="cx-feature-icon">${uiIcon("target")}</span>
+              <span class="cx-feature-copy">
+                <strong>3. See where you lost marks</strong>
+                <span>Scores, explanations, and topic-level weakness analysis.</span>
+              </span>
+            </button>
+          </div>
+          <div class="cx-feature-stage">
+            <div class="cx-feature-panel is-active" data-feature-panel="0">
+              <figure class="cx-photo-card" data-cx-lens>
+                <img src="assets/landing/hero-dual-camera.png" alt="Student at a desk with laptop exam client and phone room camera on a tripod" width="1024" height="768" />
+                <figcaption><span class="cx-cam-live">LIVE setup</span><span>Primary webcam · secondary phone on tripod</span></figcaption>
+              </figure>
+            </div>
+            <div class="cx-feature-panel" data-feature-panel="1">
+              <div class="cx-window" data-cx-lens>
+                <img class="cx-shot" src="assets/landing/product/exam-interface.png?v=2" alt="Crossline timed CSCA mock exam interface" width="1280" height="800" />
+              </div>
+            </div>
+            <div class="cx-feature-panel" data-feature-panel="2">
+              <div class="cx-two-cards">
+                <div class="cx-window cx-two-cards-back" data-cx-lens>
+                  <img class="cx-shot" src="assets/landing/product/results.png?v=2" alt="Crossline results list with scores" width="1280" height="800" />
+                </div>
+                <div class="cx-window cx-two-cards-front" data-cx-lens>
+                  <img class="cx-shot" src="assets/landing/product/weakness.png?v=2" alt="Crossline weakness analysis by topic" width="1280" height="800" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cx-band cx-band-navy" id="exam">
+      <div class="cx-band-inner cx-band-split">
+        <div class="cx-band-copy">
+          <p class="cx-kicker cx-kicker-paper">Equipment check</p>
+          <h2>Verify camera, mic, and network before you begin.</h2>
+          <p class="cx-band-lead">Every mock starts with a device check inside the Windows client, just like the actual CSCA exam. Pick your webcam and microphone, test the network, then continue.</p>
+          <ul class="cx-check-list">
+            <li>${uiIcon("square-check-big")} Select and preview your Windows webcam</li>
+            <li>${uiIcon("square-check-big")} Test your microphone and headset</li>
+            <li>${uiIcon("square-check-big")} Confirm network readiness against the live API</li>
+            <li>${uiIcon("square-check-big")} Continue to facial recognition, phone pairing, and room scan</li>
+          </ul>
+        </div>
+        <div class="cx-window cx-exam-window" data-cx-lens>
+          <img class="cx-shot" src="assets/landing/product/equipment-check.png?v=3" alt="Crossline equipment check screen for camera, microphone, and network" width="1280" height="800" />
+        </div>
+      </div>
+    </section>
+
+    <section class="cx-band cx-band-paper" id="results">
+      <div class="cx-band-inner cx-band-split cx-band-split-rev">
+        <div class="cx-band-copy">
+          <p class="cx-kicker cx-kicker-red">Results &amp; analytics</p>
+          <h2>See exactly where you lost marks.</h2>
+          <p class="cx-band-lead">Scores are marks-based and available after you submit. Every question comes with the correct answer, your answer, and a written explanation. Weakness analysis turns that into topic-level study targets.</p>
+          <div class="cx-result-stats">
+            <div><strong class="number-font">82%</strong><small>Example latest score</small></div>
+            <div><strong class="number-font">82/100</strong><small>Marks earned</small></div>
+            <div><strong class="number-font">4</strong><small>Subjects tracked</small></div>
+            <div><strong class="number-font">Topics</strong><small>Weakness breakdown</small></div>
+          </div>
+        </div>
+        <div class="cx-result-shots">
+          <div class="cx-window">
+            <img class="cx-shot" src="assets/landing/product/results.png" alt="Crossline results list with scores and view-full-result actions" width="1280" height="800" />
+          </div>
+          <div class="cx-window cx-result-secondary">
+            <img class="cx-shot" src="assets/landing/product/weakness.png" alt="Crossline weakness analysis by topic" width="1280" height="800" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cx-subjects">
+      <div class="cx-band-inner">
+        <div class="cx-band-head">
+          <p class="cx-kicker cx-kicker-red">Four subjects</p>
+          <h2>Physics, Chemistry, Mathematics &amp; Academic Chinese.</h2>
+        </div>
+        <div class="cx-subject-grid">
+          <article class="cx-subject"><span class="cx-subject-icon">${uiIcon("atom")}</span><h3>Physics</h3><p>Mechanics, electricity, waves, optics, and modern physics with diagrams and LaTeX.</p></article>
+          <article class="cx-subject"><span class="cx-subject-icon">${uiIcon("flask-conical")}</span><h3>Chemistry</h3><p>Organic, inorganic, and physical chemistry problems with full explanations.</p></article>
+          <article class="cx-subject"><span class="cx-subject-icon">${uiIcon("calculator")}</span><h3>Mathematics</h3><p>Calculus, algebra, geometry, and probability, fully equation-rendered.</p></article>
+          <article class="cx-subject"><span class="cx-subject-icon">${uiIcon("languages")}</span><h3>Academic Chinese</h3><p>Reading comprehension, grammar, and academic vocabulary drills.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cx-price-grid-wrap" id="pricing">
+      <div class="cx-band-inner">
+        <div class="cx-band-head cx-price-head">
+          <p class="cx-kicker cx-kicker-red">Pricing</p>
+          <h2>Choose the plan that's right for you</h2>
+        </div>
+        <div class="cx-price-grid cx-price-grid-three">${landingPricingCardsHtml()}</div>
+      </div>
+    </section>
+
+    <footer class="cx-foot">
+      <div class="cx-band-inner cx-foot-inner">
+        <div class="cx-foot-brand"><img src="assets/crossline-icon.png" alt="" /><div><b>Crossline</b><small>CSCA Practice</small></div></div>
+        <p class="cx-foot-note">Crossline CSCA Practice is a mock-exam service. It is not the official CSCA examination system and does not guarantee admission, certification, or a particular result.</p>
+        <div class="cx-foot-links"><a href="${OFFICIAL_WEBSITE_URL}" target="_blank" rel="noopener noreferrer">Official website</a><a href="#pricing">Pricing</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/data-deletion">Data deletion</a></div>
+      </div>
+    </footer>
   </main>`;
   hydrateDownloadLinks();
   wireLandingInteractions();
+  wireLandingNavScroll();
   bindLandingAccountButtons();
 }
 
@@ -1087,61 +1394,468 @@ function legalPageFromPath(pathname = window.location.pathname) {
   return normalized === "/privacy" ? "privacy" : normalized === "/terms" ? "terms" : normalized === "/data-deletion" ? "data-deletion" : "";
 }
 
+function wireLandingNavScroll() {
+  const nav = document.querySelector(".cx-landing .cx-nav");
+  if (!nav) return;
+
+  const startPx = 16;
+  const endPx = 120;
+  let ticking = false;
+
+  const update = () => {
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    const progress = Math.min(1, Math.max(0, (y - startPx) / (endPx - startPx)));
+    nav.style.setProperty("--cx-nav-solid", progress.toFixed(3));
+    nav.classList.toggle("is-scrolled", progress > 0.08);
+    ticking = false;
+  };
+
+  const onScroll = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(update);
+  };
+
+  update();
+  window.addEventListener("scroll", onScroll, { passive: true });
+}
+
 function wireLandingInteractions() {
+  requestAnimationFrame(() => {
+    document.querySelector(".cx-hero")?.classList.add("cx-hero-ready");
+  });
+
   if ("IntersectionObserver" in window) {
     const io = new IntersectionObserver((entries) => {
       entries.forEach((entry) => { if (entry.isIntersecting) entry.target.classList.add("in"); });
     }, { threshold: 0.12 });
-    document.querySelectorAll(".landing-hero, .landing-feature-strip, .landing-final-cta").forEach((el) => { el.classList.add("reveal"); io.observe(el); });
+    document.querySelectorAll(".cx-hero, .cx-band, .cx-subjects, .cx-price-grid-wrap, .cx-final-cta").forEach((el) => {
+      el.classList.add("cx-reveal");
+      io.observe(el);
+    });
   }
+
+  const flow = document.querySelector("[data-feature-flow]");
+  if (!flow) return;
+
+  const steps = [...flow.querySelectorAll("[data-feature-step]")];
+  const panels = [...flow.querySelectorAll("[data-feature-panel]")];
+  let index = 0;
+  let timer = null;
+  let paused = false;
+  const dwellMs = 5200;
+
+  const activate = (next, { restart = true } = {}) => {
+    index = ((next % steps.length) + steps.length) % steps.length;
+    steps.forEach((step, i) => {
+      const on = i === index;
+      step.classList.toggle("is-active", on);
+      step.setAttribute("aria-selected", on ? "true" : "false");
+      const fill = step.querySelector(".cx-feature-rail-fill");
+      if (fill) {
+        fill.style.transition = "none";
+        fill.style.height = "0%";
+        if (on) {
+          void fill.offsetWidth;
+          fill.style.transition = "";
+          fill.style.height = "100%";
+        }
+      }
+    });
+    panels.forEach((panel, i) => panel.classList.toggle("is-active", i === index));
+    if (restart && !paused) {
+      clearInterval(timer);
+      timer = setInterval(() => activate(index + 1, { restart: false }), dwellMs);
+    }
+  };
+
+  steps.forEach((step) => {
+    step.addEventListener("click", () => activate(Number(step.dataset.featureStep) || 0));
+  });
+
+  const setPaused = (next) => {
+    paused = next;
+    if (paused) clearInterval(timer);
+    else activate(index);
+  };
+
+  wireFeatureLenses(flow, { onHoverChange: setPaused });
+  wireFeatureLenses(document.querySelector("#exam"));
+  wirePricingSubjectCards(document.querySelector("#pricing"));
+  wireMagneticButtons(document.querySelector("#pricing"));
+
+  const flowIo = "IntersectionObserver" in window
+    ? new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) activate(index);
+        else clearInterval(timer);
+      });
+    }, { threshold: 0.35 })
+    : null;
+  if (flowIo) flowIo.observe(flow);
+  else activate(0);
+}
+
+function wirePricingSubjectCards(root) {
+  if (!root) return;
+  const cards = [...root.querySelectorAll("[data-subject-card]")];
+  if (!cards.length) return;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  cards.forEach((card) => {
+    const plan = ACCESS_PLANS.find((item) => item.id === card.dataset.planId);
+    if (!plan?.subjectPrices) return;
+
+    const row = card.querySelector(".cx-price-tier-row");
+    const thumb = card.querySelector("[data-subject-thumb]");
+    const priceEl = card.querySelector("[data-subject-price]");
+    const featsEl = card.querySelector("[data-subject-feats]");
+    const noteEl = card.querySelector("[data-subject-note]");
+    const tiers = [...card.querySelectorAll(".cx-price-tier")];
+    let contentTimer = 0;
+    let inTimer = 0;
+    let currentSubjects = Number(tiers.find((btn) => btn.classList.contains("is-active"))?.dataset.subjects || 1);
+
+    const moveThumb = (activeBtn) => {
+      if (!row || !thumb || !activeBtn) return;
+      thumb.style.width = `${activeBtn.offsetWidth}px`;
+      thumb.style.transform = `translateX(${activeBtn.offsetLeft}px)`;
+      thumb.classList.add("is-ready");
+    };
+
+    const render = (subjects) => {
+      const count = planSubjectCount(plan, subjects);
+      if (priceEl) priceEl.textContent = formatPlanUsd(planPriceForSubjects(plan, count));
+      if (noteEl) noteEl.textContent = "billed once";
+      if (featsEl) {
+        featsEl.innerHTML = planFeatureList(plan, count)
+          .map((f) => `<li>${uiIcon("badge-check")}<span>${escapeHtml(f)}</span></li>`)
+          .join("");
+      }
+    };
+
+    const apply = (subjects) => {
+      const count = planSubjectCount(plan, subjects);
+      if (count === currentSubjects) return;
+      const activeBtn = tiers.find((btn) => Number(btn.dataset.subjects) === count);
+      tiers.forEach((btn) => {
+        const on = Number(btn.dataset.subjects) === count;
+        btn.classList.toggle("is-active", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      currentSubjects = count;
+      moveThumb(activeBtn);
+
+      if (reduceMotion) {
+        render(count);
+        return;
+      }
+
+      window.clearTimeout(contentTimer);
+      window.clearTimeout(inTimer);
+      card.classList.remove("is-tier-in");
+      card.classList.add("is-tier-out");
+      contentTimer = window.setTimeout(() => {
+        render(count);
+        card.classList.remove("is-tier-out");
+        void card.offsetWidth;
+        card.classList.add("is-tier-in");
+        inTimer = window.setTimeout(() => card.classList.remove("is-tier-in"), 320);
+      }, 160);
+    };
+
+    tiers.forEach((btn) => {
+      btn.addEventListener("click", () => apply(Number(btn.dataset.subjects)));
+    });
+
+    const syncThumb = () => {
+      const active = tiers.find((btn) => btn.classList.contains("is-active")) || tiers[0];
+      moveThumb(active);
+    };
+    syncThumb();
+    window.requestAnimationFrame(syncThumb);
+    window.addEventListener("resize", syncThumb);
+  });
+}
+
+function wireMagneticButtons(root) {
+  if (!root || window.matchMedia("(hover: none), (pointer: coarse)").matches) return;
+
+  const distance = 0.45;
+  const ease = 0.18;
+
+  root.querySelectorAll("[data-cx-magnetic]").forEach((wrap) => {
+    if (wrap.dataset.magneticWired === "1") return;
+    const target = wrap.querySelector("button, a, .cx-btn") || wrap;
+    wrap.dataset.magneticWired = "1";
+    wrap.classList.add("cx-magnetic");
+
+    let hovered = false;
+    let mx = 0;
+    let my = 0;
+    let sx = 0;
+    let sy = 0;
+    let raf = 0;
+
+    const tick = () => {
+      sx += (mx - sx) * ease;
+      sy += (my - sy) * ease;
+      target.style.transform = `translate3d(${sx.toFixed(2)}px, ${sy.toFixed(2)}px, 0)`;
+      if (hovered || Math.abs(mx - sx) > 0.08 || Math.abs(my - sy) > 0.08) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        target.style.transform = "";
+        raf = 0;
+      }
+    };
+
+    const start = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+
+    wrap.addEventListener("mouseenter", () => {
+      hovered = true;
+      wrap.closest(".cx-price-card")?.classList.add("is-magnetic-active");
+      start();
+    });
+    wrap.addEventListener("mouseleave", () => {
+      hovered = false;
+      mx = 0;
+      my = 0;
+      wrap.closest(".cx-price-card")?.classList.remove("is-magnetic-active");
+      start();
+    });
+    wrap.addEventListener("mousemove", (event) => {
+      const rect = wrap.getBoundingClientRect();
+      mx = (event.clientX - (rect.left + rect.width / 2)) * distance;
+      my = (event.clientY - (rect.top + rect.height / 2)) * distance;
+      start();
+    });
+  });
+}
+
+function wireFeatureLenses(root, { onHoverChange } = {}) {
+  if (!root || window.matchMedia("(hover: none), (pointer: coarse)").matches) return;
+
+  const zoomFactor = 1.65;
+  const lensSize = 168;
+
+  root.querySelectorAll("[data-cx-lens]").forEach((container) => {
+    if (container.dataset.lensWired === "1") return;
+    const img = container.querySelector("img");
+    if (!img) return;
+    container.dataset.lensWired = "1";
+    container.classList.add("cx-lens");
+
+    const zoom = document.createElement("div");
+    zoom.className = "cx-lens-zoom";
+    zoom.setAttribute("aria-hidden", "true");
+    const zoomImg = img.cloneNode(true);
+    zoomImg.removeAttribute("loading");
+    zoom.appendChild(zoomImg);
+
+    const ring = document.createElement("div");
+    ring.className = "cx-lens-ring";
+    ring.style.width = `${lensSize}px`;
+    ring.style.height = `${lensSize}px`;
+
+    container.appendChild(zoom);
+    container.appendChild(ring);
+
+    const place = (x, y) => {
+      const radius = lensSize / 2;
+      const mask = `radial-gradient(circle ${radius}px at ${x}px ${y}px, #000 100%, transparent 100%)`;
+      zoom.style.maskImage = mask;
+      zoom.style.webkitMaskImage = mask;
+      zoomImg.style.transformOrigin = `${x}px ${y}px`;
+      zoomImg.style.transform = `scale(${zoomFactor})`;
+      ring.style.transform = `translate(${x - radius}px, ${y - radius}px)`;
+    };
+
+    container.addEventListener("mouseenter", () => {
+      container.classList.add("is-lens-on");
+      onHoverChange?.(true);
+    });
+    container.addEventListener("mouseleave", () => {
+      container.classList.remove("is-lens-on");
+      onHoverChange?.(false);
+    });
+    container.addEventListener("mousemove", (event) => {
+      const rect = container.getBoundingClientRect();
+      place(event.clientX - rect.left, event.clientY - rect.top);
+    });
+  });
 }
 
 function bindLandingAccountButtons() {
+  document.querySelectorAll("[data-sign-in]").forEach((button) => {
+    button.addEventListener("click", () => showAuth("login"));
+  });
   document.querySelectorAll("[data-create-account]").forEach((button) => {
     button.addEventListener("click", () => showWebsiteRegister());
   });
 }
 
+function authBrandMarkup({ action = "home" } = {}) {
+  return `<button class="auth-v2-brand" type="button" data-auth-home data-auth-action="${escapeHtml(action)}">
+    <img src="assets/crossline-icon.png" alt="" />
+    <span class="auth-v2-brand-word"><b>Crossline</b><small>CSCA Practice</small></span>
+  </button>`;
+}
+
 function landingBrandMarkup() {
-  return `<a class="landing-brand" href="#top" aria-label="Crossline Education">
+  return `<a class="landing-brand" href="#top" aria-label="Crossline CSCA Practice">
     <img class="landing-brand-mark" src="assets/crossline-icon.png" alt="" />
-    <span class="landing-brand-word">Cross-Line<small>Education</small></span>
+    <span class="landing-brand-word">Crossline<small>CSCA Practice</small></span>
   </a>`;
+}
+
+function authIcon(name) {
+  const icons = {
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+    camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>',
+    arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>',
+    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
+    target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+  };
+  return icons[name] || "";
+}
+
+function authAvatarPreviewMarkup() {
+  if (authAvatarData) return `<img src="${escapeHtml(authAvatarData)}" alt="Profile preview" />`;
+  return `<span class="auth-v2-cam">${authIcon("camera")}</span>`;
 }
 
 function showWebsiteRegister(message = "") {
   stopMedia();
   message = typeof message === "string" ? message : "";
   app.innerHTML = `
-  <main class="landing-page">
-    <section class="landing-shell landing-account-shell">
-      <nav class="landing-nav">
-        ${landingBrandMarkup()}
-        <button id="back-landing" class="landing-account-cta" type="button">Back to download</button>
-      </nav>
-      <section class="landing-account-layout">
-        <div class="landing-account-copy">
-          <h1>Create your Crossline account.</h1>
-          <p>Register here, verify your email, then use the same email and password inside the Windows app.</p>
+  <main class="auth-v2">
+    <section class="auth-v2-form">
+      <div class="auth-v2-topbar">
+        ${authBrandMarkup()}
+        <button class="auth-v2-back" type="button" data-auth-home>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to home
+        </button>
+      </div>
+      <div class="auth-v2-wrap">
+        <span class="auth-v2-eyebrow">Get started</span>
+        <h1>Create your account</h1>
+        <p class="auth-v2-sub">Register here, verify your email, then sign in inside the Windows app to take your first mock.</p>
+        <div class="auth-v2-steps" aria-hidden="true">
+          <div class="auth-v2-step is-active"><span class="num">1</span><span class="label">Details</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step"><span class="num">2</span><span class="label">Verify email</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step"><span class="num">3</span><span class="label">Practice</span></div>
         </div>
-        <form id="website-register-form" class="landing-account-panel">
-          <div class="auth-avatar-field"><label class="auth-avatar-picker" title="Add profile picture"><span id="website-avatar-preview">${authAvatarData ? `<img src="${escapeHtml(authAvatarData)}" alt="Profile preview" />` : "Add photo"}</span><input id="website-register-avatar" type="file" accept="image/*" /></label><div><strong>Profile picture</strong><small>Optional. You can change this later in the Windows app.</small></div></div>
-          <div class="auth-name-grid"><div class="field"><label>First name</label><input id="website-register-first-name" type="text" maxlength="60" autocomplete="given-name" required /></div><div class="field"><label>Last name</label><input id="website-register-last-name" type="text" maxlength="60" autocomplete="family-name" required /></div></div>
-          <div class="field"><label>Username</label><input id="website-register-username" type="text" maxlength="40" placeholder="Example: Arijit" required /></div>
-          <div class="field"><label>Email address</label><input id="website-register-email" type="email" required /></div>
-          <div class="field"><label>Create password</label><input id="website-register-password" type="password" minlength="6" required /></div>
-          <p class="form-note">${apiEnabled() ? "We will email a verification code before the account is ready." : "This prototype displays the verification code locally."}</p>
+        <button id="google-sign-in" class="auth-v2-google" type="button"><img src="assets/google-g.svg" alt="" />Sign up with Google</button>
+        <div class="auth-v2-divider"><span>or sign up with email</span></div>
+        <form id="website-register-form" class="auth-v2-fields" novalidate>
+          <div class="auth-v2-avatar">
+            <label class="auth-v2-avatar-pick" for="website-register-avatar">
+              <span id="website-avatar-preview">${authAvatarPreviewMarkup()}</span>
+              <input id="website-register-avatar" type="file" accept="image/*" />
+            </label>
+            <div class="auth-v2-avatar-meta"><b>Profile picture</b><small>Optional. You can change this later in Settings.</small></div>
+          </div>
+          <div class="auth-v2-name-grid">
+            <div class="auth-v2-field">
+              <label for="website-register-first-name">First name</label>
+              <div class="auth-v2-input-wrap"><input id="website-register-first-name" type="text" maxlength="60" autocomplete="given-name" placeholder="Arijit" required /></div>
+            </div>
+            <div class="auth-v2-field">
+              <label for="website-register-last-name">Last name</label>
+              <div class="auth-v2-input-wrap"><input id="website-register-last-name" type="text" maxlength="60" autocomplete="family-name" placeholder="Bhowmik" required /></div>
+            </div>
+          </div>
+          <div class="auth-v2-field">
+            <label for="website-register-username">Username</label>
+            <div class="auth-v2-input-wrap with-icon">
+              <span class="auth-v2-icon" aria-hidden="true">${authIcon("user")}</span>
+              <input id="website-register-username" type="text" maxlength="40" placeholder="Example: Arijit" autocomplete="username" required />
+            </div>
+          </div>
+          <div class="auth-v2-field">
+            <label for="website-register-email">Email address</label>
+            <div class="auth-v2-input-wrap with-icon">
+              <span class="auth-v2-icon" aria-hidden="true">${authIcon("mail")}</span>
+              <input id="website-register-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+            </div>
+          </div>
+          <div class="auth-v2-field">
+            <label for="website-register-password">Create password</label>
+            <div class="auth-v2-input-wrap with-icon">
+              <span class="auth-v2-icon" aria-hidden="true">${authIcon("lock")}</span>
+              <input id="website-register-password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required />
+              <button id="toggle-website-register-password" type="button">Show</button>
+            </div>
+            <div class="auth-v2-pw-strength" id="website-pw-strength" hidden>
+              <div class="auth-v2-pw-bars" id="website-pw-bars"><span></span><span></span><span></span><span></span></div>
+              <span class="auth-v2-pw-label" id="website-pw-label">Weak</span>
+            </div>
+            <span class="auth-v2-hint">Must be at least 6 characters.</span>
+          </div>
           <p class="form-message">${escapeHtml(message)}</p>
-          <button class="primary-button full-width">Register and verify email</button>
+          <button class="auth-v2-submit" type="submit">Create account ${authIcon("arrow")}</button>
         </form>
-      </section>
+        <div class="auth-v2-verify-note">
+          ${authIcon("mail")}
+          <span>${apiEnabled() ? "We'll email a 6-digit verification code to confirm your address before your first exam." : "This prototype displays the verification code locally after you create the account."}</span>
+        </div>
+        <p class="auth-v2-switch">Already have an account? <button type="button" data-sign-in>Sign in</button></p>
+      </div>
+      <p class="auth-v2-legal">By continuing, you agree to our <button id="auth-terms" type="button">Terms</button> and <button id="auth-privacy" type="button">Privacy Policy</button>.</p>
     </section>
+    <aside class="auth-v2-showcase" aria-hidden="true">
+      <span class="auth-v2-blob auth-v2-blob-1"></span>
+      <span class="auth-v2-blob auth-v2-blob-2"></span>
+      <div class="auth-v2-show-copy">
+        <h2>Start practicing <em>the smart way.</em></h2>
+        <p>One account unlocks every official CSCA past-paper mock, marks-based scoring, and a dashboard built to show you exactly what to study next.</p>
+        <div class="auth-v2-benefits">
+          <div class="auth-v2-benefit"><span class="auth-v2-b-icon">${authIcon("mail")}</span><div><b>Full results &amp; explanations</b><small>Every question comes with the correct answer and a written explanation.</small></div></div>
+          <div class="auth-v2-benefit"><span class="auth-v2-b-icon">${authIcon("target")}</span><div><b>Weakness analysis</b><small>See your accuracy broken down by subject, chapter, and topic.</small></div></div>
+          <div class="auth-v2-benefit"><span class="auth-v2-b-icon">${authIcon("chart")}</span><div><b>Track your progress</b><small>Watch your scores climb across every mock you take.</small></div></div>
+        </div>
+      </div>
+      <div class="auth-v2-show-foot"><span class="auth-v2-tick">${authIcon("check")}</span><div><b>Free to start.</b><small>Create your account now — pick a plan when you're ready.</small></div></div>
+    </aside>
   </main>`;
-  bind("back-landing", "click", showDownloadLanding);
+  document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
+  document.querySelectorAll("[data-sign-in]").forEach((el) => el.addEventListener("click", () => showAuth("login")));
+  bind("google-sign-in", "click", () => startSocialLogin("google"));
+  bind("auth-terms", "click", () => openExternalUrl(TERMS_OF_SERVICE_URL));
+  bind("auth-privacy", "click", () => openExternalUrl(PRIVACY_POLICY_URL));
+  bind("toggle-website-register-password", "click", () => togglePasswordVisibility("website-register-password", "toggle-website-register-password"));
+  bind("website-register-password", "input", () => {
+    const value = document.getElementById("website-register-password")?.value || "";
+    const strength = document.getElementById("website-pw-strength");
+    const bars = document.getElementById("website-pw-bars");
+    const label = document.getElementById("website-pw-label");
+    if (!strength || !bars || !label) return;
+    if (!value) {
+      strength.hidden = true;
+      return;
+    }
+    strength.hidden = false;
+    let score = 0;
+    if (value.length >= 6) score += 1;
+    if (value.length >= 10) score += 1;
+    if (/[A-Z]/.test(value) && /[a-z]/.test(value)) score += 1;
+    if (/\d/.test(value) || /[^A-Za-z0-9]/.test(value)) score += 1;
+    bars.className = `auth-v2-pw-bars s${score}`;
+    label.className = `auth-v2-pw-label ${score <= 1 ? "weak" : score <= 3 ? "medium" : "strong"}`;
+    label.textContent = score <= 1 ? "Weak" : score <= 3 ? "Medium" : "Strong";
+  });
   bind("website-register-avatar", "change", async (event) => {
     authAvatarData = await readProfilePhoto(event.target.files?.[0]);
     const preview = document.getElementById("website-avatar-preview");
-    if (preview) preview.innerHTML = authAvatarData ? `<img src="${escapeHtml(authAvatarData)}" alt="Profile preview" />` : "Add photo";
+    if (preview) preview.innerHTML = authAvatarPreviewMarkup();
   });
   bind("website-register-form", "submit", async (event) => {
     event.preventDefault();
@@ -1168,26 +1882,46 @@ function showWebsiteVerification(message = "") {
   if (!pendingRegistration) return showWebsiteRegister();
   message = typeof message === "string" ? message : "";
   app.innerHTML = `
-  <main class="landing-page">
-    <section class="landing-shell landing-account-shell">
-      <nav class="landing-nav">
-        ${landingBrandMarkup()}
-        <button id="back-register" class="landing-account-cta" type="button">Back to account</button>
-      </nav>
-      <section class="landing-account-layout">
-        <div class="landing-account-copy">
-          <h1>Verify your email.</h1>
-          <p>Enter the six-digit code sent to <strong>${escapeHtml(pendingRegistration.email)}</strong>.</p>
+  <main class="auth-v2">
+    <section class="auth-v2-form">
+      <div class="auth-v2-topbar">
+        ${authBrandMarkup()}
+        <button class="auth-v2-back" type="button" id="back-register">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to details
+        </button>
+      </div>
+      <div class="auth-v2-wrap">
+        <span class="auth-v2-eyebrow">Step 2 of 3</span>
+        <h1>Verify your email</h1>
+        <p class="auth-v2-sub">Enter the six-digit code sent to <strong>${escapeHtml(pendingRegistration.email)}</strong>.</p>
+        <div class="auth-v2-steps" aria-hidden="true">
+          <div class="auth-v2-step"><span class="num">1</span><span class="label">Details</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step is-active"><span class="num">2</span><span class="label">Verify email</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step"><span class="num">3</span><span class="label">Practice</span></div>
         </div>
-        <form id="website-verify-form" class="landing-account-panel">
-          ${apiEnabled() ? "<p class=\"form-note\">Check your inbox for the verification code.</p>" : `<p class="form-note">Prototype verification code</p><div class="demo-code">${DEMO_CODE}</div>`}
-          <div class="field"><label>Verification code</label><input id="website-verify-code" inputmode="numeric" maxlength="6" required /></div>
+        <form id="website-verify-form" class="auth-v2-fields" novalidate>
+          ${apiEnabled()
+            ? "<p class=\"auth-v2-note\">Check your inbox for the verification code.</p>"
+            : `<p class="auth-v2-note">Prototype verification code</p><div class="auth-v2-demo-code">${DEMO_CODE}</div>`}
+          <div class="auth-v2-field"><label for="website-verify-code">Verification code</label><input id="website-verify-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required /></div>
           <p class="form-message">${escapeHtml(message)}</p>
-          <button class="primary-button full-width">Verify email</button>
+          <button class="auth-v2-submit" type="submit">Verify email <span aria-hidden="true">→</span></button>
         </form>
-      </section>
+      </div>
     </section>
+    <aside class="auth-v2-showcase" aria-hidden="true">
+      <span class="auth-v2-blob auth-v2-blob-1"></span>
+      <span class="auth-v2-blob auth-v2-blob-2"></span>
+      <div class="auth-v2-show-copy">
+        <h2>Almost there.</h2>
+        <p>Once your email is verified, download the Windows app and sign in to take your first mock.</p>
+      </div>
+    </aside>
   </main>`;
+  document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
   bind("back-register", "click", () => showWebsiteRegister());
   bind("website-verify-form", "submit", async (event) => {
     event.preventDefault();
@@ -1211,21 +1945,41 @@ function showWebsiteVerification(message = "") {
 
 function showWebsiteAccountReady() {
   app.innerHTML = `
-  <main class="landing-page">
-    <section class="landing-shell landing-account-shell">
-      <nav class="landing-nav">
-        ${landingBrandMarkup()}
-        <button id="back-home" class="landing-account-cta" type="button">Back to home</button>
-      </nav>
-      <section class="landing-account-layout landing-account-complete">
-        <div class="landing-account-copy">
-          <h1>Your account is ready.</h1>
-          <p>Download the Windows app and log in there with the account you just verified.</p>
-          <a class="landing-download download-button disabled-link" id="cta-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
+  <main class="auth-v2">
+    <section class="auth-v2-form">
+      <div class="auth-v2-topbar">
+        ${authBrandMarkup()}
+        <button class="auth-v2-back" type="button" id="back-home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to home
+        </button>
+      </div>
+      <div class="auth-v2-wrap">
+        <span class="auth-v2-eyebrow">Step 3 of 3</span>
+        <h1>Your account is ready</h1>
+        <p class="auth-v2-sub">Download the Windows app and sign in with the account you just verified.</p>
+        <div class="auth-v2-steps" aria-hidden="true">
+          <div class="auth-v2-step"><span class="num">1</span><span class="label">Details</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step"><span class="num">2</span><span class="label">Verify email</span></div>
+          <span class="auth-v2-step-bar"></span>
+          <div class="auth-v2-step is-active"><span class="num">3</span><span class="label">Practice</span></div>
         </div>
-      </section>
+        <a class="auth-v2-submit auth-v2-download disabled-link" id="cta-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
+        <p class="auth-v2-switch"><button type="button" data-sign-in>Already downloaded? Sign in</button></p>
+      </div>
     </section>
+    <aside class="auth-v2-showcase" aria-hidden="true">
+      <span class="auth-v2-blob auth-v2-blob-1"></span>
+      <span class="auth-v2-blob auth-v2-blob-2"></span>
+      <div class="auth-v2-show-copy">
+        <h2>Practice starts in the app.</h2>
+        <p>Two-camera setup, timed mocks, and marks-based results — all waiting once you sign in on Windows.</p>
+      </div>
+    </aside>
   </main>`;
+  document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
+  document.querySelectorAll("[data-sign-in]").forEach((el) => el.addEventListener("click", () => showAuth("login")));
   bind("back-home", "click", showDownloadLanding);
   hydrateDownloadLinks();
 }
@@ -1253,6 +2007,7 @@ async function hydrateDownloadLinks() {
     } catch {}
   }
 
+  if (typeof document === "undefined" || !document.getElementById) return;
   const headerDownload = document.getElementById("header-download");
   const client = document.getElementById("client-download");
   const note = document.getElementById("download-note");
@@ -1286,54 +2041,76 @@ function showAuth(tab = "login", message = "") {
   leaveKiosk();
   stopMedia();
   message = typeof message === "string" ? message : "";
-  const isLogin = tab === "login";
-  const authForm = isLogin
-    ? `<form id="login-form" class="auth-form">
-        <label class="auth-field"><span>Email address</span><input id="login-email" type="email" autocomplete="email" value="${apiEnabled() ? "" : "student@example.com"}" placeholder="you@example.com" required /></label>
-        <label class="auth-field"><span>Password</span><span class="auth-password-wrap"><input id="login-password" type="password" autocomplete="current-password" value="${apiEnabled() ? "" : "demo123"}" placeholder="Enter your password" required /><button id="toggle-login-password" type="button" aria-label="Show password">Show</button></span></label>
-        <button id="forgot-password" class="auth-inline-link" type="button">Forgot password?</button>
-        ${localModeNote("<p class=\"form-note\">Demo student: student@example.com / demo123</p>")}
-        <p class="form-message auth-form-message">${escapeHtml(message)}</p>
-        <div class="auth-submit-row"><button id="register-tab" class="auth-secondary-button" type="button">Create account</button><button class="auth-primary-button" type="submit">Sign in <span>→</span></button></div>
-      </form>`
-    : `<form id="register-form" class="auth-form">
-        <div class="auth-avatar-field"><label class="auth-avatar-picker" title="Add profile picture"><span id="register-avatar-preview">${authAvatarData ? `<img src="${escapeHtml(authAvatarData)}" alt="Profile preview" />` : "Add photo"}</span><input id="register-avatar" type="file" accept="image/*" /></label><div><strong>Profile picture</strong><small>Optional. You can change this later in Settings.</small></div></div>
-        <div class="auth-name-grid"><label class="auth-field"><span>First name</span><input id="register-first-name" type="text" autocomplete="given-name" maxlength="60" required /></label><label class="auth-field"><span>Last name</span><input id="register-last-name" type="text" autocomplete="family-name" maxlength="60" required /></label></div>
-        <label class="auth-field"><span>Username</span><input id="register-username" type="text" autocomplete="username" maxlength="40" placeholder="Example: Arijit" required /></label>
-        <label class="auth-field"><span>Email address</span><input id="register-email" type="email" autocomplete="email" required /></label>
-        <label class="auth-field"><span>Create password</span><span class="auth-password-wrap"><input id="register-password" type="password" autocomplete="new-password" minlength="6" placeholder="At least 6 characters" required /><button id="toggle-register-password" type="button" aria-label="Show password">Show</button></span></label>
-        <p class="form-note">${apiEnabled() ? "We will send a verification code before the account can take an exam." : "This prototype displays the verification code locally. Production will send it through an email service."}</p>
-        <p class="form-message auth-form-message">${escapeHtml(message)}</p>
-        <div class="auth-submit-row"><button id="login-tab" class="auth-secondary-button" type="button">Back to sign in</button><button class="auth-primary-button" type="submit">Create account <span>→</span></button></div>
-      </form>`;
-  app.innerHTML = `<main class="auth-screen">
-    <section class="auth-card" aria-label="Student ${isLogin ? "login" : "registration"}">
-      <div class="auth-card-heading"><div><p class="auth-eyebrow">Crossline CSCA practice</p><h1>${isLogin ? "Welcome back" : "Create your account"}</h1><p>${isLogin ? "Sign in to continue your mock exam journey." : "Set up your profile, then verify your email to begin."}</p></div><img src="assets/auth/login-books.png" alt="Books and a plant" /></div>
-      <div class="auth-social-stack"><button id="google-sign-in" type="button" class="auth-social-button"><img class="auth-google-logo" src="assets/google-g.svg" alt="" />Continue with Google</button></div>
-      <div class="auth-divider"><span>or use your email</span></div>
-      ${authForm}
-      <p class="auth-legal">By continuing, you agree to our <button id="auth-terms" type="button">Terms of Service</button> and <button id="auth-privacy" type="button">Privacy Policy</button>.</p>
+  if (tab === "register") return showWebsiteRegister(message);
+
+  const emailValue = apiEnabled() ? "" : "student@example.com";
+  const passwordValue = apiEnabled() ? "" : "demo123";
+  app.innerHTML = `
+  <main class="auth-v2">
+    <section class="auth-v2-form">
+      <div class="auth-v2-topbar">
+        ${authBrandMarkup()}
+        <button class="auth-v2-back" type="button" data-auth-home>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to home
+        </button>
+      </div>
+      <div class="auth-v2-wrap">
+        <span class="auth-v2-eyebrow">Welcome back</span>
+        <h1>Sign in to your account</h1>
+        <p class="auth-v2-sub">Continue your CSCA mock exam practice right where you left off.</p>
+        <button id="google-sign-in" class="auth-v2-google" type="button"><img src="assets/google-g.svg" alt="" />Continue with Google</button>
+        <div class="auth-v2-divider"><span>or sign in with email</span></div>
+        <form id="login-form" class="auth-v2-fields" novalidate>
+          <div class="auth-v2-field">
+            <label for="login-email">Email address</label>
+            <div class="auth-v2-input-wrap with-icon">
+              <span class="auth-v2-icon" aria-hidden="true">${authIcon("mail")}</span>
+              <input id="login-email" type="email" autocomplete="email" placeholder="you@example.com" value="${escapeHtml(emailValue)}" required />
+            </div>
+          </div>
+          <div class="auth-v2-field">
+            <label for="login-password">Password</label>
+            <div class="auth-v2-input-wrap with-icon">
+              <span class="auth-v2-icon" aria-hidden="true">${authIcon("lock")}</span>
+              <input id="login-password" type="password" autocomplete="current-password" placeholder="Enter your password" value="${escapeHtml(passwordValue)}" required />
+              <button id="toggle-login-password" type="button">Show</button>
+            </div>
+          </div>
+          <div class="auth-v2-row">
+            <label class="auth-v2-remember"><input type="checkbox" checked /> Keep me signed in</label>
+            <button id="forgot-password" class="auth-v2-forgot" type="button">Forgot password?</button>
+          </div>
+          <p class="form-message">${escapeHtml(message)}</p>
+          <button class="auth-v2-submit" type="submit">Sign in ${authIcon("arrow")}</button>
+        </form>
+        ${localModeNote("<div class=\"auth-v2-demo\">Demo account — <code>student@example.com</code> / <code>demo123</code></div>")}
+        <p class="auth-v2-switch">New to Crossline? <button type="button" data-create-account>Create an account</button></p>
+      </div>
+      <p class="auth-v2-legal">By continuing, you agree to our <button id="auth-terms" type="button">Terms</button> and <button id="auth-privacy" type="button">Privacy Policy</button>.</p>
     </section>
-    <aside class="auth-showcase" aria-label="Crossline Education">
-      <div class="auth-brand"><img src="assets/crossline-icon.png" alt="" /><span>Cross-Line<small>Education</small></span></div>
-      <div class="auth-showcase-copy"><h2>Ace every mock exam.<br />Track every step forward.</h2><p>Access your exams, results, and progress all in one place.</p></div>
-      <img class="auth-room-art" src="assets/auth/login-room.png" alt="Study space with books and a plant" />
-      <div class="auth-trust-note"><span>✓</span><div><strong>Your progress. Our priority.</strong><small>Secure. Private. Built for your success.</small></div></div>
+    <aside class="auth-v2-showcase" aria-hidden="true">
+      <span class="auth-v2-blob auth-v2-blob-1"></span>
+      <span class="auth-v2-blob auth-v2-blob-2"></span>
+      <div class="auth-v2-show-copy">
+        <h2>Ace every mock exam. <em>Track every step forward.</em></h2>
+        <p>Two-camera pre-exam setup, a 48-question timed interface, marks-based scoring, and a dashboard that shows exactly where you lose marks.</p>
+        <div class="auth-v2-stats">
+          <div class="auth-v2-stat"><b>48</b><small>questions per mock</small></div>
+          <div class="auth-v2-stat"><b>4</b><small>subjects covered</small></div>
+          <div class="auth-v2-stat"><b>100%</b><small>marks-based</small></div>
+        </div>
+      </div>
+      <div class="auth-v2-show-foot"><span class="auth-v2-tick">${authIcon("check")}</span><div><b>Your progress. Our priority.</b><small>Secure, private, and built for serious candidates.</small></div></div>
     </aside>
   </main>`;
-  bind("login-tab", "click", () => showAuth("login"));
-  bind("register-tab", "click", () => showAuth("register"));
+  document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
+  document.querySelectorAll("[data-create-account]").forEach((el) => el.addEventListener("click", () => showWebsiteRegister()));
   bind("google-sign-in", "click", () => startSocialLogin("google"));
   bind("auth-terms", "click", () => openExternalUrl(TERMS_OF_SERVICE_URL));
   bind("auth-privacy", "click", () => openExternalUrl(PRIVACY_POLICY_URL));
   bind("forgot-password", "click", showPasswordReset);
   bind("toggle-login-password", "click", () => togglePasswordVisibility("login-password", "toggle-login-password"));
-  bind("toggle-register-password", "click", () => togglePasswordVisibility("register-password", "toggle-register-password"));
-  bind("register-avatar", "change", async (event) => {
-    authAvatarData = await readProfilePhoto(event.target.files?.[0]);
-    const preview = document.getElementById("register-avatar-preview");
-    if (preview) preview.innerHTML = authAvatarData ? `<img src="${escapeHtml(authAvatarData)}" alt="Profile preview" />` : "Add photo";
-  });
   bindDesktopExit({ updates: true });
   bind("login-form", "submit", async (event) => {
     event.preventDefault();
@@ -1356,25 +2133,6 @@ function showAuth(tab = "login", message = "") {
     rememberLocalUser(user);
     showStudentDashboard("", { loading: true });
   });
-  bind("register-form", "submit", async (event) => {
-    event.preventDefault();
-    pendingRegistration = {
-      username: document.getElementById("register-username").value.trim(),
-      firstName: document.getElementById("register-first-name").value.trim(),
-      lastName: document.getElementById("register-last-name").value.trim(),
-      avatarUrl: authAvatarData,
-      email: document.getElementById("register-email").value.trim().toLowerCase(),
-      password: document.getElementById("register-password").value
-    };
-    if (apiEnabled()) {
-      try {
-        await window.CrosslineApi.register(pendingRegistration.email, pendingRegistration.password, pendingRegistration.username, pendingRegistration);
-      } catch (error) {
-        return showAuth("register", error.message);
-      }
-    }
-    showVerification();
-  });
 }
 
 function showPasswordReset(message = "", confirmStep = false) {
@@ -1382,9 +2140,50 @@ function showPasswordReset(message = "", confirmStep = false) {
   stopMedia();
   message = typeof message === "string" ? message : "";
   const form = confirmStep
-    ? `<form id="password-reset-confirm-form" class="auth-form"><label class="auth-field"><span>Email address</span><input value="${escapeHtml(pendingPasswordResetEmail)}" disabled /></label><label class="auth-field"><span>Six-digit reset code</span><input id="password-reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></label><label class="auth-field"><span>New password</span><span class="auth-password-wrap"><input id="password-reset-new" type="password" autocomplete="new-password" minlength="6" required /><button id="toggle-reset-password" type="button">Show</button></span></label><label class="auth-field"><span>Confirm new password</span><input id="password-reset-confirm" type="password" autocomplete="new-password" minlength="6" required /></label><p class="form-message auth-form-message">${escapeHtml(message)}</p><div class="auth-submit-row"><button id="reset-request-again" class="auth-secondary-button" type="button">Use another email</button><button class="auth-primary-button">Reset password <span>→</span></button></div></form>`
-    : `<form id="password-reset-request-form" class="auth-form"><label class="auth-field"><span>Email address</span><input id="password-reset-email" type="email" autocomplete="email" placeholder="you@example.com" required /></label><p class="form-note">If the address belongs to a verified account, we will email a code that expires in 15 minutes.</p><p class="form-message auth-form-message">${escapeHtml(message)}</p><div class="auth-submit-row"><button id="reset-back-login" class="auth-secondary-button" type="button">Back to sign in</button><button class="auth-primary-button">Send reset code <span>→</span></button></div></form>`;
-  app.innerHTML = `<main class="auth-screen"><section class="auth-card"><div class="auth-card-heading"><div><p class="auth-eyebrow">Account recovery</p><h1>${confirmStep ? "Choose a new password" : "Reset your password"}</h1><p>${confirmStep ? "Enter the code from your email and choose a new password." : "We will help you safely regain access to your dashboard."}</p></div><img src="assets/auth/login-books.png" alt="Books and a plant" /></div>${form}</section><aside class="auth-showcase" aria-label="Crossline Education"><div class="auth-brand"><img src="assets/crossline-icon.png" alt="" /><span>Cross-Line<small>Education</small></span></div><div class="auth-showcase-copy"><h2>Return to your progress.</h2><p>Your exams, results, and profile will be waiting after you sign in again.</p></div><div class="auth-trust-note"><span>✓</span><div><strong>One-time recovery code</strong><small>The code expires after 15 minutes.</small></div></div></aside></main>`;
+    ? `<form id="password-reset-confirm-form" class="auth-v2-fields" novalidate>
+        <div class="auth-v2-field"><label>Email address</label><input value="${escapeHtml(pendingPasswordResetEmail)}" disabled /></div>
+        <div class="auth-v2-field"><label for="password-reset-code">Six-digit reset code</label><input id="password-reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></div>
+        <div class="auth-v2-field"><label for="password-reset-new">New password</label><div class="auth-v2-input-wrap"><input id="password-reset-new" type="password" autocomplete="new-password" minlength="6" required /><button id="toggle-reset-password" type="button">Show</button></div></div>
+        <div class="auth-v2-field"><label for="password-reset-confirm">Confirm new password</label><input id="password-reset-confirm" type="password" autocomplete="new-password" minlength="6" required /></div>
+        <p class="form-message">${escapeHtml(message)}</p>
+        <button class="auth-v2-submit" type="submit">Reset password <span aria-hidden="true">→</span></button>
+        <p class="auth-v2-switch"><button id="reset-request-again" type="button">Use another email</button></p>
+      </form>`
+    : `<form id="password-reset-request-form" class="auth-v2-fields" novalidate>
+        <div class="auth-v2-field"><label for="password-reset-email">Email address</label><input id="password-reset-email" type="email" autocomplete="email" placeholder="you@example.com" required /></div>
+        <p class="auth-v2-note">If the address belongs to a verified account, we will email a code that expires in 15 minutes.</p>
+        <p class="form-message">${escapeHtml(message)}</p>
+        <button class="auth-v2-submit" type="submit">Send reset code <span aria-hidden="true">→</span></button>
+        <p class="auth-v2-switch"><button id="reset-back-login" type="button">Back to sign in</button></p>
+      </form>`;
+  app.innerHTML = `
+  <main class="auth-v2">
+    <section class="auth-v2-form">
+      <div class="auth-v2-topbar">
+        ${authBrandMarkup()}
+        <button class="auth-v2-back" type="button" data-auth-home>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to home
+        </button>
+      </div>
+      <div class="auth-v2-wrap">
+        <span class="auth-v2-eyebrow">Account recovery</span>
+        <h1>${confirmStep ? "Choose a new password" : "Reset your password"}</h1>
+        <p class="auth-v2-sub">${confirmStep ? "Enter the code from your email and choose a new password." : "We'll help you safely regain access to your dashboard."}</p>
+        ${form}
+      </div>
+    </section>
+    <aside class="auth-v2-showcase" aria-hidden="true">
+      <span class="auth-v2-blob auth-v2-blob-1"></span>
+      <span class="auth-v2-blob auth-v2-blob-2"></span>
+      <div class="auth-v2-show-copy">
+        <h2>Return to your progress.</h2>
+        <p>Your exams, results, and profile will be waiting after you sign in again.</p>
+      </div>
+      <div class="auth-v2-show-foot"><span>✓</span><div><b>One-time recovery code</b><small>The code expires after 15 minutes.</small></div></div>
+    </aside>
+  </main>`;
+  document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
   bindDesktopExit({ updates: true });
   bind("reset-back-login", "click", () => showAuth("login"));
   bind("reset-request-again", "click", () => { pendingPasswordResetEmail = ""; showPasswordReset(); });
@@ -1885,11 +2684,12 @@ function renderPricing(payload = localPlanPayload(), message = "") {
     : `<section class="pricing-current pricing-current-empty"><div><p class="dash-card-kicker">Current package</p><h2>No package assigned</h2><p>A Crossline administrator can manually assign a package to your verified student email.</p></div><span>Not assigned</span></section>`;
   const cards = plans.map((plan) => {
     const active = currentPlan?.id === plan.id;
-    const mockCopy = Number(plan.mockLimit || 0) ? `${plan.mockLimit} Crossline original mocks` : "Past-paper simulations only";
-    return `<article class="pricing-plan ${active ? "active" : ""}"><header><p>${active ? "Current package" : "Access package"}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> --</strong><span>${escapeHtml(plan.priceLabel || "Price coming soon")}</span></div><ul><li>${uiIcon("badge-check")} All official past-paper simulated tests</li><li>${uiIcon("badge-check")} ${escapeHtml(mockCopy)}</li><li>${uiIcon("badge-check")} Three attempts for every included exam</li><li>${uiIcon("badge-check")} Full results and explanations</li></ul><div class="pricing-plan-state">${active ? "Assigned to your account" : "Administrator assignment available"}</div></article>`;
+    const feats = planFeatureList(plan);
+    const price = planPriceLabel(plan);
+    return `<article class="pricing-plan ${active ? "active" : ""} ${plan.free ? "pricing-plan-free" : ""}"><header><p>${active ? "Current package" : (plan.free ? "Free plan" : "Access package")}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> ${escapeHtml(price.amount)}</strong><span>${escapeHtml(plan.free ? "included with account" : "one-time payment")}</span></div><ul>${feats.map((f) => `<li>${uiIcon("badge-check")} ${escapeHtml(f)}</li>`).join("")}</ul><div class="pricing-plan-state">${active ? "Assigned to your account" : (plan.free ? "Available on every new account" : "Administrator assignment available")}</div></article>`;
   }).join("");
-  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${status}<section class="pricing-grid">${cards}</section><p class="pricing-note">Online payment methods and final prices will be added later. For now, access packages are assigned manually by a Crossline administrator.</p>`;
-  app.innerHTML = studentPageShell({ active: "pricing", title: "Pricing", subtitle: "Choose the amount of official past-paper practice and Crossline mock access you need.", content });
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${status}<section class="pricing-grid">${cards}</section><p class="pricing-note">Prices are indicative for this prototype. Online payment methods are coming soon. For now, access packages are assigned manually by a Crossline administrator after verification. The free past-paper question library will appear in a separate study section.</p>`;
+  app.innerHTML = studentPageShell({ active: "pricing", title: "Pricing", subtitle: "Start free with one practice exam and the past-paper library, then upgrade for more simulated exams.", content });
   bindStudentShell();
 }
 
@@ -2770,7 +3570,8 @@ function navigate(offset) { currentIndex = Math.max(0, Math.min(questions.length
 function renderQuestion() {
   const question = questions[currentIndex]; const answered = questions.filter((item) => item.answer !== null).length;
   document.getElementById("current-number").textContent = `${question.id} of ${questions.length}`; document.getElementById("instruction").innerHTML = contentHtml(question.instruction); document.getElementById("question-type").textContent = question.type; document.getElementById("question-text").innerHTML = contentHtml(question.text);
-  document.getElementById("diagram").classList.toggle("hidden", !question.diagram);
+  // Demo BA/ω placeholder only when a question explicitly requests it and has no real figure.
+  document.getElementById("diagram").classList.toggle("hidden", !question.diagram || Boolean(question.image));
   const image = document.getElementById("question-image"); image.classList.toggle("hidden", !question.image); if (question.image) image.src = question.image;
   document.getElementById("flag-icon").textContent = question.flagged ? "★" : "☆"; document.getElementById("previous-button").disabled = currentIndex === 0; document.getElementById("next-button").disabled = currentIndex === questions.length - 1;
   document.getElementById("progress-ratio").textContent = `${answered} / ${questions.length}`; document.getElementById("progress-fill").style.width = `${answered / questions.length * 100}%`;
@@ -2814,7 +3615,7 @@ async function showAdminStudentPlans(message = "") {
   try {
     const payload = await window.CrosslineApi.adminStudentPlans();
     const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
-    const catalog = plans.map((plan) => `<article class="admin-card admin-plan-option"><p class="admin-kicker">Access package</p><h3>${escapeHtml(plan.name)}</h3><strong>USD --</strong><small>${escapeHtml(plan.priceLabel || "Price coming soon")}</small><p>Includes every official past-paper simulated test${plan.mockLimit ? ` and ${plan.mockLimit} Crossline original mocks` : ""}, with three attempts for each included exam.</p></article>`).join("");
+    const catalog = plans.map((plan) => `<article class="admin-card admin-plan-option"><p class="admin-kicker">${plan.free ? "Free plan" : "Access package"}</p><h3>${escapeHtml(plan.name)}</h3><strong>${escapeHtml(plan.priceLabel || (plan.priceUsd != null ? `$${plan.priceUsd}` : "USD --"))}</strong><small>${plan.free ? "Included with account" : "One-time"}</small><p>${plan.free ? "One simulated practice exam with three attempts, plus free past-paper questions and explanations. Upgrade for more full simulated exams." : `Includes every official past-paper simulated test${plan.mockLimit ? ` and ${plan.mockLimit} Crossline original mocks` : ""}, with three attempts for each included exam.`}</p></article>`).join("");
     const assignments = (payload.assignments || []).map((assignment) => {
       const plan = plans.find((item) => item.id === assignment.planId);
       const usage = Number(assignment.mockLimit || 0) ? `${Number(assignment.mocksUsed || 0)} of ${Number(assignment.mockLimit || 0)} mocks used` : "Past papers only";
@@ -3900,6 +4701,76 @@ function bindImageInput(inputId, previewId, assign) {
   });
 }
 
+function renderPublicRoute() {
+  const normalized = String(window.location.pathname || "/").replace(/\/+$/, "") || "/";
+  if (normalized === "/pricing") {
+    try { history.replaceState({}, "", "/#pricing"); } catch {}
+  }
+  const legalPage = legalPageFromPath();
+  if (legalPage) { showLegalPage(legalPage); return; }
+  showDownloadLanding();
+  if (window.location.hash === "#pricing") {
+    requestAnimationFrame(() => {
+      document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+}
+
+function navigateTo(path) {
+  if (!path || path === window.location.pathname + window.location.hash) return;
+  try { history.pushState({}, "", path); } catch {}
+  renderPublicRoute();
+  if (window.location.hash === "#pricing") return;
+  window.scrollTo({ top: 0 });
+}
+
+function isInternalNavigation(event, element) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+  if (!element || element.target === "_blank" || element.hasAttribute("download")) return false;
+  const href = element.getAttribute("href");
+  if (!href || !href.startsWith("/")) return false;
+  if (element.origin && element.origin !== window.location.origin) return false;
+  return true;
+}
+
+function registerSpaNavigation() {
+  if (window.__cxSpaNav) return;
+  window.__cxSpaNav = true;
+  document.addEventListener("click", (event) => {
+    const link = event.target instanceof Element ? event.target.closest("a") : null;
+    if (!isInternalNavigation(event, link)) return;
+    const href = link.getAttribute("href");
+    if (href === "/pricing" || href === "/pricing/") {
+      event.preventDefault();
+      if (window.location.pathname === "/") {
+        try { history.replaceState({}, "", "/#pricing"); } catch {}
+        document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        navigateTo("/#pricing");
+      }
+      return;
+    }
+    const hashIndex = href.indexOf("#");
+    const pathOnly = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+    const hash = hashIndex >= 0 ? href.slice(hashIndex) : "";
+    const isHomeOrRoot = pathOnly === "/" || pathOnly === "";
+    if (hash && isHomeOrRoot && window.location.pathname === "/") {
+      return;
+    }
+    event.preventDefault();
+    if (isHomeOrRoot) {
+      if (window.location.pathname !== "/") {
+        navigateTo("/");
+      } else if (hash) {
+        document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
+      }
+    } else {
+      navigateTo(pathOnly);
+    }
+  });
+  window.addEventListener("popstate", () => { renderPublicRoute(); window.scrollTo({ top: 0 }); });
+}
+
 if (isDesktopClient()) {
   registerUpdateProgressEvents();
   registerIntegrityEvents();
@@ -3915,7 +4786,16 @@ if (isDesktopClient()) {
     showAuth();
   }
 } else {
-  const legalPage = legalPageFromPath();
-  if (legalPage) showLegalPage(legalPage);
-  else showDownloadLanding();
+  const authComplete = new URLSearchParams(window.location.search).get("auth") === "complete";
+  if (authComplete && apiEnabled() && window.CrosslineApi?.getStudentToken?.()) {
+    try { history.replaceState({}, "", "/"); } catch {}
+    showClientLoading("Opening your dashboard");
+    void restoreStudentSession().then((restored) => {
+      if (!restored) renderPublicRoute();
+      registerSpaNavigation();
+    });
+  } else {
+    renderPublicRoute();
+    registerSpaNavigation();
+  }
 }
