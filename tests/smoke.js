@@ -79,6 +79,9 @@ async function websiteRegistrationFieldsFlow() {
   assert.ok(window.document.querySelector("#website-register-last-name"));
   assert.ok(window.document.querySelector("#website-register-username"));
   assert.ok(window.document.querySelector("#website-register-avatar"));
+  assert.equal(window.document.querySelector("#website-register-first-name").placeholder, "Alex");
+  assert.equal(window.document.querySelector("#website-register-last-name").placeholder, "Taylor");
+  assert.equal(window.document.querySelector("#website-register-username").placeholder, "Example: alex.student");
   window.close();
 }
 

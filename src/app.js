@@ -1813,18 +1813,18 @@ function showWebsiteRegister(message = "") {
           <div class="auth-v2-name-grid">
             <div class="auth-v2-field">
               <label for="website-register-first-name">First name</label>
-              <div class="auth-v2-input-wrap"><input id="website-register-first-name" type="text" maxlength="60" autocomplete="given-name" placeholder="Arijit" required /></div>
+              <div class="auth-v2-input-wrap"><input id="website-register-first-name" type="text" maxlength="60" autocomplete="given-name" placeholder="Alex" required /></div>
             </div>
             <div class="auth-v2-field">
               <label for="website-register-last-name">Last name</label>
-              <div class="auth-v2-input-wrap"><input id="website-register-last-name" type="text" maxlength="60" autocomplete="family-name" placeholder="Bhowmik" required /></div>
+              <div class="auth-v2-input-wrap"><input id="website-register-last-name" type="text" maxlength="60" autocomplete="family-name" placeholder="Taylor" required /></div>
             </div>
           </div>
           <div class="auth-v2-field">
             <label for="website-register-username">Username</label>
             <div class="auth-v2-input-wrap with-icon">
               <span class="auth-v2-icon" aria-hidden="true">${authIcon("user")}</span>
-              <input id="website-register-username" type="text" maxlength="40" placeholder="Example: Arijit" autocomplete="username" required />
+              <input id="website-register-username" type="text" maxlength="40" placeholder="Example: alex.student" autocomplete="username" required />
             </div>
           </div>
           <div class="auth-v2-field">

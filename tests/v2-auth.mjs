@@ -77,6 +77,9 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 {
   const { dom, window, calls } = portal("create-account");
+  assert.equal(window.document.querySelector("#first-name").placeholder, "Alex");
+  assert.equal(window.document.querySelector("#last-name").placeholder, "Taylor");
+  assert.equal(window.document.querySelector("#username").placeholder, "Example: alex.student");
   fill(window, "#first-name", "Arijit");
   fill(window, "#last-name", "Bhowmik");
   fill(window, "#username", "Arijit");
