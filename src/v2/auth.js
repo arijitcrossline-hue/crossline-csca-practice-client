@@ -43,7 +43,7 @@
     return false;
   }
 
-  function redirectToDashboard() {
+  function continueToDownloadPrompt() {
     const target = "/?auth=complete";
     if (window.__CROSSLINE_AUTH_TEST__) {
       window.__crosslineAuthRedirect = target;
@@ -90,7 +90,7 @@
       api.setStudentToken(event.data.token, true);
       cleanup();
       try { popup.close(); } catch {}
-      redirectToDashboard();
+      continueToDownloadPrompt();
     };
     window.addEventListener("message", onMessage);
     closedCheck = window.setInterval(() => {
@@ -185,7 +185,7 @@
       try {
         const payload = await api.login(email, password);
         api.setStudentToken(payload.token, persistent);
-        redirectToDashboard();
+        continueToDownloadPrompt();
       } catch (error) {
         showStatus(messageFor(error, "Check your credentials or finish email verification."), "error");
         setBusy(button, false);
@@ -287,6 +287,7 @@
       try {
         const payload = await api.verify(registration.email, byId("verification-code").value.trim());
         api.setStudentToken(payload.token, true);
+        api.clearStudentToken?.();
         renderAccountReady();
       } catch (error) {
         showStatus(messageFor(error), "error");
@@ -299,14 +300,12 @@
     registration.password = "";
     document.querySelector(".form-wrap").innerHTML = `
       <span class="eyebrow">Step 3 of 3</span>
-      <h1>Your account is ready</h1>
-      <p class="sub">Your email is verified. Continue to your dashboard or install the Windows app.</p>
+      <h1>Continue in the Windows app</h1>
+      <p class="sub">Your account is ready. Download Crossline CSCA Practice, then sign in with this same account to start your exams.</p>
       ${registrationSteps(3)}
       <div class="account-actions">
-        <button class="submit-btn" id="continue-dashboard" type="button">Continue to dashboard</button>
-        <a class="secondary-action" href="${windowsDownload}" download>Download Windows app</a>
+        <a class="submit-btn secondary-action" href="${windowsDownload}" download>Download Windows app</a>
       </div>`;
-    byId("continue-dashboard").addEventListener("click", redirectToDashboard);
   }
 
   function bindRegister() {

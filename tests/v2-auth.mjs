@@ -91,7 +91,9 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   await tick();
   assert.deepEqual(calls.find(([name]) => name === "verify"), ["verify", "new.student@example.com", "246810"]);
   assert.deepEqual(calls.find(([name]) => name === "set-token"), ["set-token", "verified-token", true]);
-  assert.match(window.document.body.textContent, /Your account is ready/);
+  assert.match(window.document.body.textContent, /Continue in the Windows app/);
+  assert.equal(window.document.querySelector("#continue-dashboard"), null);
+  assert.match(window.document.querySelector(".account-actions a").href, /Crossline-CSCA-Practice-Setup\.exe/);
   dom.window.close();
 }
 

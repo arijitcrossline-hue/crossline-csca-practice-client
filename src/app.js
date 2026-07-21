@@ -812,6 +812,11 @@ async function completeSocialLogin(payload = {}) {
   }
   window.CrosslineApi?.setStudentToken?.(payload.token, true);
   currentUser = payload.user;
+  if (!isDesktopClient()) {
+    window.CrosslineApi?.clearStudentToken?.();
+    showWebsiteAccountReady();
+    return true;
+  }
   try {
     await refreshExamsFromApi(false);
     await showStudentDashboard("", { loading: true });
@@ -1986,6 +1991,7 @@ function showWebsiteVerification(message = "") {
 }
 
 function showWebsiteAccountReady() {
+  const desktop = isDesktopClient();
   app.innerHTML = `
   <main class="auth-v2">
     <section class="auth-v2-form">
@@ -1997,9 +2003,9 @@ function showWebsiteAccountReady() {
         </button>
       </div>
       <div class="auth-v2-wrap">
-        <span class="auth-v2-eyebrow">Step 3 of 3</span>
-        <h1>Your account is ready</h1>
-        <p class="auth-v2-sub">Download the Windows app and sign in with the account you just verified.</p>
+        <span class="auth-v2-eyebrow">${desktop ? "Step 3 of 3" : "Account ready"}</span>
+        <h1>${desktop ? "Your account is ready" : "Continue in the Windows app"}</h1>
+        <p class="auth-v2-sub">${desktop ? "Sign in with the account you just verified to start practicing." : "Download Crossline CSCA Practice, then sign in with this same account to start your exams."}</p>
         <div class="auth-v2-steps" aria-hidden="true">
           <div class="auth-v2-step"><span class="num">1</span><span class="label">Details</span></div>
           <span class="auth-v2-step-bar"></span>
@@ -2007,8 +2013,10 @@ function showWebsiteAccountReady() {
           <span class="auth-v2-step-bar"></span>
           <div class="auth-v2-step is-active"><span class="num">3</span><span class="label">Practice</span></div>
         </div>
-        <a class="auth-v2-submit auth-v2-download disabled-link" id="cta-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>
-        <p class="auth-v2-switch"><button type="button" data-sign-in>Already downloaded? Sign in</button></p>
+        ${desktop
+          ? `<button class="auth-v2-submit" type="button" data-sign-in>Sign in to the app ${authIcon("arrow")}</button>`
+          : `<a class="auth-v2-submit auth-v2-download disabled-link" id="cta-download" href="#" data-download-url="${WINDOWS_CLIENT_URL}" aria-disabled="true">${windowsDownloadLogo()}<span>Preparing Windows app</span></a>`}
+        <p class="auth-v2-switch"><button type="button" ${desktop ? "data-sign-in" : "data-auth-home"}>${desktop ? "Use another account" : "Back to website"}</button></p>
       </div>
     </section>
     <aside class="auth-v2-showcase" aria-hidden="true">
@@ -2023,7 +2031,7 @@ function showWebsiteAccountReady() {
   document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
   document.querySelectorAll("[data-sign-in]").forEach((el) => el.addEventListener("click", () => showAuth("login")));
   bind("back-home", "click", showDownloadLanding);
-  hydrateDownloadLinks();
+  if (!desktop) hydrateDownloadLinks();
 }
 
 async function hydrateDownloadLinks() {
@@ -2163,6 +2171,10 @@ function showAuth(tab = "login", message = "") {
         const payload = await window.CrosslineApi.login(email, password);
         window.CrosslineApi.setStudentToken(payload.token);
         currentUser = payload.user;
+        if (!isDesktopClient()) {
+          window.CrosslineApi.clearStudentToken?.();
+          return showWebsiteAccountReady();
+        }
         await refreshExamsFromApi(false);
         return showStudentDashboard("", { loading: true });
       } catch (error) {
@@ -4831,11 +4843,9 @@ if (isDesktopClient()) {
   const authComplete = new URLSearchParams(window.location.search).get("auth") === "complete";
   if (authComplete && apiEnabled() && window.CrosslineApi?.getStudentToken?.()) {
     try { history.replaceState({}, "", "/"); } catch {}
-    showClientLoading("Opening your dashboard");
-    void restoreStudentSession().then((restored) => {
-      if (!restored) renderPublicRoute();
-      registerSpaNavigation();
-    });
+    window.CrosslineApi.clearStudentToken?.();
+    showWebsiteAccountReady();
+    registerSpaNavigation();
   } else {
     renderPublicRoute();
     registerSpaNavigation();

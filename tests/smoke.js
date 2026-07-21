@@ -87,11 +87,13 @@ async function browserGoogleOAuthFlow() {
   const { window } = portal;
   let openedUrl = "";
   let savedToken = "";
+  let tokenCleared = false;
   const popup = { closed: false, close() { this.closed = true; } };
   window.CrosslineApi = {
     enabled: () => true,
     get baseUrl() { return "https://api.crosslinecscatest.com"; },
     setStudentToken: (token) => { savedToken = token; },
+    clearStudentToken: () => { tokenCleared = true; },
     exams: async () => ({ exams: [] })
   };
   window.open = (url) => { openedUrl = url; return popup; };
@@ -111,7 +113,11 @@ async function browserGoogleOAuthFlow() {
   }));
   await tick();
   assert.equal(savedToken, "google-token");
+  assert.equal(tokenCleared, true);
   assert.equal(popup.closed, true);
+  assert.match(window.document.body.textContent, /Continue in the Windows app/);
+  assert.ok(window.document.querySelector("#cta-download"));
+  assert.doesNotMatch(window.document.body.textContent, /Student dashboard/);
   window.close();
 }
 
