@@ -82,6 +82,39 @@ async function websiteRegistrationFieldsFlow() {
   window.close();
 }
 
+async function browserGoogleOAuthFlow() {
+  const portal = createPortal({ desktop: false });
+  const { window } = portal;
+  let openedUrl = "";
+  let savedToken = "";
+  const popup = { closed: false, close() { this.closed = true; } };
+  window.CrosslineApi = {
+    enabled: () => true,
+    get baseUrl() { return "https://api.crosslinecscatest.com"; },
+    setStudentToken: (token) => { savedToken = token; },
+    exams: async () => ({ exams: [] })
+  };
+  window.open = (url) => { openedUrl = url; return popup; };
+  window.eval('showAuth("login")');
+  click(window, "#google-sign-in");
+  assert.equal(openedUrl, "https://api.crosslinecscatest.com/auth/oauth/google/start");
+
+  window.dispatchEvent(new window.MessageEvent("message", {
+    origin: "https://example.com",
+    data: { type: "crossline-oauth-complete", token: "wrong-origin", user: { email: "wrong@example.com" } }
+  }));
+  assert.equal(savedToken, "");
+
+  window.dispatchEvent(new window.MessageEvent("message", {
+    origin: "https://api.crosslinecscatest.com",
+    data: { type: "crossline-oauth-complete", token: "google-token", user: { email: "google@example.com" } }
+  }));
+  await tick();
+  assert.equal(savedToken, "google-token");
+  assert.equal(popup.closed, true);
+  window.close();
+}
+
 function legalPagesFlow() {
   for (const [pathname, title] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/data-deletion", "Data Deletion Instructions"]]) {
     const { window } = createPortal({ desktop: false, pathname });
@@ -488,6 +521,7 @@ async function adminFlow() {
 (async () => {
   await landingFlow();
   await websiteRegistrationFieldsFlow();
+  await browserGoogleOAuthFlow();
   legalPagesFlow();
   await studentFlow();
   await adminCaptureNavigationFlow();

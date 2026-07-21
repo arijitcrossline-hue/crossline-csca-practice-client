@@ -803,27 +803,69 @@ async function restoreStudentSession() {
 function registerOAuthListener() {
   if (oauthListenerRegistered || !window.examRuntime?.onOAuthComplete) return;
   oauthListenerRegistered = true;
-  window.examRuntime.onOAuthComplete(async (payload = {}) => {
-    if (!payload.token || !payload.user) return showAuth("login", "Social sign-in could not be completed.");
-    window.CrosslineApi?.setStudentToken?.(payload.token);
-    currentUser = payload.user;
-    try {
-      await refreshExamsFromApi(false);
-      await showStudentDashboard("", { loading: true });
-    } catch (error) {
-      showAuth("login", error.message || "Social sign-in completed, but your dashboard could not load.");
-    }
-  });
+  window.examRuntime.onOAuthComplete((payload = {}) => completeSocialLogin(payload));
+}
+async function completeSocialLogin(payload = {}) {
+  if (!payload.token || !payload.user) {
+    showAuth("login", "Social sign-in could not be completed.");
+    return false;
+  }
+  window.CrosslineApi?.setStudentToken?.(payload.token, true);
+  currentUser = payload.user;
+  try {
+    await refreshExamsFromApi(false);
+    await showStudentDashboard("", { loading: true });
+    return true;
+  } catch (error) {
+    showAuth("login", error.message || "Social sign-in completed, but your dashboard could not load.");
+    return false;
+  }
 }
 async function startSocialLogin(provider) {
-  if (!isDesktopClient() || !window.examRuntime?.startOAuth) {
-    return showAuth("login", "Social sign-in is available in the Crossline Windows client.");
+  if (isDesktopClient()) {
+    if (!window.examRuntime?.startOAuth) return showAuth("login", "Social sign-in is unavailable in this app version.");
+    try {
+      await window.examRuntime.startOAuth(provider);
+    } catch (error) {
+      showAuth("login", error.message || "Could not open social sign-in.");
+    }
+    return;
   }
-  try {
-    await window.examRuntime.startOAuth(provider);
-  } catch (error) {
-    showAuth("login", error.message || "Could not open social sign-in.");
-  }
+  if (!apiEnabled()) return showAuth("login", "Account service is temporarily unavailable. Please try again shortly.");
+
+  const apiBase = String(window.CrosslineApi?.baseUrl || "").replace(/\/$/, "");
+  let expectedOrigin = "";
+  try { expectedOrigin = new URL(apiBase).origin; } catch {}
+  if (!expectedOrigin) return showAuth("login", "Account service is temporarily unavailable. Please try again shortly.");
+
+  const popup = window.open(
+    `${apiBase}/auth/oauth/${encodeURIComponent(provider)}/start`,
+    `crossline-${provider}-sign-in`,
+    "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes"
+  );
+  if (!popup) return showAuth("login", "Your browser blocked the Google sign-in window. Allow pop-ups and try again.");
+
+  let settled = false;
+  let closedCheck = 0;
+  const cleanup = () => {
+    settled = true;
+    window.removeEventListener("message", onMessage);
+    if (closedCheck) window.clearInterval(closedCheck);
+  };
+  const onMessage = (event) => {
+    if (event.origin !== expectedOrigin || event.data?.type !== "crossline-oauth-complete") return;
+    if (event.source && event.source !== popup) return;
+    cleanup();
+    try { popup.close(); } catch {}
+    void completeSocialLogin(event.data);
+  };
+  window.addEventListener("message", onMessage);
+  closedCheck = window.setInterval(() => {
+    if (!settled && popup.closed) {
+      cleanup();
+      showAuth("login", "Google sign-in was closed before it finished.");
+    }
+  }, 500);
 }
 async function openExternalUrl(url) {
   if (window.examRuntime?.openExternal) return window.examRuntime.openExternal(url);

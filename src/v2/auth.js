@@ -73,13 +73,15 @@
 
     const expectedOrigin = new URL(apiBase).origin;
     let settled = false;
+    let closedCheck = 0;
     const cleanup = () => {
       settled = true;
       window.removeEventListener("message", onMessage);
-      window.clearInterval(closedCheck);
+      if (closedCheck) window.clearInterval(closedCheck);
     };
     const onMessage = (event) => {
       if (event.origin !== expectedOrigin || event.data?.type !== "crossline-oauth-complete") return;
+      if (event.source && event.source !== popup) return;
       if (!event.data.token || !event.data.user) {
         showStatus("Google sign-in could not be completed.", "error");
         cleanup();
@@ -91,7 +93,7 @@
       redirectToDashboard();
     };
     window.addEventListener("message", onMessage);
-    const closedCheck = window.setInterval(() => {
+    closedCheck = window.setInterval(() => {
       if (!settled && popup.closed) {
         cleanup();
         showStatus("Google sign-in was closed before it finished.", "error");
