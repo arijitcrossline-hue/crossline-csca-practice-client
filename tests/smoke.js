@@ -326,6 +326,7 @@ async function studentFlow() {
   click(window, '[data-settings-target="updates"]');
   assert.equal(window.document.querySelector('[data-settings-section="updates"]').hidden, false);
   assert.ok(window.document.querySelector("#settings-auto-update"));
+  assert.doesNotMatch(window.document.querySelector('[data-settings-section="updates"]').textContent, /GitHub/i);
   click(window, '[data-settings-target="support"]');
   assert.equal(window.document.querySelector('[data-settings-section="support"]').hidden, false);
   assert.ok(window.document.querySelector("#student-bug-report-form"));
