@@ -4472,28 +4472,17 @@ dialog { border: 0; border-radius: 9px; box-shadow: 0 18px 50px #1b2b4455; anima
 .notification-popover-empty p { max-width: 260px; margin: 7px 0 0; font-size: .78rem; line-height: 1.5; }
 
 .settings-admin-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 16px; }
-.pricing-current { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; border: 1px solid #d7e8dd; border-radius: 8px; padding: 20px 22px; background: #f4fbf6; }
-.pricing-current h2 { margin: 3px 0 7px; color: #24372b; font-size: 1.25rem; }
-.pricing-current p { margin: 0; color: #5e6f63; }
-.pricing-current > span { flex: 0 0 auto; border-radius: 999px; padding: 7px 11px; color: #17633a; background: #dff2e5; font-size: .72rem; font-weight: 800; }
-.pricing-current-empty { border-color: #eadfd6; background: #fffdfa; }
-.pricing-current-empty h2 { color: #342824; }
-.pricing-current-empty > span { color: #7d6d65; background: #f3ece7; }
-.pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.pricing-plan { display: flex; min-width: 0; min-height: 350px; flex-direction: column; border: 1px solid #e7dcd4; border-radius: 8px; padding: 21px; background: #fff; box-shadow: 0 8px 22px rgba(73, 43, 28, .045); }
-.pricing-plan.active { border-color: #d43a42; box-shadow: 0 0 0 2px rgba(190, 31, 39, .08), 0 10px 24px rgba(73, 43, 28, .06); }
-.pricing-plan header p { margin: 0 0 7px; color: #ad2027; font-size: .68rem; font-weight: 850; text-transform: uppercase; }
-.pricing-plan h2 { margin: 0; color: #2d2220; font-size: 1.02rem; line-height: 1.35; }
-.pricing-price { display: flex; min-height: 74px; flex-direction: column; justify-content: center; margin: 18px 0; border-top: 1px solid #eee5df; border-bottom: 1px solid #eee5df; }
-.pricing-price strong { color: #242b36; font-size: 1.65rem; line-height: 1; }
-.pricing-price strong small { margin-right: 5px; color: #75808f; font-size: .68rem; }
-.pricing-price > span { margin-top: 6px; color: #8a7970; font-size: .72rem; }
-.pricing-plan ul { display: grid; gap: 12px; margin: 0 0 20px; padding: 0; list-style: none; }
-.pricing-plan li { display: flex; align-items: flex-start; gap: 8px; color: #5f514b; font-size: .78rem; line-height: 1.4; }
-.pricing-plan li .landing-icon { width: 16px; height: 16px; flex: 0 0 auto; color: #208153; }
-.pricing-plan-state { margin-top: auto; border-radius: 6px; padding: 10px; color: #774a14; background: #fff2da; font-size: .72rem; font-weight: 800; text-align: center; }
-.pricing-plan.active .pricing-plan-state { color: #17633a; background: #e3f5e8; }
-.pricing-note { max-width: 850px; margin: 18px 0 0; color: #7c6d66; font-size: .78rem; line-height: 1.55; }
+html:has(.dash-shell .pricing-app) { font-size: 16px; }
+.pricing-app.cx-landing {
+  min-height: 0;
+  padding: 8px 8px 28px;
+  background: transparent;
+  line-height: 1.6;
+  letter-spacing: 0;
+  overflow: visible;
+}
+.pricing-app .cx-price-grid-three { max-width: 1040px; }
+.pricing-action-message { min-height: 20px; margin: 22px auto 0 !important; color: #75645d; text-align: center; }
 .admin-plan-catalog { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .admin-plan-option { min-width: 0; }
 .admin-plan-option h3 { min-height: 48px; margin-bottom: 15px; }
@@ -4529,13 +4518,11 @@ dialog { border: 0; border-radius: 9px; box-shadow: 0 18px 50px #1b2b4455; anima
 
 @media (max-width: 700px) {
   .notification-popover { top: auto; right: 0; bottom: 0; left: 0; width: 100%; max-height: 58dvh; border-radius: 14px 14px 0 0; }
-  .pricing-current { align-items: flex-start; flex-direction: column; }
-  .pricing-grid, .admin-plan-catalog { grid-template-columns: 1fr; }
-  .pricing-plan { min-height: 0; }
+  .admin-plan-catalog { grid-template-columns: 1fr; }
   .admin-plan-grant, .admin-plan-grant form, .admin-plan-assignments li { grid-template-columns: 1fr; }
 }
 @media (min-width: 701px) and (max-width: 1180px) {
-  .pricing-grid, .admin-plan-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-plan-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-plan-grant { grid-template-columns: 1fr; }
 }
 .dash-subject-empty { grid-column: 1 / -1; padding: 30px !important; }

@@ -215,12 +215,23 @@ function paidAccessPlans() {
   return ACCESS_PLANS.filter((plan) => !plan.free);
 }
 
-function landingPricingCardsHtml() {
-  const free = ACCESS_PLANS.find((plan) => plan.free);
-  const plus3 = ACCESS_PLANS.find((plan) => plan.id === "past-plus-3");
-  const plus5 = ACCESS_PLANS.find((plan) => plan.id === "past-plus-5");
+function landingPricingCardsHtml({ appContext = false, currentPlan = null, plans = ACCESS_PLANS } = {}) {
+  const catalog = Array.isArray(plans) && plans.length ? plans : ACCESS_PLANS;
+  const free = catalog.find((plan) => plan.free);
+  const plus3 = catalog.find((plan) => plan.id === "past-plus-3");
+  const plus5 = catalog.find((plan) => plan.id === "past-plus-5");
   const check = uiIcon("badge-check");
   const defaultSubjects = 1;
+  const planOrder = { free: 0, "past-plus-3": 1, "past-plus-5": 2 };
+
+  const planAction = (plan, landingLabel) => {
+    if (!appContext) return { label: landingLabel, attr: "data-create-account", disabled: false };
+    if (currentPlan?.id === plan.id) return { label: "Current plan", attr: "", disabled: true };
+    if (currentPlan && Number(planOrder[plan.id] ?? 0) <= Number(planOrder[currentPlan.id] ?? 0)) {
+      return { label: "Included", attr: "", disabled: true };
+    }
+    return { label: currentPlan ? "Upgrade" : "Get Started", attr: `data-pricing-plan="${escapeHtml(plan.id)}"`, disabled: false };
+  };
 
   const subjectSwitcher = (plan) => {
     const prices = plan.subjectPrices || {};
@@ -247,11 +258,15 @@ function landingPricingCardsHtml() {
     featsAttr = "",
     noteAttr = "",
     magnetic = false,
-    subjectCard = false
+    subjectCard = false,
+    buttonAttr = "data-create-account",
+    buttonDisabled = false
   }) => {
+    const buttonClass = `cx-btn ${ctaClass} cx-btn-lg cx-price-cta${buttonDisabled ? " disabled-link" : ""}`;
+    const disabledAttr = buttonDisabled ? 'disabled aria-disabled="true"' : buttonAttr;
     const button = magnetic
-      ? `<span class="cx-magnetic" data-cx-magnetic><button class="cx-btn ${ctaClass} cx-btn-lg cx-price-cta" data-create-account type="button">${cta}</button></span>`
-      : `<button class="cx-btn ${ctaClass} cx-btn-lg cx-price-cta" data-create-account type="button">${cta}</button>`;
+      ? `<span class="cx-magnetic" data-cx-magnetic><button class="${buttonClass}" ${disabledAttr} type="button">${cta}</button></span>`
+      : `<button class="${buttonClass}" ${disabledAttr} type="button">${cta}</button>`;
     return `<article class="cx-price-card ${popular ? "cx-price-popular" : "cx-price-side"} ${free ? "cx-price-free" : ""}" ${subjectCard ? `data-subject-card data-plan-id="${escapeHtml(subjectCard)}"` : ""}>
       ${popular ? `<span class="cx-price-badge">★ Popular</span>` : ""}
       <p class="cx-price-label">${escapeHtml(label)}</p>
@@ -268,25 +283,29 @@ function landingPricingCardsHtml() {
     </article>`;
   };
 
+  const freeAction = free ? planAction(free, "Start free") : null;
   const freeCard = free ? card({
     label: "FREE",
     amount: "$0",
     unit: "",
     note: "free forever",
     feats: planFeatureList(free),
-    cta: "Start free",
+    cta: freeAction.label,
     ctaClass: "cx-btn-ghost",
     footer: "Perfect for trying Crossline first",
-    free: true
+    free: true,
+    buttonAttr: freeAction.attr,
+    buttonDisabled: freeAction.disabled
   }) : "";
 
+  const plus3Action = plus3 ? planAction(plus3, "Get started") : null;
   const plus3Card = plus3 ? card({
     label: "PAST + 3",
     amount: formatPlanUsd(planPriceForSubjects(plus3, defaultSubjects)),
     unit: "/ one-time",
     note: "billed once",
     feats: planFeatureList(plus3, defaultSubjects),
-    cta: "Get started",
+    cta: plus3Action.label,
     ctaClass: "cx-btn-primary",
     footer: "Ideal for serious CSCA prep",
     popular: true,
@@ -295,23 +314,28 @@ function landingPricingCardsHtml() {
     featsAttr: "data-subject-feats",
     noteAttr: "data-subject-note",
     magnetic: true,
-    subjectCard: plus3.id
+    subjectCard: plus3.id,
+    buttonAttr: plus3Action.attr,
+    buttonDisabled: plus3Action.disabled
   }) : "";
 
+  const plus5Action = plus5 ? planAction(plus5, "Get started") : null;
   const plus5Card = plus5 ? card({
     label: "PAST + 5",
     amount: formatPlanUsd(planPriceForSubjects(plus5, defaultSubjects)),
     unit: "/ one-time",
     note: "billed once",
     feats: planFeatureList(plus5, defaultSubjects),
-    cta: "Get started",
+    cta: plus5Action.label,
     ctaClass: "cx-btn-ghost",
     footer: "More Crossline mocks for deeper practice",
     extras: subjectSwitcher(plus5),
     amountAttr: "data-subject-price",
     featsAttr: "data-subject-feats",
     noteAttr: "data-subject-note",
-    subjectCard: plus5.id
+    subjectCard: plus5.id,
+    buttonAttr: plus5Action.attr,
+    buttonDisabled: plus5Action.disabled
   }) : "";
 
   return `${freeCard}${plus3Card}${plus5Card}`;
@@ -2732,20 +2756,23 @@ function localPlanPayload() {
 
 function renderPricing(payload = localPlanPayload(), message = "") {
   const currentPlan = payload.plan || null;
-  const usage = payload.usage || {};
   const plans = payload.plans?.length ? payload.plans : ACCESS_PLANS;
-  const status = currentPlan
-    ? `<section class="pricing-current"><div><p class="dash-card-kicker">Current package</p><h2>${escapeHtml(currentPlan.name)}</h2><p>All official past-paper simulations are unlocked${currentPlan.mockLimit ? `, with ${Number(usage.mocksRemaining || 0)} of ${Number(usage.mockLimit || currentPlan.mockLimit)} Crossline mock slots remaining` : ""}. Every included exam allows three submitted attempts.</p></div><span>Active</span></section>`
-    : `<section class="pricing-current pricing-current-empty"><div><p class="dash-card-kicker">Current package</p><h2>No package assigned</h2><p>A Crossline administrator can manually assign a package to your verified student email.</p></div><span>Not assigned</span></section>`;
-  const cards = plans.map((plan) => {
-    const active = currentPlan?.id === plan.id;
-    const feats = planFeatureList(plan);
-    const price = planPriceLabel(plan);
-    return `<article class="pricing-plan ${active ? "active" : ""} ${plan.free ? "pricing-plan-free" : ""}"><header><p>${active ? "Current package" : (plan.free ? "Free plan" : "Access package")}</p><h2>${escapeHtml(plan.name)}</h2></header><div class="pricing-price"><strong><small>USD</small> ${escapeHtml(price.amount)}</strong><span>${escapeHtml(plan.free ? "included with account" : "one-time payment")}</span></div><ul>${feats.map((f) => `<li>${uiIcon("badge-check")} ${escapeHtml(f)}</li>`).join("")}</ul><div class="pricing-plan-state">${active ? "Assigned to your account" : (plan.free ? "Available on every new account" : "Administrator assignment available")}</div></article>`;
-  }).join("");
-  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${status}<section class="pricing-grid">${cards}</section><p class="pricing-note">Prices are indicative for this prototype. Online payment methods are coming soon. For now, access packages are assigned manually by a Crossline administrator after verification. The free past-paper question library will appear in a separate study section.</p>`;
+  const cards = landingPricingCardsHtml({ appContext: true, currentPlan, plans });
+  const content = `<div class="cx-landing pricing-app"><section class="cx-price-grid cx-price-grid-three">${cards}</section><p id="pricing-action-message" class="pricing-action-message form-message" aria-live="polite">${escapeHtml(message)}</p></div>`;
   app.innerHTML = studentPageShell({ active: "pricing", title: "Pricing", subtitle: "Start free with one practice exam and the past-paper library, then upgrade for more simulated exams.", content });
   bindStudentShell();
+  const pricingRoot = document.querySelector(".pricing-app");
+  wirePricingSubjectCards(pricingRoot);
+  wireMagneticButtons(pricingRoot);
+  pricingRoot?.querySelectorAll("[data-pricing-plan]").forEach((button) => button.addEventListener("click", () => {
+    const plan = plans.find((item) => item.id === button.dataset.pricingPlan);
+    if (!plan) return;
+    if (plan.free) return showExamList();
+    const card = button.closest("[data-subject-card]");
+    const subjects = Number(card?.querySelector(".cx-price-tier.is-active")?.dataset.subjects || 1);
+    const status = document.getElementById("pricing-action-message");
+    if (status) status.textContent = `Checkout for ${plan.name} (${subjects} ${subjects === 1 ? "subject" : "subjects"}) will be available soon.`;
+  }));
 }
 
 async function showPricing(message = "") {
