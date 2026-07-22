@@ -318,6 +318,16 @@ async function studentFlow() {
   assert.equal(window.document.querySelector("[data-payment-method]"), null);
   click(window, "#side-settings");
   assert.match(window.document.body.textContent, /Profile, updates, and support/);
+  assert.ok(window.document.querySelector(".settings-split-layout"));
+  assert.ok(window.document.querySelector('[data-settings-target="profile"].active'));
+  assert.equal(window.document.querySelector('[data-settings-section="profile"]').hidden, false);
+  assert.equal(window.document.querySelector('[data-settings-section="support"]').hidden, true);
+  assert.equal(window.document.querySelector('[data-settings-target="admin"]'), null);
+  click(window, '[data-settings-target="updates"]');
+  assert.equal(window.document.querySelector('[data-settings-section="updates"]').hidden, false);
+  assert.ok(window.document.querySelector("#settings-auto-update"));
+  click(window, '[data-settings-target="support"]');
+  assert.equal(window.document.querySelector('[data-settings-section="support"]').hidden, false);
   assert.ok(window.document.querySelector("#student-bug-report-form"));
   fill(window, "#bug-title", "Dashboard chart issue");
   fill(window, "#bug-details", "The dashboard chart did not update after opening a released result.");
