@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Demo 01 · Two-Camera Exam — CrosslineEdu</title>
+<link rel="stylesheet" href="brand.css" />
+<style>
+  /* ---- Demo 01 layout ---- */
+  .hero { max-width: 1240px; margin: 0 auto; padding: 3rem 1.5rem 4rem; display: grid; grid-template-columns: 1fr 1.05fr; gap: 3rem; align-items: center; }
+  .hero-copy h1 { font-family: var(--cx-sans); font-weight: 900; font-size: clamp(2.4rem, 4.6vw, 3.6rem); line-height: 1.05; letter-spacing: -.03em; margin: 1rem 0 1.2rem; color: var(--cx-ink); }
+  .hero-copy h1 em { font-style: normal; color: var(--cx-red); }
+  .hero-copy p { font-size: 1.1rem; color: var(--cx-ink-soft); line-height: 1.7; max-width: 52ch; }
+  .hero-cta { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.8rem; }
+  .hero-trust { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.6rem; }
+
+  /* ---- The two-camera showcase window ---- */
+  .stage { position: relative; }
+  .stage .cx-window { padding: 0; }
+  .exam-screen { display: grid; grid-template-columns: 1fr 168px; min-height: 380px; background: var(--cx-paper); }
+  .exam-main { padding: 1.2rem 1.4rem; display: flex; flex-direction: column; }
+  .exam-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .exam-qnum { font-family: var(--cx-mono); font-size: .78rem; color: var(--cx-ink-faint); letter-spacing: .04em; }
+  .exam-clock { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .7rem; border-radius: 8px; background: var(--cx-navy); color: #fff; font-family: var(--cx-mono); font-weight: 600; font-size: .85rem; }
+  .exam-q { font-family: var(--cx-sans); font-weight: 600; font-size: 1.05rem; line-height: 1.5; color: var(--cx-ink); margin: 0 0 1.1rem; }
+  .exam-opts { display: grid; gap: .55rem; }
+  .exam-opt { display: flex; align-items: center; gap: .7rem; padding: .7rem .9rem; border: 1.5px solid var(--cx-line); border-radius: 10px; background: #fff; font-size: .98rem; color: var(--cx-ink); transition: border-color .15s, background .15s; }
+  .exam-opt-letter { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--cx-paper-2); color: var(--cx-ink-soft); font-family: var(--cx-mono); font-weight: 600; font-size: .82rem; }
+  .exam-opt.sel { border-color: var(--cx-red); background: rgba(185,43,39,.05); }
+  .exam-opt.sel .exam-opt-letter { background: var(--cx-red); color: #fff; }
+
+  /* ---- Camera sidebar (primary + phone) ---- */
+  .cam-rail { padding: 1rem .85rem; border-left: 1px solid var(--cx-line); background: var(--cx-paper-2); display: flex; flex-direction: column; gap: .8rem; }
+  .cam-rail h6 { margin: 0 0 .3rem; font-family: var(--cx-mono); font-size: .66rem; color: var(--cx-ink-faint); letter-spacing: .1em; text-transform: uppercase; }
+  .cam-primary { aspect-ratio: 4/3; position: relative; }
+  .cam-phone { aspect-ratio: 16/9; position: relative; }
+  /* primary cam = a seated student (desk + monitor silhouette) */
+  .cam-primary .cx-cam-feed { position: absolute; inset: 0; background:
+      radial-gradient(ellipse 38% 30% at 50% 38%, #6b7a4e 0 60%, transparent 62%),
+      radial-gradient(ellipse 22% 16% at 50% 30%, #e8c9a0 0 70%, transparent 72%),
+      linear-gradient(180deg, #243246 0 55%, #1a2536 55% 100%); }
+  /* a desk surface + monitor glow */
+  .cam-primary .cx-cam-feed::after { content:""; position:absolute; left:8%; right:8%; bottom:14%; height:30%;
+      background: linear-gradient(180deg,#3a3326,#2a2519); border-radius: 4px 4px 0 0; }
+  /* phone cam = wider room view */
+  .cam-phone .cx-cam-feed { position: absolute; inset: 0; background:
+      radial-gradient(ellipse 30% 40% at 30% 55%, #4a5a3e 0 60%, transparent 62%),
+      linear-gradient(180deg, #2a3140 0 60%, #202a3a 60% 100%); }
+
+  /* floating "connected" badges around the window */
+  .float-badge { position: absolute; display: flex; align-items: center; gap: .5rem; padding: .55rem .8rem; border-radius: 12px; background: #fff; border: 1px solid var(--cx-line); box-shadow: var(--cx-shadow-sm); font-size: .82rem; font-weight: 600; color: var(--cx-ink); }
+  .float-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .float-badge.b1 { top: -18px; left: 24px; }
+  .float-badge.b2 { bottom: -16px; right: 28px; }
+
+  /* ---- features strip ---- */
+  .feat-strip { background: #fff; border-top: 1px solid var(--cx-line); border-bottom: 1px solid var(--cx-line); }
+  .feat-strip-inner { max-width: 1240px; margin: 0 auto; padding: 2.4rem 1.5rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; }
+  .feat { display: flex; gap: .85rem; align-items: flex-start; }
+  .feat-ico { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: rgba(185,43,39,.08); }
+  .feat-ico svg { width: 22px; height: 22px; stroke: var(--cx-red); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h4 { margin: 0 0 .2rem; font-size: .98rem; font-weight: 700; }
+  .feat p { margin: 0; font-size: .86rem; color: var(--cx-ink-soft); line-height: 1.5; }
+
+  @media (max-width: 980px) {
+    .hero { grid-template-columns: 1fr; }
+    .exam-screen { grid-template-columns: 1fr; }
+    .cam-rail { flex-direction: row; border-left: 0; border-top: 1px solid var(--cx-line); }
+    .cam-rail > div { flex: 1; }
+    .feat-strip-inner { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="cx-demo-ribbon">
+  <span class="cx-ribbon-title">DEMO 01 / 5 · <b>Two-Camera Exam</b></span>
+  <span><a href="index.html">← all demos</a></span>
+</div>
+
+<nav class="cx-nav">
+  <a class="cx-brand" href="#">
+    <img class="cx-brand-mark" src="../assets/crossline-icon.png" alt="CrosslineEdu" />
+    <span class="cx-brand-name">Crossline<b>Edu</b></span>
+  </a>
+  <div class="cx-nav-links">
+    <a href="#how">How it works</a>
+    <a href="#setup">Setup</a>
+    <a href="#download">Download</a>
+    <a class="cx-btn cx-btn-primary" href="#download" style="padding:.6rem 1.1rem;font-size:.88rem">Get the app</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-copy">
+    <span class="cx-kicker">CSCA Mock Exam Practice</span>
+    <h1>Two cameras. <em>One focused student.</em></h1>
+    <p>The real CSCA exam watches you from two angles — a primary webcam and a secondary phone camera. Crossline rehearses that exact setup on your computer, then runs a timed, fullscreen practice paper so nothing surprises you on test day.</p>
+    <div class="hero-cta">
+      <a class="cx-btn cx-btn-primary cx-btn-lg" href="#download">Download for Windows</a>
+      <a class="cx-btn cx-btn-ghost cx-btn-lg" href="#how">See the setup →</a>
+    </div>
+    <div class="hero-trust">
+      <span class="cx-pill cx-pill-navy">Windows 10+</span>
+      <span class="cx-pill cx-pill-navy">Fullscreen kiosk</span>
+      <span class="cx-pill cx-pill-green">Dual-camera ready</span>
+      <span class="cx-pill cx-pill-navy">Auto-updates</span>
+    </div>
+  </div>
+
+  <!-- two-camera showcase -->
+  <div class="stage">
+    <div class="float-badge b1"><span class="dot" style="background:var(--cx-green)"></span> Primary webcam · connected</div>
+    <div class="float-badge b2"><span class="dot" style="background:var(--cx-green)"></span> Phone camera · connected</div>
+    <div class="cx-window">
+      <div class="exam-screen">
+        <div class="exam-main">
+          <div class="exam-top">
+            <span class="exam-qnum">Question 14 / 48 · Single choice</span>
+            <span class="exam-clock">⏱ 47:12</span>
+          </div>
+          <p class="exam-q">A particle moves with constant acceleration. Its velocity changes from 2 m/s to 10 m/s in 4 seconds. What is its acceleration?</p>
+          <div class="exam-opts">
+            <div class="exam-opt"><span class="exam-opt-letter">A</span> 1 m/s²</div>
+            <div class="exam-opt sel"><span class="exam-opt-letter">B</span> 2 m/s²</div>
+            <div class="exam-opt"><span class="exam-opt-letter">C</span> 3 m/s²</div>
+            <div class="exam-opt"><span class="exam-opt-letter">D</span> 4 m/s²</div>
+          </div>
+        </div>
+        <aside class="cam-rail">
+          <div>
+            <h6>Primary · webcam</h6>
+            <div class="cx-cam cam-primary">
+              <div class="cx-cam-feed"></div>
+              <span class="cx-cam-live">LIVE</span>
+              <span class="cx-cam-label">🖥 Front view</span>
+            </div>
+          </div>
+          <div>
+            <h6>Secondary · phone</h6>
+            <div class="cx-cam cam-phone">
+              <div class="cx-cam-feed"></div>
+              <span class="cx-cam-live">LIVE</span>
+              <span class="cx-cam-label">📱 Side view</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- features strip -->
+<div class="feat-strip" id="how">
+  <div class="feat-strip-inner">
+    <div class="feat">
+      <div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-4v12l-6-4z"/></svg></div>
+      <div><h4>Primary webcam</h4><p>Fullscreen facial view, checked before the exam and watched throughout.</p></div>
+    </div>
+    <div class="feat">
+      <div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+      <div><h4>Secondary phone cam</h4><p>Scan a QR code to pair your phone as the side-angle camera.</p></div>
+    </div>
+    <div class="feat">
+      <div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></div>
+      <div><h4>360° room scan</h4><p>Rotate the phone to capture the room before the timer starts.</p></div>
+    </div>
+    <div class="feat">
+      <div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+      <div><h4>Locked-down kiosk</h4><p>Alt-Tab, Alt-F4 and friends are blocked during the practice run.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- download -->
+<section class="cx-section cx-center" id="download" style="padding-top:4rem">
+  <span class="cx-kicker" style="justify-content:center">Get started</span>
+  <h2 class="cx-h2">Rehearse the real thing.</h2>
+  <p class="cx-lead" style="margin:0 auto 1.6rem">Download the Crossline CSCA Practice Client on the Windows PC you'll use for the mock exam.</p>
+  <a class="cx-btn cx-btn-primary cx-btn-lg" href="#">Download for Windows</a>
+  <p class="cx-mono" style="color:var(--cx-ink-faint);font-size:.78rem;margin-top:1rem;letter-spacing:.04em">Windows 10 or newer · ~120 MB installer</p>
+</section>
+
+<footer class="cx-foot">
+  <div class="cx-foot-inner">
+    <div>
+      <a class="cx-brand" href="#" style="margin-bottom:.5rem">
+        <img class="cx-brand-mark" src="../assets/crossline-icon.png" alt="" />
+        <span class="cx-brand-name">Crossline<b>Edu</b></span>
+      </a>
+      <p style="max-width:34ch">Your gateway to study in China. CSCA mock exams, rehearsed the way you'll take them.</p>
+    </div>
+    <div>
+      <small>ONE PAGE. ONE GATEWAY.</small>
+      <p><a href="#">crosslineedu.com</a></p>
+      <p style="color:#6b7e96">© 2026 CrosslineEdu</p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

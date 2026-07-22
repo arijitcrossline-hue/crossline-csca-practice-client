@@ -1,0 +1,172 @@
+/* ==========================================================================
+   CrosslineEdu · Brand System (from brand-book-a4.pdf · V1.0)
+   Shared by all demo landing pages. One source of truth for the brand.
+   ========================================================================== */
+
+/* ---- Fonts: Montserrat (heroes/headings/body) + JetBrains Mono (labels) ---- */
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 800; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-style: normal; font-weight: 900; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/montserrat/v29/JTUSjIg1_i6t8kCHKm459WRhyyTh89ZNpQ.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPVmUsaaDhw.woff2) format("woff2"); }
+
+/* ---- Brand tokens (verbatim from the brand book) ---- */
+:root {
+  --cx-red:    #B92B27;   /* Crossline Red — logo field, primary CTAs, links, key emphasis */
+  --cx-paper:  #F9F7F2;   /* Warm Paper — page canvas */
+  --cx-ink:    #333333;   /* Ink — body text, headings, structural lines */
+  --cx-navy:   #192436;   /* Deep Navy — footers, dark sections, secondary CTAs */
+  --cx-red-dark:   #952320;
+  --cx-ink-soft:   #5b5b5b;
+  --cx-ink-faint:  #8a8a8a;
+  --cx-line:       #e6e2d8;   /* warm structural line on paper */
+  --cx-line-navy:  #2e3d54;   /* structural line on navy */
+  --cx-paper-2:    #f2efe7;   /* slightly deeper paper for cards */
+  --cx-paper-3:    #ece8dd;
+  --cx-green:      #2e9b64;
+  --cx-amber:      #d99520;
+  --cx-radius:     14px;
+  --cx-radius-sm:  10px;
+  --cx-shadow:     0 18px 48px -18px rgba(25, 36, 54, .22);
+  --cx-shadow-sm:  0 8px 24px -10px rgba(25, 36, 54, .18);
+  --cx-mono:       "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cx-sans:       "Montserrat", -apple-system, "Segoe UI", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--cx-paper);
+  color: var(--cx-ink);
+  font-family: var(--cx-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--cx-red); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Demo-only scaffold: top ribbon + shared nav so demos read as a set ---- */
+.cx-demo-ribbon {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .5rem 1.2rem;
+  background: var(--cx-navy); color: #fff;
+  font-family: var(--cx-mono); font-size: 12px; letter-spacing: .04em;
+}
+.cx-demo-ribbon a { color: #fff; text-decoration: none; opacity: .8; }
+.cx-demo-ribbon a:hover { opacity: 1; text-decoration: underline; }
+.cx-demo-ribbon .cx-ribbon-title b { color: #ff8a85; }
+
+/* ---- Shared navigation bar (brand-styled) ---- */
+.cx-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+  max-width: 1240px; margin: 0 auto; padding: 1.1rem 1.5rem;
+}
+.cx-brand { display: flex; align-items: center; gap: .6rem; color: var(--cx-ink); text-decoration: none; }
+.cx-brand:hover { text-decoration: none; }
+.cx-brand-mark { width: 36px; height: 36px; border-radius: 50%; }
+.cx-brand-name { font-family: var(--cx-sans); font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; }
+.cx-brand-name b { font-weight: 800; } .cx-brand-name span { font-weight: 300; color: var(--cx-ink-soft); }
+.cx-nav-links { display: flex; align-items: center; gap: .35rem; }
+.cx-nav-links a {
+  color: var(--cx-ink-soft); font-size: .9rem; font-weight: 500; padding: .5rem .8rem;
+  border-radius: 8px; text-decoration: none; transition: background .15s, color .15s;
+}
+.cx-nav-links a:hover { background: var(--cx-paper-2); color: var(--cx-ink); text-decoration: none; }
+
+/* ---- Buttons (brand) ---- */
+.cx-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  padding: .85rem 1.5rem; border-radius: var(--cx-radius-sm);
+  font-family: var(--cx-sans); font-weight: 700; font-size: .98rem; letter-spacing: .01em;
+  text-decoration: none; cursor: pointer; border: 2px solid transparent;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.cx-btn:hover { text-decoration: none; transform: translateY(-2px); }
+.cx-btn-primary { background: var(--cx-red); color: #fff; box-shadow: 0 10px 24px -10px rgba(185,43,39,.7); }
+.cx-btn-primary:hover { background: var(--cx-red-dark); }
+.cx-btn-navy { background: var(--cx-navy); color: #fff; }
+.cx-btn-navy:hover { background: #0d1726; }
+.cx-btn-ghost { background: transparent; color: var(--cx-ink); border-color: var(--cx-line); }
+.cx-btn-ghost:hover { background: var(--cx-paper-2); border-color: var(--cx-ink-faint); }
+.cx-btn-lg { padding: 1rem 1.9rem; font-size: 1.05rem; }
+
+/* ---- Eyebrow / kicker label (JetBrains Mono per brand book) ---- */
+.cx-kicker {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-family: var(--cx-mono); font-size: .76rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--cx-red);
+}
+.cx-kicker::before { content: ""; width: 22px; height: 2px; background: var(--cx-red); display: inline-block; }
+
+/* ---- Shared section primitives ---- */
+.cx-section { max-width: 1240px; margin: 0 auto; padding: 5rem 1.5rem; }
+.cx-h2 { font-family: var(--cx-sans); font-weight: 800; font-size: clamp(1.8rem, 3.4vw, 2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: .6rem 0 1rem; color: var(--cx-ink); }
+.cx-lead { font-size: 1.08rem; color: var(--cx-ink-soft); line-height: 1.7; max-width: 60ch; }
+
+/* ---- Card ---- */
+.cx-card {
+  background: #fff; border: 1px solid var(--cx-line); border-radius: var(--cx-radius);
+  box-shadow: var(--cx-shadow-sm); transition: transform .2s ease, box-shadow .2s ease;
+}
+.cx-card:hover { transform: translateY(-4px); box-shadow: var(--cx-shadow); }
+
+/* ---- Footer (Deep Navy per brand book) ---- */
+.cx-foot { background: var(--cx-navy); color: #cdd6e4; padding: 3.5rem 1.5rem 2rem; margin-top: 2rem; }
+.cx-foot-inner { max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 2rem; justify-content: space-between; align-items: flex-start; }
+.cx-foot .cx-brand-name { color: #fff; } .cx-foot .cx-brand-name span { color: #8294b0; }
+.cx-foot p { margin: .3rem 0; font-size: .9rem; }
+.cx-foot small { color: #6b7e96; font-family: var(--cx-mono); font-size: .72rem; letter-spacing: .06em; }
+.cx-foot a { color: #cdd6e4; }
+
+/* ---- Window chrome mock (the "software" frame shared across demos) ---- */
+.cx-window { border: 1px solid var(--cx-line); border-radius: var(--cx-radius); overflow: hidden; background: #fff; box-shadow: var(--cx-shadow); }
+.cx-window-bar { display: flex; align-items: center; gap: .4rem; padding: .65rem .9rem; background: var(--cx-paper-2); border-bottom: 1px solid var(--cx-line); }
+.cx-dot { width: 11px; height: 11px; border-radius: 50%; }
+.cx-dot.r { background: #ed6a64; } .cx-dot.y { background: #f0c047; } .cx-dot.g { background: #5fcf80; }
+.cx-window-title { margin-left: .6rem; font-family: var(--cx-mono); font-size: .76rem; color: var(--cx-ink-faint); letter-spacing: .03em; }
+
+/* ---- Live-camera tile (reused in two-camera demos) ---- */
+.cx-cam { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--cx-line); }
+.cx-cam-feed { background: #1a2536; }
+.cx-cam-label { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: .35rem;
+  padding: .25rem .5rem; border-radius: 6px; background: rgba(0,0,0,.55); color: #fff;
+  font-family: var(--cx-mono); font-size: .68rem; letter-spacing: .04em; }
+.cx-cam-live { position: absolute; right: 8px; top: 8px; display: inline-flex; align-items: center; gap: .3rem;
+  padding: .2rem .45rem; border-radius: 6px; background: var(--cx-red); color: #fff;
+  font-family: var(--cx-mono); font-size: .62rem; font-weight: 600; letter-spacing: .08em; }
+.cx-cam-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: cx-pulse 1.6s ease-in-out infinite; }
+@keyframes cx-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ---- Pill / tag (JetBrains Mono) ---- */
+.cx-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem; border-radius: 999px;
+  font-family: var(--cx-mono); font-size: .72rem; font-weight: 500; letter-spacing: .04em; }
+.cx-pill-red { background: rgba(185,43,39,.1); color: var(--cx-red); }
+.cx-pill-navy { background: rgba(25,36,54,.08); color: var(--cx-navy); }
+.cx-pill-green { background: rgba(46,155,100,.12); color: var(--cx-green); }
+.cx-pill-amber { background: rgba(217,149,32,.14); color: var(--cx-amber); }
+
+/* ---- Utility ---- */
+.cx-mono { font-family: var(--cx-mono); }
+.cx-container { max-width: 1240px; margin: 0 auto; padding: 0 1.5rem; }
+.cx-center { text-align: center; }
+.cx-row-center { display: flex; align-items: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+@media (max-width: 860px) {
+  .cx-nav-links { display: none; }
+}

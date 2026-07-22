@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="../src/">
+    <title>Crossline exam interface preview</title>
+    <link rel="stylesheet" href="styles.css?v=exam-preview-20260719">
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.examRuntime = {
+        getInfo: async () => ({ platform: "preview", practiceKiosk: false }),
+        enterKiosk: async () => true,
+        leaveKiosk: async () => true,
+        onIntegrityEvent: () => () => {},
+        onOAuthComplete: () => () => {},
+        onUpdateProgress: () => () => {},
+        openExternal: async () => true
+      };
+      window.CROSSLINE_API_BASE = "";
+    </script>
+    <script src="config.js"></script>
+    <script src="api.js"></script>
+    <script src="vendor/marked.umd.js"></script>
+    <script src="app.js"></script>
+    <script>
+      currentUser = { email: "student@example.com", username: "Demo Student" };
+      currentExam = { id: "physics-mock-01", title: "CSCA Physics Mock" };
+      questions = Array.from({ length: 24 }, (_, index) => ({
+        id: index + 1,
+        backendId: `physics-${index + 1}`,
+        type: "Single choice · 2 marks",
+        instruction: "Select the best answer. You may flag this question and return to it later.",
+        text: index === 6
+          ? "A particle starts from rest and accelerates uniformly at 3 m/s². What is its velocity after 4 seconds?"
+          : `Physics practice question ${index + 1}`,
+        answers: index === 6
+          ? ["7 m/s", "12 m/s", "14 m/s", "24 m/s"]
+          : ["Option A", "Option B", "Option C", "Option D"],
+        answer: index < 6 ? index % 4 : null,
+        flagged: index === 9,
+        diagram: false,
+        image: ""
+      }));
+      currentIndex = 6;
+      elapsedSeconds = 1842;
+      questionScale = 1;
+      renderExamShell();
+      renderQuestion();
+      document.getElementById("clock").textContent = "00:30:42";
+    </script>
+  </body>
+</html>

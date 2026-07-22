@@ -137,8 +137,8 @@
       <p class="sub">Enter the code sent to <strong>${escapeHtml(email)}</strong>.</p>
       <form id="reset-confirm-form" novalidate>
         <div class="field"><label for="reset-code">Six-digit code</label><div class="input-wrap"><input class="verification-code" id="reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></div></div>
-        <div class="field"><label for="reset-password">New password</label><div class="input-wrap"><input id="reset-password" type="password" autocomplete="new-password" minlength="6" required /></div></div>
-        <div class="field"><label for="reset-confirm-password">Confirm new password</label><div class="input-wrap"><input id="reset-confirm-password" type="password" autocomplete="new-password" minlength="6" required /></div></div>
+        <div class="field"><label for="reset-password">New password</label><div class="input-wrap"><input id="reset-password" type="password" autocomplete="new-password" minlength="12" required /></div></div>
+        <div class="field"><label for="reset-confirm-password">Confirm new password</label><div class="input-wrap"><input id="reset-confirm-password" type="password" autocomplete="new-password" minlength="12" required /></div></div>
         <p class="form-status success" id="auth-status" role="status" aria-live="polite">${escapeHtml(message)}</p>
         <button class="submit-btn" type="submit">Update password</button>
         <button class="text-btn" id="request-another-code" type="button">Use another email</button>
@@ -173,6 +173,25 @@
       event.preventDefault();
       renderResetRequest(byId("email")?.value.trim().toLowerCase() || "");
     });
+    byId("resend-verification-login")?.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const emailInput = byId("email");
+      const email = emailInput?.value.trim().toLowerCase() || "";
+      if (!email || !emailInput.checkValidity()) {
+        emailInput?.focus();
+        showStatus("Enter the email address you used to create your account.", "error");
+        return;
+      }
+      if (!ensureApi()) return;
+      showStatus("Sending a new code...");
+      try {
+        await api.requestVerification(email);
+        registration = { email };
+        renderVerification("If this unverified account exists, a new code has been sent.");
+      } catch (error) {
+        showStatus(messageFor(error), "error");
+      }
+    });
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!form.reportValidity() || !ensureApi()) return;
@@ -195,8 +214,8 @@
 
   function passwordStrength(value) {
     let score = 0;
-    if (value.length >= 6) score += 1;
-    if (value.length >= 10) score += 1;
+    if (value.length >= 12) score += 1;
+    if (value.length >= 16) score += 1;
     if (/[A-Z]/.test(value) && /[a-z]/.test(value)) score += 1;
     if (/\d/.test(value) || /[^A-Za-z0-9]/.test(value)) score += 1;
     return score;
@@ -271,7 +290,7 @@
       button.disabled = true;
       showStatus("Sending a new code...");
       try {
-        await api.register(registration.email, registration.password, registration.username, registration);
+        await api.requestVerification(registration.email);
         showStatus("A new verification code was sent.", "success");
       } catch (error) {
         showStatus(messageFor(error), "error");

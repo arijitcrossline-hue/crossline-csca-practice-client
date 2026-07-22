@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Crossline production health every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+RandomizedDelaySec=5s
+Persistent=true
+Unit=crossline-healthcheck.service
+
+[Install]
+WantedBy=timers.target

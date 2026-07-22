@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("examRuntime", {
   getInfo: () => ipcRenderer.invoke("runtime-info"),
   setScreenCaptureAllowed: (allowed, adminToken) => ipcRenderer.invoke("set-screen-capture-allowed", allowed === true, adminToken),
+  secureTokenGet: (slot) => ipcRenderer.invoke("secure-token-get", slot),
+  secureTokenSet: (slot, token) => ipcRenderer.invoke("secure-token-set", slot, token),
   onContentProtectionChanged: (callback) => {
     if (typeof callback !== "function") return () => {};
     const listener = (_event, payload) => callback(payload);

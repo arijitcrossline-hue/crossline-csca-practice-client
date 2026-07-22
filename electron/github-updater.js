@@ -19,7 +19,7 @@ function publicUpdateInfo(info, currentVersion, downloaded = false) {
     updateAvailable: compareVersions(version, currentVersion) > 0,
     downloaded,
     requiresRestart: downloaded,
-    patchMode: "github-differential"
+    patchMode: "differential"
   };
 }
 
@@ -51,14 +51,14 @@ function createGithubUpdateHelper({
     autoUpdater.disableDifferentialDownload = false;
 
     autoUpdater.on("checking-for-update", () => {
-      emitUpdateProgress({ type: "checking", patchMode: "github-differential" });
+      emitUpdateProgress({ type: "checking", patchMode: "differential" });
     });
     autoUpdater.on("update-available", (info) => {
       pendingInfo = info;
       emitUpdateProgress({
         type: "available",
         ...publicUpdateInfo(info, app.getVersion()),
-        patchMode: "github-differential"
+        patchMode: "differential"
       });
     });
     autoUpdater.on("update-not-available", (info) => {
@@ -66,7 +66,7 @@ function createGithubUpdateHelper({
       emitUpdateProgress({
         type: "not-available",
         ...publicUpdateInfo(info, app.getVersion()),
-        patchMode: "github-differential"
+        patchMode: "differential"
       });
     });
     autoUpdater.on("download-progress", (progress) => {
@@ -76,7 +76,7 @@ function createGithubUpdateHelper({
         transferred: Number(progress?.transferred || 0),
         total: Number(progress?.total || 0),
         bytesPerSecond: Number(progress?.bytesPerSecond || 0),
-        patchMode: "github-differential"
+        patchMode: "differential"
       });
     });
     autoUpdater.on("update-downloaded", (info) => {
@@ -86,13 +86,13 @@ function createGithubUpdateHelper({
         percent: 100,
         requiresRestart: true,
         ...publicUpdateInfo(info, app.getVersion(), true),
-        patchMode: "github-differential"
+        patchMode: "differential"
       });
     });
     autoUpdater.on("error", (error) => {
       const message = error?.message || "The update service reported an unknown error.";
       emitIntegrityEvent("update_error", { message });
-      emitUpdateProgress({ type: "error", message, patchMode: "github-differential" });
+      emitUpdateProgress({ type: "error", message, patchMode: "differential" });
     });
   }
 
@@ -116,7 +116,7 @@ function createGithubUpdateHelper({
       const status = await checkForUpdates();
       if (!status.updateAvailable) return status;
     }
-    emitUpdateProgress({ type: "starting", percent: 0, patchMode: "github-differential" });
+    emitUpdateProgress({ type: "starting", percent: 0, patchMode: "differential" });
     await autoUpdater.downloadUpdate();
     const info = downloadedInfo || pendingInfo || { version: app.getVersion() };
     return publicUpdateInfo(info, app.getVersion(), Boolean(downloadedInfo));
@@ -125,7 +125,7 @@ function createGithubUpdateHelper({
   async function installDownloadedUpdate() {
     initialize();
     if (!downloadedInfo) return { installing: false, reason: "No downloaded update is ready." };
-    emitUpdateProgress({ type: "installing", percent: 100, patchMode: "github-differential" });
+    emitUpdateProgress({ type: "installing", percent: 100, patchMode: "differential" });
     setAllowClose(true);
     stopFocusGuard();
     scheduleInstall(() => autoUpdater.quitAndInstall(false, true));
@@ -135,7 +135,7 @@ function createGithubUpdateHelper({
   async function resetUpdate() {
     pendingInfo = null;
     downloadedInfo = null;
-    emitUpdateProgress({ type: "reset", percent: 0, patchMode: "github-differential" });
+    emitUpdateProgress({ type: "reset", percent: 0, patchMode: "differential" });
     return { reset: true };
   }
 

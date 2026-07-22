@@ -44,6 +44,9 @@ async function run() {
   const clearStudentSession = renderer.match(/function clearStudentSession\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(main, /set-screen-capture-allowed/);
   assert.match(main, /desktop-capture\/authorize/);
+  assert.match(main, /img-src[^;]*https:\/\/api\.crosslinecscatest\.com/);
+  assert.match(main, /img-src[^;]*https:\/\/media\.crosslinecscatest\.com/);
+  assert.match(main, /img-src[^;]*https:\/\/lh3\.googleusercontent\.com/);
   assert.doesNotMatch(startFocusGuard, /contentProtection\.protect/);
   assert.doesNotMatch(beginStudentView, /disableAdminScreenCapture/);
   assert.match(clearStudentSession, /disableAdminScreenCapture/);

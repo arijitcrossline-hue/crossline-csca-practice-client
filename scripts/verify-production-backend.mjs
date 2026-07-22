@@ -77,15 +77,21 @@ try {
   const library = await request("/admin/exams", { token });
   const exam = library.exams?.find((item) => item.id === examId);
   assert.equal(exam?.questions?.length, 2);
+  assert.equal(exam?.published, false);
   assert.equal("priceCents" in exam, false);
   assert.equal("currency" in exam, false);
   assert.deepEqual(exam.questions.map((question) => question.correctIndex), [1, 2]);
   assert.deepEqual(exam.questions.map((question) => question.marks), [2, 1]);
-  assert.equal(exam.questions[0].image, tinyPng);
+  assert.match(exam.questions[0].image, /^https:\/\/media\.crosslinecscatest\.com\/question-images\//);
+  const storedImage = await fetch(exam.questions[0].image);
+  assert.equal(storedImage.status, 200);
+  assert.equal(storedImage.headers.get("content-type"), "image/png");
+  assert.match(storedImage.headers.get("cache-control") || "", /immutable/);
+  assert.ok((await storedImage.arrayBuffer()).byteLength > 0);
   assert.equal(exam.questions[0].chapter, "Sets and Inequalities");
   assert.equal(exam.questions[1].chapter, "Forces and Newton's Laws of Motion");
 } finally {
   if (examId) await request(`/admin/exams/${encodeURIComponent(examId)}`, { method: "DELETE", token }).catch(() => {});
 }
 
-console.log("Production backend verification passed: OpenCode/GLM 5.2, taxonomy, free exam access, and atomic exam deployment are live.");
+console.log("Production backend verification passed: AI import, draft deployment, taxonomy, and VPS-stored question images are live.");

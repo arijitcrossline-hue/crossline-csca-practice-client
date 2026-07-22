@@ -1,0 +1,15 @@
+[Unit]
+Description=Crossline production health check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/crossline-media-server/current
+ExecStart=/usr/bin/node /opt/crossline-media-server/current/health-check.mjs
+User=crossline-media
+Group=crossline-media
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

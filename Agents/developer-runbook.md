@@ -39,7 +39,7 @@ Remove the key to return to production.
 npm test
 ```
 
-This runs source parsing, compatibility ZIP extraction, GitHub updater adapter, and JSDOM UI flows.
+This runs migration-chain verification, source parsing, archive extraction, updater compatibility, security integrations, email rendering, and JSDOM UI flows.
 
 Syntax-check focused files when editing large scripts:
 
@@ -51,11 +51,15 @@ node --check worker/src/index.js
 
 ## Local Worker and D1
 
+For a fresh local Wrangler state only:
+
 ```bash
 npm run worker:migrate:local
 npm run worker:seed:local
 npm run worker:dev
 ```
+
+`worker/schema.sql` is the consolidated new-database schema. Do not apply it over an older local database. For an existing local database, apply its missing numbered migrations in order, or remove only the disposable local Wrangler state and recreate it.
 
 Use a local API override in the UI. Email/model secrets may be absent; their routes will log/fail in controlled ways.
 
@@ -80,6 +84,7 @@ Required or feature-specific secrets:
 ```text
 ADMIN_MFA_ENCRYPTION_KEY
 PASSWORD_PEPPER
+SESSION_TOKEN_SECRET
 RESEND_API_KEY
 OAUTH_STATE_SECRET
 GOOGLE_CLIENT_ID
@@ -89,6 +94,10 @@ GLM_API_KEY
 ```
 
 `GLM_API_KEY` is needed by the VPS provider and is also the Worker's emergency direct fallback when configured there. Never commit secret values.
+
+`MEDIA_UPLOAD_SECRET` must match the root-only `/etc/crossline-media.env` value on the VPS. `QUESTION_IMAGE_UPLOAD_URL` and `QUESTION_IMAGE_ORIGIN` are non-secret Worker variables.
+
+`MAINTENANCE_SECRET` must match the root-only `/etc/crossline-maintenance.env` value on the VPS. `crossline-maintenance.timer` invokes the Worker's internal maintenance endpoint every five minutes to finalize expired exams, deliver queued results, process deletion requests, clean expired security records, and migrate legacy embedded question images.
 
 ## Website Deployment
 
@@ -125,7 +134,7 @@ After changing `relay.mjs` or service files, deploy to `/opt/crossline-opencode`
 
 ## Production Verification
 
-The production test logs in as admin, calls the real assistant, imports source with marks/image markers, atomically creates a temporary exam, verifies it, and deletes it:
+The production test logs in as admin, calls the real assistant, imports source with marks/image markers, atomically creates a temporary draft exam, verifies its stored image, and archives it:
 
 ```bash
 CROSSLINE_ADMIN_EMAIL="..." \
@@ -164,7 +173,7 @@ Artifacts go to `release/`. The important outputs are the versioned installer an
 
 Interactive installer behavior is controlled by `package.json` and `build/installer.nsh`.
 
-## Publish a GitHub Update
+## Publish an Application Update
 
 See [Updates and Releases](updates-and-releases.md). Minimal sequence:
 
@@ -175,22 +184,23 @@ git tag 0.1.36
 git push origin 0.1.36
 ```
 
-Use the version actually present in `package.json`; never copy the example blindly. Verify the GitHub Actions run and release assets before updating the VPS stable installer.
+Use the version actually present in `package.json`; never copy the example blindly. Verify the release workflow and uploaded assets before updating the VPS stable installer.
 
 ## VPS Download Service
 
-Application root: `media-server/`. Production storage is typically `/var/crossline-media/downloads`.
+Application root: `media-server/`. Production releases are stored in `/var/crossline-media/downloads`; question images are stored in `/var/crossline-media/question-images`.
 
 ```bash
 cd media-server
 npm install
 ALLOWED_ORIGIN="https://exam.crosslinecscatest.com" \
+MEDIA_UPLOAD_SECRET="..." \
 STORAGE_DIR="/var/crossline-media" \
 PORT=8080 \
 npm start
 ```
 
-Verify `/health`, installer `HEAD`, content length, checksum, and Caddy TLS after replacing files.
+Run `npm test` in `media-server/`. Verify `/health`, an unauthorized image upload returns 401, installer `HEAD`, content length, checksum, and Caddy TLS after replacing files. Keep the upload secret in `/etc/crossline-media.env`, never in the systemd unit.
 
 ## Deployment Order for a Full Release
 
@@ -200,7 +210,7 @@ Verify `/health`, installer `HEAD`, content length, checksum, and Caddy TLS afte
 4. Deploy OpenCode relay/service if AI backend changed.
 5. Deploy Pages if `src/` changed.
 6. Bump package version and push the matching release tag for Electron changes.
-7. Verify GitHub release assets.
+7. Verify the release assets and signature.
 8. Replace the stable VPS installer.
 9. Test website registration, Windows login, one setup flow, one submission/result, admin import, and update check.
 

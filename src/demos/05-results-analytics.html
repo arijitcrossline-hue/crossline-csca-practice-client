@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Demo 05 · Results &amp; Analytics — CrosslineEdu</title>
+<link rel="stylesheet" href="brand.css" />
+<style>
+  .hero { max-width: 1240px; margin: 0 auto; padding: 3rem 1.5rem 4rem; display: grid; grid-template-columns: .95fr 1.1fr; gap: 3rem; align-items: center; }
+  .hero-copy h1 { font-family: var(--cx-sans); font-weight: 900; font-size: clamp(2.4rem, 4.6vw, 3.6rem); line-height: 1.05; letter-spacing: -.03em; margin: 1rem 0 1.2rem; }
+  .hero-copy h1 em { font-style: normal; color: var(--cx-red); }
+  .hero-copy p { font-size: 1.1rem; color: var(--cx-ink-soft); line-height: 1.7; max-width: 52ch; }
+  .hero-cta { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.8rem; }
+
+  /* results mock */
+  .stage { perspective: 1600px; }
+  .results { transform: rotateY(-4deg); transition: transform .3s ease; }
+  .results:hover { transform: rotateY(0); }
+  .res-body { padding: 1.3rem 1.4rem; }
+  .res-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; }
+  .res-head h3 { margin: 0 0 .2rem; font-size: 1.05rem; font-weight: 700; }
+  .res-head small { font-family: var(--cx-mono); font-size: .74rem; color: var(--cx-ink-faint); }
+  .score-ring { position: relative; width: 88px; height: 88px; flex: none; }
+  .score-ring svg { transform: rotate(-90deg); }
+  .score-ring .n { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--cx-sans); font-weight: 800; font-size: 1.4rem; color: var(--cx-ink); }
+
+  .res-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin-bottom: 1.1rem; }
+  .res-meta .m { padding: .65rem .8rem; border: 1px solid var(--cx-line); border-radius: 10px; background: #fff; }
+  .res-meta .m span { display: block; font-family: var(--cx-mono); font-size: .68rem; color: var(--cx-ink-faint); letter-spacing: .04em; text-transform: uppercase; }
+  .res-meta .m strong { font-family: var(--cx-sans); font-weight: 700; font-size: .98rem; }
+
+  /* bar chart */
+  .chart-card { padding: .9rem 1rem; border: 1px solid var(--cx-line); border-radius: 10px; background: #fff; margin-bottom: .8rem; }
+  .chart-card h6 { margin: 0 0 .8rem; font-family: var(--cx-mono); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--cx-ink-faint); }
+  .bars { display: flex; align-items: flex-end; gap: .6rem; height: 90px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+  .bar-col .bar { width: 100%; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--cx-red), #d65954); }
+  .bar-col .lbl { font-family: var(--cx-mono); font-size: .66rem; color: var(--cx-ink-faint); }
+  .bar-col.weak .bar { background: linear-gradient(180deg, var(--cx-amber), #e8b454); }
+
+  /* review rows */
+  .review { display: grid; gap: .5rem; }
+  .rv-row { display: grid; grid-template-columns: 28px 1fr auto; gap: .6rem; align-items: center; padding: .55rem .75rem; border: 1px solid var(--cx-line); border-radius: 8px; background: #fff; font-size: .86rem; }
+  .rv-row .q { color: var(--cx-ink); }
+  .rv-row .mk { font-family: var(--cx-mono); font-weight: 600; font-size: .8rem; }
+  .rv-row.ok { border-left: 3px solid var(--cx-green); } .rv-row.ok .mk { color: var(--cx-green); }
+  .rv-row.no { border-left: 3px solid var(--cx-red); } .rv-row.no .mk { color: var(--cx-red); }
+  .rv-row.skip { border-left: 3px solid var(--cx-amber); } .rv-row.skip .mk { color: var(--cx-amber); }
+  .rv-row .qn { font-family: var(--cx-mono); font-size: .74rem; color: var(--cx-ink-faint); }
+
+  /* testimonials band */
+  .quotes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  .quote { padding: 1.6rem; }
+  .quote p { font-size: 1rem; line-height: 1.6; color: var(--cx-ink); margin: 0 0 1rem; }
+  .quote .who { display: flex; align-items: center; gap: .6rem; }
+  .quote .who b { font-size: .9rem; }
+  .quote .who small { display: block; color: var(--cx-ink-faint); font-family: var(--cx-mono); font-size: .72rem; }
+  .stars { color: var(--cx-amber); letter-spacing: 2px; margin-bottom: .8rem; }
+
+  @media (max-width: 980px) { .hero { grid-template-columns: 1fr; } .results { transform: none; } .quotes { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="cx-demo-ribbon">
+  <span>DEMO 05 / 5 · <b>Results &amp; Analytics</b></span>
+  <span><a href="index.html">← all demos</a></span>
+</div>
+
+<nav class="cx-nav">
+  <a class="cx-brand" href="#"><img class="cx-brand-mark" src="../assets/crossline-icon.png" alt="CrosslineEdu" /><span class="cx-brand-name">Crossline<b>Edu</b></span></a>
+  <div class="cx-nav-links">
+    <a href="#results">Results</a>
+    <a href="#voices">Students</a>
+    <a href="#download">Download</a>
+    <a class="cx-btn cx-btn-primary" href="#download" style="padding:.6rem 1.1rem;font-size:.88rem">Get the app</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-copy">
+    <span class="cx-kicker">After the submit</span>
+    <h1>Every answer, <em>explained.</em></h1>
+    <p>Once your result is released, Crossline hands you a full per-question review — your answer, the correct answer, the marks, and a worked explanation for each item. Learn from every attempt, not just score it.</p>
+    <div class="hero-cta">
+      <a class="cx-btn cx-btn-primary cx-btn-lg" href="#download">Download for Windows</a>
+    </div>
+    <div class="hero-trust" style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.5rem">
+      <span class="cx-pill cx-pill-green">Per-question marks</span>
+      <span class="cx-pill cx-pill-navy">Worked explanations</span>
+      <span class="cx-pill cx-pill-amber">30–60 min release</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="cx-window results" id="results">
+      <div class="res-body">
+        <div class="res-head">
+          <div>
+            <h3>CSCA Mathematics &amp; Physics Mock</h3>
+            <small>Submitted 2 Jul, 14:08 · Released after 42 min</small>
+          </div>
+          <div class="score-ring">
+            <svg width="88" height="88" viewBox="0 0 88 88">
+              <circle cx="44" cy="44" r="38" fill="none" stroke="#ece8dd" stroke-width="8"/>
+              <circle cx="44" cy="44" r="38" fill="none" stroke="#B92B27" stroke-width="8" stroke-linecap="round" stroke-dasharray="238.76" stroke-dashoffset="52.5"/>
+            </svg>
+            <div class="n">78%</div>
+          </div>
+        </div>
+
+        <div class="res-meta">
+          <div class="m"><span>Score</span><strong>41 / 52</strong></div>
+          <div class="m"><span>Correct</span><strong>37 / 48</strong></div>
+          <div class="m"><span>Time used</span><strong>82 min</strong></div>
+        </div>
+
+        <div class="chart-card">
+          <h6>Marks by topic</h6>
+          <div class="bars">
+            <div class="bar-col"><div class="bar" style="height:72%"></div><div class="lbl">Algebra</div></div>
+            <div class="bar-col"><div class="bar" style="height:85%"></div><div class="lbl">Geom</div></div>
+            <div class="bar-col weak"><div class="bar" style="height:38%"></div><div class="lbl">Calc</div></div>
+            <div class="bar-col"><div class="bar" style="height:64%"></div><div class="lbl">Mech</div></div>
+            <div class="bar-col"><div class="bar" style="height:78%"></div><div class="lbl">Optics</div></div>
+            <div class="bar-col weak"><div class="bar" style="height:44%"></div><div class="lbl">Waves</div></div>
+          </div>
+        </div>
+
+        <div class="chart-card" style="margin-bottom:.8rem">
+          <h6>Answer review</h6>
+          <div class="review">
+            <div class="rv-row ok"><span class="qn">Q1</span><span class="q">Equivalent algebraic expression</span><span class="mk">+2 / 2</span></div>
+            <div class="rv-row no"><span class="qn">Q14</span><span class="q">Angular velocity on a rotating disk</span><span class="mk">0 / 3</span></div>
+            <div class="rv-row ok"><span class="qn">Q22</span><span class="q">Function evaluation f(4)</span><span class="mk">+1 / 1</span></div>
+            <div class="rv-row skip"><span class="qn">Q31</span><span class="q">Wave frequency from diagram</span><span class="mk">skipped</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cx-section" id="voices">
+  <div class="cx-center" style="margin-bottom:2.5rem">
+    <span class="cx-kicker" style="justify-content:center">Community at the core</span>
+    <h2 class="cx-h2">From students who've been through it.</h2>
+  </div>
+  <div class="quotes">
+    <div class="cx-card quote">
+      <div class="stars">★★★★★</div>
+      <p>"The two-camera setup was the part I dreaded most. After three Crossline mocks it was just muscle memory."</p>
+      <div class="who"><div class="dash-avatar" style="width:36px;height:36px;border-radius:50%;background:var(--cx-red);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.85rem;font-family:var(--cx-sans)">M</div><div><b>Mei L.</b><small>Fudan University · CSCA 2026</small></div></div>
+    </div>
+    <div class="cx-card quote">
+      <div class="stars">★★★★★</div>
+      <p>"Seeing exactly which questions I skipped — and why — after each paper was the thing that actually moved my score."</p>
+      <div class="who"><div class="dash-avatar" style="width:36px;height:36px;border-radius:50%;background:var(--cx-navy);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.85rem;font-family:var(--cx-sans)">R</div><div><b>Ravi P.</b><small>Tsinghua · CSCA 2025</small></div></div>
+    </div>
+    <div class="cx-card quote">
+      <div class="stars">★★★★★</div>
+      <p>"Felt identical to the real exam screen. When the clock started on test day I wasn't nervous about the interface at all."</p>
+      <div class="who"><div class="dash-avatar" style="width:36px;height:36px;border-radius:50%;background:var(--cx-amber);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.85rem;font-family:var(--cx-sans)">A</div><div><b>Amina S.</b><small>Zhejiang · CSCA 2026</small></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="cx-section cx-center" id="download">
+  <span class="cx-kicker" style="justify-content:center">Get started</span>
+  <h2 class="cx-h2">Turn every mock into a lesson.</h2>
+  <a class="cx-btn cx-btn-primary cx-btn-lg" href="#" style="margin-top:1rem">Download for Windows</a>
+</section>
+
+<footer class="cx-foot">
+  <div class="cx-foot-inner">
+    <div><a class="cx-brand" href="#" style="margin-bottom:.5rem"><img class="cx-brand-mark" src="../assets/crossline-icon.png" alt="" /><span class="cx-brand-name">Crossline<b>Edu</b></span></a><p style="max-width:34ch">Your gateway to study in China. CSCA mock exams, rehearsed the way you'll take them.</p></div>
+    <div><small>ONE PAGE. ONE GATEWAY.</small><p><a href="#">crosslineedu.com</a></p><p style="color:#6b7e96">© 2026 CrosslineEdu</p></div>
+  </div>
+</footer>
+
+</body>
+</html>

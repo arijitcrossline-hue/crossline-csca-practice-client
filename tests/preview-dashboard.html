@@ -26,6 +26,9 @@
     <script src="config.js"></script>
     <script>
       window.CROSSLINE_API_BASE = "";
+      window.CROSSLINE_DEMO_CODE = "246810";
+      window.CROSSLINE_DEMO_USER = { email: "student@example.com", username: "Demo Student", password: "demo123", verified: true };
+      localStorage.setItem("csca-local-current-user", JSON.stringify("student@example.com"));
       const previewScores = [54, 63, 71, 68, 82];
       const previewResults = previewScores.map((score, index) => {
         const result = { id: `preview-${index}`, examTitle: `Physics Mock ${index + 1}`, submittedAt: new Date(Date.now() - (4 - index) * 86400000).toISOString(), ready: true, score: { earned: score, total: 100 } };

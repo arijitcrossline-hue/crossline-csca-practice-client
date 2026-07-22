@@ -1,13 +1,13 @@
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-400.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-500.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-600.ttf") format("truetype"); font-weight: 600; font-style: normal; font-display: swap; }
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-700.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-800.ttf") format("truetype"); font-weight: 800; font-style: normal; font-display: swap; }
-@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-900.ttf") format("truetype"); font-weight: 900; font-style: normal; font-display: swap; }
-@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-700.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-800.ttf") format("truetype"); font-weight: 800; font-style: normal; font-display: swap; }
-@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-900.ttf") format("truetype"); font-weight: 900; font-style: normal; font-display: swap; }
-@font-face { font-family: "Montserrat"; src: url("assets/fonts/montserrat/Montserrat-Variable.ttf") format("truetype"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-600.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-800.woff2") format("woff2"); font-weight: 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter/Inter-900.woff2") format("woff2"); font-weight: 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-800.woff2") format("woff2"); font-weight: 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "Playfair Display"; src: url("assets/fonts/playfair/PlayfairDisplay-900.woff2") format("woff2"); font-weight: 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Montserrat"; src: url("assets/fonts/montserrat/Montserrat-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 :root {
   color-scheme: light;
@@ -1664,19 +1664,18 @@ html:has(.cx-landing) { font-size: 17.6px; }
 .cx-landing .cx-announce-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border-radius: 999px;
   background: #fff;
   border: 1px solid rgba(185, 43, 39, 0.28);
   color: var(--cx-red);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
 }
 .cx-landing .cx-announce-icon {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
 }
 .cx-landing .cx-announce-text {
@@ -3208,7 +3207,7 @@ html:has(.dash-shell), body:has(.dash-shell) {
   padding: 0;
   background:
     linear-gradient(90deg, rgba(255, 253, 248, .1), rgba(255, 253, 248, .1)),
-    url("assets/dashboard/challenge-banner.png") center / contain no-repeat;
+    url("assets/dashboard/challenge-banner.webp") center / contain no-repeat;
   box-shadow: 0 12px 26px rgba(98, 57, 26, .055);
 }
 .dash-start-card::before,
@@ -3337,6 +3336,9 @@ html:has(.dash-shell), body:has(.dash-shell) {
 .dash-card-kicker { margin: 0 0 8px !important; color: #c61d21 !important; font-size: .76rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .exam-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .exam-choice-card, .result-choice-card, .notification-card { display: flex; align-items: center; justify-content: space-between; gap: 26px; }
+.active-exam-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; border-color: #efb9b4; background: #fff5f3; }
+.active-exam-card > div { min-width: 0; }
+.active-exam-card p:not(.dash-card-kicker) { margin: 0; color: #675650; }
 .exam-choice-card h2, .result-choice-card h2 { font-size: 1.42rem; }
 .exam-choice-card .exam-meta, .result-choice-card .exam-meta { margin-top: 17px; }
 .dash-page-card .dash-start-button { position: static; min-width: auto; min-height: 44px; margin: 0; padding: 0 20px; transform: none; }
@@ -4483,6 +4485,7 @@ html:has(.dash-shell .pricing-app) { font-size: 16px; }
 }
 .pricing-app .cx-price-grid-three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
   align-items: stretch;
   max-width: 1040px;
 }
@@ -4504,6 +4507,7 @@ html:has(.dash-shell .pricing-app) { font-size: 16px; }
 .pricing-action-message { min-height: 20px; margin: 22px auto 0 !important; color: #75645d; text-align: center; }
 @media (max-width: 900px) {
   .pricing-app .cx-price-grid-three { grid-template-columns: 1fr; max-width: 420px; }
+  .pricing-app .cx-price-card { min-height: 628px; }
 }
 .admin-plan-catalog { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .admin-plan-option { min-width: 0; }
@@ -4527,7 +4531,7 @@ html:has(.dash-shell .pricing-app) { font-size: 16px; }
 .admin-access-gate form { display: grid; gap: 10px; margin-top: 22px; }
 .admin-mfa-secret { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px 16px; margin: 22px 0; border: 1px solid #e8d8ca; border-radius: 8px; padding: 16px; background: #fff8f1; }
 .admin-mfa-secret span { color: #826f66; font-size: .75rem; font-weight: 750; }
-.admin-mfa-secret code { overflow-wrap: anywhere; color: #9f171d; font-size: .95rem; letter-spacing: .08em; }
+.admin-mfa-secret code { overflow-wrap: anywhere; white-space: pre-line; color: #9f171d; font-size: .95rem; letter-spacing: 0; }
 .admin-access-manager form { display: flex; align-items: end; gap: 12px; }
 .admin-access-manager form label { flex: 1; margin: 0; }
 .admin-access-manager ul { display: grid; gap: 8px; margin: 24px 0 0; padding: 0; list-style: none; }
@@ -4641,4 +4645,88 @@ html:has(.dash-shell .pricing-app) { font-size: 16px; }
   .legal-nav { align-items: flex-start; gap: 20px; }
   .legal-nav .landing-brand-word { display: none; }
   .legal-document { border-radius: 16px; }
+}
+
+/* The desktop client is primary, but account pages remain usable at narrow widths. */
+@media (max-width: 860px) {
+  html:has(.dash-shell), body:has(.dash-shell) { min-width: 0; overflow-x: hidden; }
+  .dash-shell { display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0; }
+  .dash-sidebar {
+    position: relative;
+    top: 0;
+    z-index: 3;
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: hidden;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    padding: 12px 12px 10px;
+  }
+  .dash-logo { display: flex; width: auto; margin: 0 0 10px; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+  .dash-logo img { width: 42px; height: 42px; }
+  .dash-logo strong { margin: 0; font-size: 1.25rem; line-height: 1; }
+  .dash-logo span { margin: 1px 0 0; font-size: .54rem; letter-spacing: .28em; }
+  .dash-side-nav { display: flex; width: 100%; gap: 6px; overflow-x: auto; overscroll-behavior-inline: contain; padding-bottom: 2px; scrollbar-width: none; }
+  .dash-side-nav::-webkit-scrollbar { display: none; }
+  .dash-side-nav button { flex: 0 0 auto; width: auto; gap: 8px; min-height: 42px; border-radius: 7px; padding: 0 12px; font-size: .78rem; white-space: nowrap; }
+  .dash-side-nav button .landing-icon { width: 18px; height: 18px; }
+  .dash-sidebar-note, .dash-user-card { display: none; }
+  .dash-main { width: 100%; min-width: 0; min-height: 0; overflow: visible; border-width: 0; border-radius: 0; padding: 20px 14px 30px; }
+  .dash-top-illustration { display: none; }
+  .dash-topbar { min-height: 0; margin-bottom: 16px; flex-direction: row; align-items: flex-start; gap: 12px; }
+  .dash-topbar > div:first-child { min-width: 0; }
+  .dash-topbar h1 { margin-bottom: 5px; font-size: 1.65rem; letter-spacing: 0; line-height: 1.1; overflow-wrap: anywhere; }
+  .dash-topbar p { font-size: .88rem; }
+  .dash-top-actions { flex: 0 0 auto; }
+  .dash-top-actions button { min-width: 42px; min-height: 42px; }
+  .dash-start-card {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: #fff8ef;
+  }
+  .dash-start-icon, .dash-start-card > div:not(.dash-start-icon):not(.dash-start-paper) { display: block; }
+  .dash-start-paper { display: none; }
+  .dash-start-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 8px; color: #bd2026; background: #ffe7df; }
+  .dash-start-card h2 { font-size: 1rem; overflow-wrap: anywhere; }
+  .dash-start-button { position: static; grid-column: 1 / -1; width: 100%; min-width: 0; min-height: 44px; padding: 0 18px; transform: none; }
+  .dash-start-button:not(:disabled):active { transform: translateY(1px) scale(.99); }
+  .dash-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dash-metric { min-height: 145px; padding: 14px; }
+  .dash-metric h3 { font-size: .86rem; }
+  .dash-metric strong { font-size: 1.8rem; }
+  .dash-insights, .dash-subject-graphs, .exam-page-grid, .leaderboard-board-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dash-card { min-height: 0; }
+  .dash-section-title { flex-direction: row; align-items: flex-start; }
+  .dash-performance { min-width: 0; overflow: hidden; }
+  .subject-trend-chart { min-width: 0; }
+  .exam-choice-card, .result-choice-card, .notification-card, .active-exam-card, .dash-result-summary, .settings-admin-card { align-items: stretch; flex-direction: column; gap: 16px; }
+  .exam-choice-card .dash-start-button, .result-choice-card button, .notification-card button, .active-exam-card .dash-start-button { width: 100%; }
+  .subject-performance-card { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .weakness-summary, .leaderboard-controls { grid-template-columns: minmax(0, 1fr); }
+  .dash-page-main:has(.settings-split-layout) { padding: 20px 0 0; }
+  .dash-page-main:has(.settings-split-layout) > .dash-topbar { margin: 0 14px 16px; }
+  .settings-split-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .settings-section-nav { position: static; min-height: 0; border-right: 0; border-bottom: 1px solid #eee2d5; }
+  .settings-section-nav-scroll { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 12px; }
+  .settings-section-nav h3 { display: none; }
+  .settings-nav-item { min-height: 42px; padding: 0 10px; font-size: .78rem; }
+  .settings-detail { width: 100%; padding: 22px 14px 32px; }
+  .settings-list-row { grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .settings-list-row > input, .settings-list-row > .settings-static-value, .settings-list-row > .settings-row-action { grid-column: 1 / -1; width: 100%; max-width: none; text-align: left; }
+  .settings-list-row > .settings-row-action { justify-content: center; }
+  .settings-list-row > .settings-status-pill, .settings-list-row > .settings-toggle { grid-column: 2; justify-self: start; }
+  .settings-photo-row { grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
+  .settings-photo-row > .settings-row-action { grid-column: 1 / -1; width: 100%; justify-content: center; }
+  .settings-bug-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-save-bar { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 440px) {
+  .dash-metrics { grid-template-columns: minmax(0, 1fr); }
+  .settings-section-nav-scroll { grid-template-columns: minmax(0, 1fr); }
 }

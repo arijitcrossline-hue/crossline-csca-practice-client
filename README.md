@@ -4,7 +4,7 @@ A Windows-ready mock exam client modeled after the supplied CSCA exam photo. It 
 
 - English-only registration, email verification, persistent login, and Google OAuth
 - Exam selection and administrator exam authoring pages
-- Webcam, microphone, network, facial-recognition, room-scan, and phone-camera setup steps
+- Webcam, microphone, network, face-framing, guided room-walkthrough, and phone-camera setup steps
 - 48-question navigation with answered, active, and flagged states
 - Previous/next navigation and text zoom controls
 - A timer, submission summary, and practice kiosk launch mode
@@ -22,12 +22,7 @@ npm start
 
 Use `npm run start:kiosk` to preview the fullscreen practice experience. The exit button leaves kiosk mode.
 
-Prototype credentials:
-
-- Student: `student@example.com` / `demo123`
-- Email verification code: `246810`
-
-The local prototype stores demo accounts and authored exams in browser storage. Production email delivery, account data, phone pairing, answer saving, and results require the Cloudflare Worker backend.
+Automated browser tests inject their own local-only fixtures. The packaged client and public website always use the production account service and do not contain fixed login or verification credentials.
 
 ## Backend milestone
 
@@ -36,9 +31,9 @@ The project now includes a low-cost Cloudflare backend in `worker/`:
 - Cloudflare Worker API for login, registration, email verification, admin login, exams, questions, sessions, answer saving, result emails, and phone pairing
 - D1 database schema for users, exams, questions, sessions, events, and answers
 - VPS download server for the website's Windows installer
-- GitHub Releases for in-app Windows updates
+- Signed differential packages for in-app Windows updates
 - Resend email support for `verify@crosslinecscatest.com`
-- Frontend API bridge that stays off by default and uses local prototype storage until an API URL is configured
+- Frontend API bridge fixed to the production origin, with loopback-only overrides for development
 
 Create the Cloudflare resources:
 
@@ -47,28 +42,25 @@ npx wrangler login
 npx wrangler d1 create crossline-mocks
 ```
 
-Paste the returned D1 `database_id` into `worker/wrangler.toml`, then apply the remote production schema and seed data:
+Paste the returned D1 `database_id` into `worker/wrangler.toml`. For a brand-new, empty database only, apply the consolidated schema and seed data:
 
 ```bash
 npm run worker:migrate
 npm run worker:seed
 ```
 
-For an existing production database, apply the administrator role and MFA migration:
-
-```bash
-npm run worker:migrate:0014
-npm run worker:migrate:0015
-npm run worker:migrate:0016
-```
+For an existing production database, do not run the consolidated schema. Follow [the public launch runbook](docs/launch-runbook.md), verify the migration chain, and apply every missing numbered migration once in order.
 
 Set the production secrets:
 
 ```bash
 npx wrangler secret put PASSWORD_PEPPER --config worker/wrangler.toml
+npx wrangler secret put SESSION_TOKEN_SECRET --config worker/wrangler.toml
 npx wrangler secret put ADMIN_MFA_ENCRYPTION_KEY --config worker/wrangler.toml
 npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml
 npx wrangler secret put OAUTH_STATE_SECRET --config worker/wrangler.toml
+npx wrangler secret put GOOGLE_CLIENT_ID --config worker/wrangler.toml
+npx wrangler secret put GOOGLE_CLIENT_SECRET --config worker/wrangler.toml
 npx wrangler secret put GLM_API_KEY --config worker/wrangler.toml
 ```
 
@@ -80,7 +72,7 @@ Deploy the API:
 npm run worker:deploy
 ```
 
-After deployment, point an API hostname such as `api.crosslinecscatest.com` to the Worker in Cloudflare. Configure the app by setting `window.CROSSLINE_API_BASE` in `src/config.js`, or by running this once in the app dev console:
+After deployment, point an API hostname such as `api.crosslinecscatest.com` to the Worker in Cloudflare. Local backend overrides are accepted only on `localhost` and loopback addresses:
 
 ```js
 localStorage.setItem("crossline-api-base", "https://api.crosslinecscatest.com");

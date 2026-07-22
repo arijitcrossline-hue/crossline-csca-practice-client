@@ -2,9 +2,11 @@ node_modules/
 media-server/node_modules/
 release/
 dist/
+src/v3/dist-v3/
 .wrangler/
 worker/.wrangler/
 outputs/
+tmp/
 *-check.png
 eng.traineddata
 .DS_Store

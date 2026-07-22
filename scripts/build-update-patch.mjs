@@ -80,7 +80,7 @@ latest = {
   patchUrl: `https://media.crosslinecscatest.com/updates/${zipName}`,
   patchSha256,
   patchSize: bytes.length,
-  notes: "Moves future Windows updates to GitHub Releases with blockmap-assisted differential downloads and in-app progress."
+  notes: "Improves security, reliability, account flows, exam access, and the dashboard experience."
 };
 await fsp.writeFile(latestPath, `${JSON.stringify(latest, null, 2)}\n`);
 console.log(`Built ${zipName} (${(bytes.length / 1024 / 1024).toFixed(1)} MB)`);

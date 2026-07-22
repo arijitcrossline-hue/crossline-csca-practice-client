@@ -22,6 +22,7 @@ function portal(page, apiOverrides = {}) {
     enabled: () => true,
     login: async (...args) => { calls.push(["login", ...args]); return { token: "login-token", user: { email: args[0] } }; },
     register: async (...args) => { calls.push(["register", ...args]); return { ok: true }; },
+    requestVerification: async (...args) => { calls.push(["verification-request", ...args]); return { ok: true }; },
     verify: async (...args) => { calls.push(["verify", ...args]); return { token: "verified-token", user: { email: args[0] } }; },
     requestPasswordReset: async (...args) => { calls.push(["reset-request", ...args]); return { ok: true }; },
     confirmPasswordReset: async (...args) => { calls.push(["reset-confirm", ...args]); return { ok: true }; },
@@ -44,6 +45,17 @@ function submit(window, selector) {
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+{
+  const { dom, window, calls } = portal("login");
+  fill(window, "#email", "pending@example.com");
+  window.document.querySelector("#resend-verification-login").click();
+  await tick();
+  assert.deepEqual(calls.find(([name]) => name === "verification-request"), ["verification-request", "pending@example.com"]);
+  assert.ok(window.document.querySelector("#verification-form"));
+  assert.match(window.document.body.textContent, /If this unverified account exists/);
+  dom.window.close();
+}
 
 {
   const { dom, window, calls } = portal("login");
@@ -84,11 +96,14 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   fill(window, "#last-name", "Bhowmik");
   fill(window, "#username", "Arijit");
   fill(window, "#email", "new.student@example.com");
-  fill(window, "#password", "secret12");
+  fill(window, "#password", "secure-pass-12");
   submit(window, "#register-form");
   await tick();
   assert.equal(calls.find(([name]) => name === "register")[1], "new.student@example.com");
   assert.ok(window.document.querySelector("#verification-form"));
+  window.document.querySelector("#resend-verification").click();
+  await tick();
+  assert.deepEqual(calls.find(([name]) => name === "verification-request"), ["verification-request", "new.student@example.com"]);
   fill(window, "#verification-code", "246810");
   submit(window, "#verification-form");
   await tick();

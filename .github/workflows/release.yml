@@ -19,6 +19,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Run launch verification
+        run: |
+          npm test
+          npm run test:migrations
+          npm audit --omit=dev
+          node --check electron/main.js
+          node --check worker/src/index.js
+          npx wrangler deploy --dry-run --config worker/wrangler.toml
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -26,7 +34,45 @@ jobs:
           $packageVersion = node -p "require('./package.json').version"
           $tagVersion = "${{ github.ref_name }}"
           if ($packageVersion -ne $tagVersion) { throw "Tag $tagVersion does not match package version $packageVersion" }
-      - name: Build and publish release
-        run: npm run release:github
+      - name: Require Windows signing certificate
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:CSC_LINK) { throw "WINDOWS_CERTIFICATE_BASE64 is required for public releases" }
+          if (-not $env:CSC_KEY_PASSWORD) { throw "WINDOWS_CERTIFICATE_PASSWORD is required for public releases" }
+      - name: Build signed release candidate
+        run: npm run dist:win
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Verify installer signature
+        shell: pwsh
+        run: |
+          $installers = Get-ChildItem release\Crossline-CSCA-Practice-Setup*.exe
+          if (-not $installers) { throw "No Windows installer was generated" }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne "Valid") { throw "$($installer.Name) signature is $($signature.Status)" }
+          }
+      - name: Publish verified artifacts
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $artifacts = Get-ChildItem release -File | Where-Object {
+            $_.Name -eq "latest.yml" -or
+            $_.Name -eq "latest.json" -or
+            $_.Name -eq "Crossline-CSCA-Practice-Setup.exe" -or
+            $_.Name -like "Crossline-CSCA-Practice-Setup-$version.exe*" -or
+            $_.Name -eq "Crossline-CSCA-Practice-Patch-$version.zip"
+          } | ForEach-Object { $_.FullName }
+          if ($artifacts.Count -lt 4) { throw "The signed update artifact set is incomplete" }
+          gh release view $version 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $version $artifacts --clobber
+          } else {
+            gh release create $version $artifacts --title "Crossline CSCA Practice $version" --generate-notes --target "${{ github.sha }}"
+          }

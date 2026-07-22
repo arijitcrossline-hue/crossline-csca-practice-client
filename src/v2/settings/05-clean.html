@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings Demo 5 — Clean</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* DEMO 5: Modern clean centered. Narrow max-width, lots of whitespace, section anchors in sticky sub-header. */
+.s-body { max-width: 600px; margin: 0 auto; padding: 32px 36px 60px; }
+.s-subhead { position: sticky; top: 73px; background: var(--paper); display: flex; gap: 8px; padding: 12px 0; margin-bottom: 28px; border-bottom: 1px solid var(--border-soft); z-index: 5; flex-wrap: wrap; }
+.s-subhead a { font-size: .82rem; font-weight: 700; color: var(--muted); padding: 7px 14px; border-radius: 999px; border: 1px solid transparent; transition: all .12s; }
+.s-subhead a:hover { color: var(--red); border-color: var(--border); background: #fff; }
+.s-block { margin-bottom: 40px; }
+.s-block > h2 { font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
+.s-block > p { font-size: .88rem; color: var(--muted); margin-bottom: 18px; }
+.s-card { border: 1px solid var(--border); border-radius: 14px; background: #fff; padding: 24px; box-shadow: 0 4px 12px rgba(98,57,26,.03); }
+.profile-row { display: flex; align-items: center; gap: 18px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border-soft); }
+.profile-row .avatar-picker { width: 64px; height: 64px; }
+.profile-row h3 { font-size: 1.1rem; }
+.profile-row small { font-size: .8rem; color: var(--muted); }
+.s-fields { display: grid; gap: 16px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.save-bar { display: flex; gap: 12px; margin-top: 20px; }
+.update-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border-soft); }
+.update-row:last-child { border-bottom: 0; }
+.update-row .u-label b { font-size: .92rem; }
+.update-row .u-label small { font-size: .78rem; color: var(--muted); display: block; }
+.badge-ok { font-size: .76rem; font-weight: 700; color: var(--green); background: #eaf8ed; padding: 4px 10px; border-radius: 6px; border: 1px solid #c6e6cb; }
+.toggle { width: 44px; height: 26px; border-radius: 999px; background: var(--red); position: relative; cursor: pointer; transition: background .2s; }
+.toggle::after { content:''; position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.toggle.off { background: #ccc; }
+.toggle.off::after { left: 3px; }
+.bug-grid { display: grid; gap: 14px; }
+</style>
+</head><body>
+<div class="demo-ribbon">DEMO 5 · Clean <a href="index.html">← all demos</a></div>
+<main class="dash-shell">
+  <aside class="dash-sidebar">
+    <div class="dash-logo"><img src="../../assets/crossline-icon.png" alt="" /><span><b>Crossline</b><small>Education</small></span></div>
+    <nav class="dash-nav">
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Dashboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg><span>Exams</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg><span>Results</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg><span>Weakness</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/></svg><span>Leaderboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg><span>Pricing</span></button>
+      <class class="active"><button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.36.36.59.85.6 1.36V11a2 2 0 0 1 0 4h-.09c-.5 0-.99.23-1.36.6z"/></svg><span>Settings</span></button>
+    </nav>
+    <div class="dash-user"><span class="avatar">AS</span><div class="meta"><b>Arijit S.</b><small>CSCA Candidate</small></div></div>
+  </aside>
+
+  <section class="dash-main">
+    <header class="dash-topbar"><div><h1>Settings</h1><p>Profile, updates, and support.</p></div></header>
+
+    <div class="s-body">
+      <div class="s-subhead">
+        <a href="#profile">Profile</a><a href="#updates">Updates</a><a href="#support">Support</a><a href="#admin">Admin</a>
+      </div>
+
+      <div class="s-block" id="profile">
+        <h2>Profile</h2><p>Your name and username appear on the dashboard and leaderboard.</p>
+        <div class="s-card">
+          <div class="profile-row"><label class="avatar-picker"><span class="placeholder">AS</span></label><div><h3>Arijit Bhowmik</h3><small>arijit@crossline.com</small></div></div>
+          <div class="s-fields">
+            <div class="field-row"><div class="field"><label>First name</label><input value="Arijit" /></div><div class="field"><label>Last name</label><input value="Bhowmik" /></div></div>
+            <div class="field"><label>Username</label><input value="Arijit" /></div>
+          </div>
+          <div class="save-bar"><button class="btn btn-primary">Save profile</button></div>
+        </div>
+      </div>
+
+      <div class="s-block" id="updates">
+        <h2>Updates</h2><p>App updates are verified before installation.</p>
+        <div class="s-card">
+          <div class="update-row"><div class="u-label"><b>Version</b><small>v0.1.53</small></div><span class="badge-ok">Up to date</span></div>
+          <div class="update-row"><div class="u-label"><b>Check for updates</b><small>Verify against latest release</small></div><button class="btn btn-outline" style="padding:8px 14px">Check now</button></div>
+          <div class="update-row"><div class="u-label"><b>Auto-update</b><small>Install on quit when verified</small></div><span class="toggle"></span></div>
+        </div>
+      </div>
+
+      <div class="s-block" id="support">
+        <h2>Report a bug</h2><p>Tell us what happened and how to reproduce it.</p>
+        <div class="s-card">
+          <div class="bug-grid">
+            <div class="field-row"><div class="field"><label>Category</label><select><option>App</option><option>Exam content</option><option>Camera or setup</option></select></div><div class="field"><label>Short title</label><input placeholder="What went wrong?" /></div></div>
+            <div class="field"><label>Details</label><textarea rows="4" placeholder="What did you do, what happened, what did you expect?"></textarea></div>
+            <button class="btn btn-primary">Send report</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="s-block" id="admin">
+        <h2>Admin</h2><p>Administrator security uses 2FA.</p>
+        <div class="s-card">
+          <div class="update-row" style="border:0;padding:0"><div class="u-label"><b>Admin panel</b><small>Requires 6-digit authenticator code</small></div><button class="btn btn-outline" style="padding:8px 14px">Open</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+document.querySelectorAll('.toggle').forEach(t => t.addEventListener('click', () => t.classList.toggle('off')));
+</script>
+</body></html>

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CrosslineEdu · Landing Page Demos (×5)</title>
+<link rel="stylesheet" href="brand.css" />
+<style>
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 3.5rem 1.5rem 4rem; }
+  .hero-block { margin-bottom: 3rem; }
+  .hero-block .cx-kicker { justify-content: flex-start; }
+  .hero-block h1 { font-family: var(--cx-sans); font-weight: 900; font-size: clamp(2.2rem, 4.4vw, 3.2rem); line-height: 1.08; letter-spacing: -.03em; margin: 1rem 0 1rem; color: var(--cx-ink); }
+  .hero-block h1 em { font-style: normal; color: var(--cx-red); }
+  .hero-block p { font-size: 1.08rem; color: var(--cx-ink-soft); line-height: 1.7; max-width: 64ch; }
+
+  /* swatch row — proves the brand is wired through */
+  .swatches { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.6rem; }
+  .swatch { display: flex; flex-direction: column; gap: .35rem; }
+  .swatch i { width: 64px; height: 64px; border-radius: 12px; display: block; border: 1px solid rgba(0,0,0,.06); }
+  .swatch small { font-family: var(--cx-mono); font-size: .68rem; color: var(--cx-ink-faint); letter-spacing: .03em; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem; }
+  .demo-card { display: flex; flex-direction: column; padding: 1.6rem; text-decoration: none; color: inherit; }
+  .demo-card:hover { text-decoration: none; }
+  .demo-card .num { font-family: var(--cx-mono); font-size: .76rem; color: var(--cx-red); font-weight: 600; letter-spacing: .08em; }
+  .demo-card h3 { font-family: var(--cx-sans); font-weight: 800; font-size: 1.3rem; margin: .5rem 0 .5rem; letter-spacing: -.02em; }
+  .demo-card p { font-size: .94rem; color: var(--cx-ink-soft); line-height: 1.6; margin: 0 0 1.2rem; flex: 1; }
+  .demo-card .go { display: inline-flex; align-items: center; gap: .4rem; font-weight: 700; font-size: .92rem; color: var(--cx-red); font-family: var(--cx-sans); }
+  .demo-card .tags { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  .note { margin-top: 3rem; padding: 1.2rem 1.4rem; border-radius: 12px; background: var(--cx-navy); color: #cdd6e4; font-size: .92rem; line-height: 1.6; }
+  .note b { color: #fff; } .note code { font-family: var(--cx-mono); color: #ff8a85; }
+</style>
+</head>
+<body>
+
+<div class="cx-demo-ribbon">
+  <span>CROSSLINEEDU · LANDING PAGE DEMOS</span>
+  <span><a href="../index.html">← back to live site</a></span>
+</div>
+
+<nav class="cx-nav">
+  <a class="cx-brand" href="#"><img class="cx-brand-mark" src="../assets/crossline-icon.png" alt="CrosslineEdu" /><span class="cx-brand-name">Crossline<b>Edu</b></span></a>
+  <div class="cx-nav-links">
+    <a href="#demos">The 5 demos</a>
+    <a href="#brand">Brand</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="hero-block">
+    <span class="cx-kicker">Redesign · 5 directions</span>
+    <h1>Five ways to sell the <em>real CSCA practice.</em></h1>
+    <p>Each demo showcases the Windows software from a different angle, all built on the official CrosslineEdu brand system — Crossline Red, Warm Paper, Ink, Deep Navy, Montserrat and JetBrains Mono. Click any card to open the full page.</p>
+
+    <div class="swatches" id="brand">
+      <div class="swatch"><i style="background:#B92B27"></i><small>Crossline Red<br/>#B92B27</small></div>
+      <div class="swatch"><i style="background:#F9F7F2"></i><small>Warm Paper<br/>#F9F7F2</small></div>
+      <div class="swatch"><i style="background:#333333"></i><small>Ink<br/>#333333</small></div>
+      <div class="swatch"><i style="background:#192436"></i><small>Deep Navy<br/>#192436</small></div>
+      <div class="swatch"><i style="background:#fff;border-color:#e6e2d8;display:grid;place-items:center;font-family:var(--cx-mono);font-size:.6rem;color:#8a8a8a">Aa</i><small>Montserrat<br/>+ JetBrains Mono</small></div>
+    </div>
+  </div>
+
+  <div class="grid" id="demos">
+    <a class="cx-card demo-card" href="01-two-camera-exam.html">
+      <span class="num">DEMO 01</span>
+      <h3>Two-Camera Exam</h3>
+      <div class="tags"><span class="cx-pill cx-pill-red">Hero</span><span class="cx-pill cx-pill-navy">Dual camera</span></div>
+      <p>The hero you asked for — a student mid-exam with the primary webcam and the secondary phone camera both live, next to the question interface. Features the dual-camera setup front and centre.</p>
+      <span class="go">Open demo →</span>
+    </a>
+
+    <a class="cx-card demo-card" href="02-dashboard.html">
+      <span class="num">DEMO 02</span>
+      <h3>Student Dashboard</h3>
+      <div class="tags"><span class="cx-pill cx-pill-red">Hero</span><span class="cx-pill cx-pill-navy">Analytics</span></div>
+      <p>Lead with the post-exam dashboard — latest score, average, improvement, biggest weaknesses, skipped questions and score history. 3D-tilt showcase on a navy stat band.</p>
+      <span class="go">Open demo →</span>
+    </a>
+
+    <a class="cx-card demo-card" href="03-setup-preflight.html">
+      <span class="num">DEMO 03</span>
+      <h3>Setup Preflight</h3>
+      <div class="tags"><span class="cx-pill cx-pill-red">Hero</span><span class="cx-pill cx-pill-navy">Checks</span></div>
+      <p>Showcase the equipment-check screen — webcam, microphone, network, facial recognition — with live mic waveform, pass/pending states, and a progress bar. Followed by the full 5-step flow.</p>
+      <span class="go">Open demo →</span>
+    </a>
+
+    <a class="cx-card demo-card" href="04-exam-interface.html">
+      <span class="num">DEMO 04</span>
+      <h3>Exam Interface</h3>
+      <div class="tags"><span class="cx-pill cx-pill-red">Dark hero</span><span class="cx-pill cx-pill-navy">Exam screen</span></div>
+      <p>A navy hero letting the white exam interface pop — question pane, four options, the 48-question palette with answered/current/flagged states, plus a live timer. Confidence through familiarity.</p>
+      <span class="go">Open demo →</span>
+    </a>
+
+    <a class="cx-card demo-card" href="05-results-analytics.html">
+      <span class="num">DEMO 05</span>
+      <h3>Results &amp; Analytics</h3>
+      <div class="tags"><span class="cx-pill cx-pill-red">Hero</span><span class="cx-pill cx-pill-navy">Review</span></div>
+      <p>The result release — score ring, marks-by-topic bar chart, and a per-question answer review (correct / wrong / skipped) with worked explanations. Closes with student testimonials.</p>
+      <span class="go">Open demo →</span>
+    </a>
+
+    <div class="cx-card demo-card" style="background:var(--cx-navy);color:#cdd6e4;border:0">
+      <span class="num" style="color:#ff8a85">NEXT</span>
+      <h3 style="color:#fff">Pick a direction</h3>
+      <p style="color:#a8b5c8">Tell me which demo is closest and what to change. I'll turn it into the real <code>showDownloadLanding()</code> and deploy it to <code>exam.crosslinecscatest.com</code>.</p>
+      <span class="go" style="color:#ff8a85">These are local only — not deployed</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>How to view:</b> these are static HTML files in <code>src/demos/</code>. They are <b>not deployed</b> and don't affect the live site or the Electron app. Run <code>npm run serve</code> from the project root and open <code>http://localhost:4173/demos/</code> — or just open any <code>.html</code> file directly in a browser.
+  </div>
+</main>
+
+</body>
+</html>

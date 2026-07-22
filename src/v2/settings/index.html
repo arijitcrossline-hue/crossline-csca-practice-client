@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings Demos — Crossline CSCA</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.body-wrap { max-width: 920px; margin: 0 auto; padding: 60px 36px; }
+.body-wrap h1 { font-size: 2rem; font-weight: 800; margin-bottom: 8px; }
+.body-wrap > p { font-size: 1rem; color: var(--muted); margin-bottom: 36px; }
+.demo-grid { display: grid; gap: 16px; }
+.demo-link {
+  display: flex; align-items: center; gap: 18px;
+  padding: 22px 26px; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--card); text-decoration: none; color: inherit;
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.demo-link:hover { transform: translateY(-3px); box-shadow: 0 14px 28px rgba(98,57,26,.08); border-color: var(--red); }
+.demo-num { width: 48px; height: 48px; border-radius: 12px; background: var(--red); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 1.3rem; flex-shrink: 0; }
+.demo-info { flex: 1; }
+.demo-info h2 { font-size: 1.12rem; font-weight: 800; margin-bottom: 3px; }
+.demo-info p { font-size: .86rem; color: var(--muted); }
+.demo-arrow { color: var(--red); font-size: 1.4rem; }
+.back-link { display: inline-flex; align-items: center; gap: 7px; font-size: .88rem; color: var(--ink-2); margin-bottom: 28px; font-weight: 600; }
+</style>
+</head><body>
+<div class="body-wrap">
+  <a class="back-link" href="../index.html">← Back to landing</a>
+  <h1>Settings page demos</h1>
+  <p>Five layout directions for the redesigned Settings page. All share the real dashboard sidebar and real content (profile, updates, bug report, admin). Pick one.</p>
+  <div class="demo-grid">
+    <a class="demo-link" href="01-tabs.html"><span class="demo-num">1</span><div class="demo-info"><h2>Tabbed</h2><p>Vertical section tabs on the left, content swaps on the right. Compact, no scroll.</p></div><span class="demo-arrow">→</span></a>
+    <a class="demo-link" href="02-cards.html"><span class="demo-num">2</span><div class="demo-info"><h2>Card stack</h2><p>Single column of big cards, generous spacing. Profile hero card on top. Scroll down.</p></div><span class="demo-arrow">→</span></a>
+    <a class="demo-link" href="03-split.html"><span class="demo-num">3</span><div class="demo-info"><h2>Split pane</h2><p>iOS-style grouped rows. Sub-nav left, detail right. Toggle-style settings.</p></div><span class="demo-arrow">→</span></a>
+    <a class="demo-link" href="04-accordion.html"><span class="demo-num">4</span><div class="demo-info"><h2>Accordion</h2><p>Collapsible sections, one open at a time. Minimal footprint, expand what you need.</p></div><span class="demo-arrow">→</span></a>
+    <a class="demo-link" href="05-clean.html"><span class="demo-num">5</span><div class="demo-info"><h2>Clean / modern</h2><p>Narrow centered, lots of whitespace, sticky pill-nav, toggle switches. Minimal.</p></div><span class="demo-arrow">→</span></a>
+  </div>
+</div>
+</body></html>

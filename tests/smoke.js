@@ -12,6 +12,8 @@ function createPortal({ desktop = true, pathname = "/src/index.html" } = {}) {
     runScripts: "dangerously",
     url: `http://localhost${pathname}`,
     beforeParse(window) {
+      window.CROSSLINE_DEMO_CODE = "246810";
+      window.CROSSLINE_DEMO_USER = { email: "student@example.com", username: "Demo Student", password: "demo123", verified: true };
       if (desktop) {
         window.examRuntime = {
           getInfo: async () => ({ platform: "test", practiceKiosk: false, contentProtection: true }),
@@ -124,6 +126,26 @@ async function browserGoogleOAuthFlow() {
   window.close();
 }
 
+async function verificationResendFlow() {
+  const { window } = createPortal();
+  const requested = [];
+  window.CrosslineApi = {
+    enabled: () => true,
+    requestVerification: async (email) => { requested.push(email); return { ok: true }; },
+    verify: async () => ({ token: "verified-token", user: { email: requested[0] } }),
+    setStudentToken: () => {},
+    exams: async () => ({ exams: [] })
+  };
+  window.eval('showAuth("login")');
+  fill(window, "#login-email", "pending@example.com");
+  click(window, "#resend-verification-login");
+  await tick();
+  assert.deepEqual(requested, ["pending@example.com"]);
+  assert.ok(window.document.querySelector("#verify-form"));
+  assert.match(window.document.body.textContent, /If this unverified account exists/);
+  window.close();
+}
+
 function legalPagesFlow() {
   for (const [pathname, title] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/data-deletion", "Data Deletion Instructions"]]) {
     const { window } = createPortal({ desktop: false, pathname });
@@ -182,6 +204,7 @@ async function waitUntil(assertion, timeoutMs = 3500) {
 async function studentFlow() {
   const portal = createPortal();
   const { window, runtimeEvents } = portal;
+  await waitFor(window, "#login-form");
   assert.match(window.document.body.textContent, /Welcome back/);
   assert.match(window.document.querySelector(".auth-v2-brand img").src, /crossline-icon\.png/);
   assert.match(window.document.querySelector(".auth-v2-brand").textContent, /Crossline/);
@@ -252,13 +275,13 @@ async function studentFlow() {
   click(window, "#network-check");
   await waitUntil(() => assert.equal(window.document.querySelector("#pairing-next").disabled, false));
   click(window, "#pairing-next");
-  assert.match(window.document.body.textContent, /Facial recognition/);
+  assert.match(window.document.body.textContent, /Face framing/);
   click(window, "#start-face-check");
   const qrImage = await waitFor(window, ".qr-box img");
   assert.match(qrImage.src, /api\.qrserver\.com/);
   assert.equal(window.document.querySelector("#simulate-phone"), null);
   await waitFor(window, "#room-scan-done");
-  assert.match(window.document.body.textContent, /360-degree room scan/);
+  assert.match(window.document.body.textContent, /Guided room walkthrough/);
   click(window, "#room-scan-done");
   await waitFor(window, "#accept-terms");
   assert.match(window.document.body.textContent, /Privacy terms/);
@@ -267,6 +290,7 @@ async function studentFlow() {
   click(window, "#accept-terms");
   assert.equal(window.document.querySelector("#launch-exam").disabled, false);
   click(window, "#launch-exam");
+  await waitFor(window, "#exit-button");
   assert.match(window.document.body.textContent, /Exam in progress/);
   click(window, "#exit-button");
   assert.ok(window.document.querySelector("#exit-practice-confirm"));
@@ -378,6 +402,45 @@ async function studentFlow() {
   window.close();
 }
 
+async function activeAttemptResumeFlow() {
+  const { window, runtimeEvents } = createPortal();
+  await waitFor(window, "#login-form");
+  const deadlineAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const startedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const attempt = {
+      session: { id: "resume-session", examId: "resume-exam", startedAt, deadlineAt },
+      exam: { id: "resume-exam", title: "Physics Resume Test", duration: 30, questions: [{ id: "resume-q1", text: "Resume question", answers: ["One", "Two", "Three", "Four"] }] },
+      answers: { "resume-q1": 1 },
+      flags: ["resume-q1"]
+    };
+  window.CrosslineApi = {
+    enabled: () => true,
+    login: async () => ({ token: "resume-token", user: { email: "resume@example.com", username: "Resume Student", verified: true } }),
+    setStudentToken() {},
+    exams: async () => ({ exams: [] }),
+    results: async () => ({ results: [] }),
+    leaderboard: async (filters) => ({ mode: filters.mode, entries: [], own: null, participantCount: 0 }),
+    activeSession: async () => attempt,
+    notifications: async () => ({ unread: 0, notifications: [] }),
+    saveAnswers: async () => ({ ok: true }),
+    event: async () => ({ ok: true })
+  };
+  window.eval('showAuth("login")');
+  submit(window, "#login-form");
+  await waitFor(window, "#start-exam-dashboard");
+  assert.match(window.document.querySelector(".dash-start-card").textContent, /Resume Physics Resume Test/);
+  assert.match(window.document.querySelector("#start-exam-dashboard").textContent, /Resume Exam/);
+  click(window, "#start-exam-dashboard");
+  assert.equal(runtimeEvents.enterKiosk, 1);
+  assert.equal(window.document.querySelector('input[name="answer"][value="1"]').checked, true);
+  assert.equal(window.document.querySelector("#flag-icon").textContent, "★");
+  click(window, "#exit-button");
+  click(window, "[data-confirm-accept]");
+  await waitFor(window, "#start-exam-dashboard");
+  assert.match(window.document.querySelector("#start-exam-dashboard").textContent, /Resume Exam/);
+  window.close();
+}
+
 async function adminCaptureNavigationFlow() {
   const portal = createPortal();
   const { window, runtimeEvents } = portal;
@@ -411,12 +474,13 @@ async function adminCaptureNavigationFlow() {
 
 async function registrationFlow() {
   const { window } = createPortal();
+  await waitFor(window, "#login-form");
   click(window, "[data-create-account]");
   fill(window, "#website-register-first-name", "Arijit");
   fill(window, "#website-register-last-name", "Sumit");
   fill(window, "#website-register-username", "Arijit");
   fill(window, "#website-register-email", "new.student@example.com");
-  fill(window, "#website-register-password", "secret12");
+  fill(window, "#website-register-password", "secret-password-12");
   submit(window, "#website-register-form");
   assert.match(window.document.body.textContent, /Verify your email/);
   fill(window, "#website-verify-code", "246810");
@@ -424,7 +488,7 @@ async function registrationFlow() {
   assert.match(window.document.body.textContent, /Your account is ready/);
   click(window, "[data-sign-in]");
   fill(window, "#login-email", "new.student@example.com");
-  fill(window, "#login-password", "secret12");
+  fill(window, "#login-password", "secret-password-12");
   submit(window, "#login-form");
   await waitFor(window, "#start-exam-dashboard");
   assert.match(window.document.body.textContent, /Welcome back, Arijit/);
@@ -433,18 +497,19 @@ async function registrationFlow() {
 
 async function passwordResetFlow() {
   const { window } = createPortal();
+  await waitFor(window, "#login-form");
   click(window, "#forgot-password");
   assert.match(window.document.body.textContent, /Reset your password/);
   fill(window, "#password-reset-email", "student@example.com");
   submit(window, "#password-reset-request-form");
   assert.match(window.document.body.textContent, /Choose a new password/);
   fill(window, "#password-reset-code", "246810");
-  fill(window, "#password-reset-new", "changed123");
-  fill(window, "#password-reset-confirm", "changed123");
+  fill(window, "#password-reset-new", "changed-password-123");
+  fill(window, "#password-reset-confirm", "changed-password-123");
   submit(window, "#password-reset-confirm-form");
   assert.match(window.document.body.textContent, /Password updated/);
   fill(window, "#login-email", "student@example.com");
-  fill(window, "#login-password", "changed123");
+  fill(window, "#login-password", "changed-password-123");
   submit(window, "#login-form");
   await waitFor(window, "#start-exam-dashboard");
   window.close();
@@ -562,8 +627,10 @@ async function adminFlow() {
   await landingFlow();
   await websiteRegistrationFieldsFlow();
   await browserGoogleOAuthFlow();
+  await verificationResendFlow();
   legalPagesFlow();
   await studentFlow();
+  await activeAttemptResumeFlow();
   await adminCaptureNavigationFlow();
   await registrationFlow();
   await passwordResetFlow();

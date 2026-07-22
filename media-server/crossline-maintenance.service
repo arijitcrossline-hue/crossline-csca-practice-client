@@ -1,0 +1,16 @@
+[Unit]
+Description=Crossline scheduled API maintenance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/crossline-media-server/current
+EnvironmentFile=/etc/crossline-maintenance.env
+ExecStart=/usr/bin/node /opt/crossline-media-server/current/maintenance.mjs
+User=crossline-media
+Group=crossline-media
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

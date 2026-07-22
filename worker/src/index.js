@@ -1,47 +1,19 @@
 import { buildResultEmail } from "./result-email.mjs";
-import { buildPasswordResetEmail, buildVerificationEmail } from "./transactional-email.mjs";
+import { buildAccountDeletionEmail, buildPasswordResetEmail, buildVerificationEmail } from "./transactional-email.mjs";
+import { ACCESS_PLANS, MAX_EXAM_ATTEMPTS, resolveExamAccess } from "./access-plans.mjs";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const VERIFY_TTL_SECONDS = 60 * 15;
-const MAX_STORED_EXAM_SESSIONS_PER_USER = 50;
+const PAIRING_TTL_SECONDS = 60 * 20;
+const MAX_CODE_ATTEMPTS = 5;
+const PASSWORD_MIN_LENGTH = 12;
+// Cloudflare Workers currently rejects PBKDF2 counts above 100,000.
+const PASSWORD_KDF_ITERATIONS = 100000;
+const LEGAL_VERSION = "2026-07-22";
 const QUESTION_IMPORT_LIMIT = 100;
 const EXAM_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Academic Chinese"];
 const EXAM_CATEGORIES = ["official", "original"];
-export const MAX_EXAM_ATTEMPTS = 3;
-export const ACCESS_PLANS = Object.freeze([
-  { id: "free", name: "Free starter", mockLimit: 1, priceUsd: 0, priceLabel: "Free", free: true },
-  {
-    id: "past-plus-3",
-    name: "Past papers + 3 Crossline mocks",
-    mockLimit: 3,
-    priceUsd: 17,
-    priceLabel: "$17–$40",
-    popular: true,
-    subjectPrices: { 1: 17, 2: 27, 3: 34.99, 4: 40 }
-  },
-  {
-    id: "past-plus-5",
-    name: "Past papers + 5 Crossline mocks",
-    mockLimit: 5,
-    priceUsd: 27,
-    priceLabel: "$27–$67",
-    subjectPrices: { 1: 27, 2: 47, 3: 59, 4: 67 }
-  }
-]);
-
-export function resolveExamAccess({ freeSample = false, official = false, hasPlan = false, unlocked = false, mocksRemaining = 0, attemptsUsed = 0 } = {}) {
-  const used = Math.max(0, Number(attemptsUsed || 0));
-  const attemptsRemaining = Math.max(0, MAX_EXAM_ATTEMPTS - used);
-  const included = Boolean(freeSample || (hasPlan && (official || unlocked || Number(mocksRemaining || 0) > 0)));
-  return {
-    included,
-    canStart: included && attemptsRemaining > 0,
-    attemptsUsed: used,
-    attemptsRemaining,
-    limitReached: included && attemptsRemaining === 0
-  };
-}
 const CHAPTER_CATALOG = {
   Physics: [
     "Kinematics",
@@ -130,26 +102,36 @@ export default {
     if (request.method === "OPTIONS") return cors(null, env);
 
     try {
-      const limited = checkRateLimit(request, env, url);
+      const limited = await checkRateLimit(request, env, url);
       if (limited) return limited;
       queueResultEmailSweep(env, ctx);
-      if (url.pathname === "/health") return json({ ok: true, service: "crossline-mocks-api" }, env);
+      if (url.pathname === "/health") return await healthCheck(env);
+      if (url.pathname === "/internal/maintenance" && request.method === "POST") return await internalMaintenance(request, env);
       if (url.pathname === "/auth/register" && request.method === "POST") return await register(request, env);
+      if (url.pathname === "/auth/verification/request" && request.method === "POST") return await requestEmailVerification(request, env);
       if (url.pathname === "/auth/verify" && request.method === "POST") return await verifyEmail(request, env);
       if (url.pathname === "/auth/login" && request.method === "POST") return await login(request, env);
       if (url.pathname === "/auth/password-reset/request" && request.method === "POST") return await requestPasswordReset(request, env);
       if (url.pathname === "/auth/password-reset/confirm" && request.method === "POST") return await confirmPasswordReset(request, env);
       if (url.pathname === "/auth/me" && request.method === "GET") return await authMe(request, env);
+      if (url.pathname === "/auth/logout" && request.method === "POST") return await logout(request, env);
       if (url.pathname === "/auth/profile" && request.method === "PATCH") return await updateProfile(request, env);
+      if (url.pathname === "/auth/deletion" && request.method === "GET") return await accountDeletionStatus(request, env);
+      if (url.pathname === "/auth/deletion" && request.method === "POST") return await requestAccountDeletion(request, env);
+      if (url.pathname === "/auth/deletion" && request.method === "DELETE") return await cancelAccountDeletion(request, env);
+      if (url.pathname === "/legal/accept" && request.method === "POST") return await acceptLegalTerms(request, env);
       if (url.pathname.match(/^\/auth\/oauth\/(google|facebook)\/start$/) && request.method === "GET") return await startOAuth(request, env, url);
       if (url.pathname.match(/^\/auth\/oauth\/(google|facebook)\/callback$/) && request.method === "GET") return await completeOAuth(request, env, url);
-      if (url.pathname === "/auth/oauth/complete" && request.method === "GET") return oauthCompletePage(env);
+      if (url.pathname === "/auth/oauth/complete" && request.method === "GET") return oauthCompletePage(env, url);
+      if (url.pathname === "/auth/oauth/exchange" && request.method === "POST") return await exchangeOAuthCode(request, env);
       if (url.pathname === "/admin/mfa/status" && request.method === "GET") return await adminMfaStatus(request, env);
       if (url.pathname === "/admin/mfa/setup" && request.method === "POST") return await adminMfaSetup(request, env);
       if (url.pathname === "/admin/mfa/enable" && request.method === "POST") return await adminMfaEnable(request, env);
       if (url.pathname === "/admin/session" && request.method === "POST") return await createAdminSession(request, env);
       if (url.pathname === "/admin/desktop-capture/authorize" && request.method === "POST") return await authorizeAdminDesktopCapture(request, env);
       if (url.pathname === "/admin/access" && request.method === "GET") return await adminListAccess(request, env);
+      if (url.pathname === "/admin/audit-log" && request.method === "GET") return await adminAuditLog(request, env);
+      if (url.pathname === "/admin/assets/migrate" && request.method === "POST") return await adminMigrateQuestionAssets(request, env);
       if (url.pathname === "/admin/access" && request.method === "POST") return await adminGrantAccess(request, env);
       if (url.pathname.match(/^\/admin\/access\/[^/]+$/) && request.method === "DELETE") return await adminRevokeAccess(request, env, url);
       if (url.pathname === "/plans" && request.method === "GET") return await studentPlans(request, env);
@@ -170,6 +152,9 @@ export default {
       if (url.pathname === "/admin/exams" && request.method === "POST") return await adminCreateExam(request, env);
       if (url.pathname.match(/^\/admin\/exams\/[^/]+$/) && request.method === "PATCH") return await adminUpdateExam(request, env, url);
       if (url.pathname.match(/^\/admin\/exams\/[^/]+$/) && request.method === "DELETE") return await adminDeleteExam(request, env, url);
+      if (url.pathname.match(/^\/admin\/exams\/[^/]+\/publish$/) && request.method === "POST") return await adminSetExamPublished(request, env, url, true);
+      if (url.pathname.match(/^\/admin\/exams\/[^/]+\/unpublish$/) && request.method === "POST") return await adminSetExamPublished(request, env, url, false);
+      if (url.pathname.match(/^\/admin\/exams\/[^/]+\/restore$/) && request.method === "POST") return await adminRestoreExam(request, env, url);
       if (url.pathname.match(/^\/admin\/exams\/[^/]+\/questions\/import$/) && request.method === "POST") return await adminImportQuestions(request, env, url);
       if (url.pathname.match(/^\/admin\/exams\/[^/]+\/questions$/) && request.method === "POST") return await adminCreateQuestion(request, env, url);
       if (url.pathname.match(/^\/admin\/exams\/[^/]+\/questions\/[^/]+$/) && request.method === "PUT") return await adminUpdateQuestion(request, env, url);
@@ -184,22 +169,65 @@ export default {
       if (url.pathname === "/admin/ai/chat" && request.method === "POST") return await adminAiChat(request, env);
       if (url.pathname === "/admin/ai/deploy" && request.method === "POST") return await adminAiDeploy(request, env);
       if (url.pathname === "/sessions" && request.method === "POST") return await createExamSession(request, env);
+      if (url.pathname === "/sessions/active" && request.method === "GET") return await activeExamSession(request, env);
       if (url.pathname.match(/^\/sessions\/[^/]+\/status$/) && request.method === "GET") return await sessionStatus(request, env, url);
+      if (url.pathname.match(/^\/sessions\/[^/]+\/start$/) && request.method === "POST") return await startExamSession(request, env, url);
       if (url.pathname.match(/^\/sessions\/[^/]+\/events$/) && request.method === "POST") return await appendSessionEvent(request, env, url);
       if (url.pathname.match(/^\/sessions\/[^/]+\/answers$/) && request.method === "POST") return await saveAnswers(request, env, url, ctx);
       if (url.pathname === "/connect" && request.method === "GET") return phoneConnectPage(url, env);
       if (url.pathname === "/pair-phone" && request.method === "POST") return await pairPhone(request, env);
       return json({ error: "Not found" }, env, 404);
     } catch (error) {
-      console.error(error);
       const status = error.status || 500;
-      return json({ error: status === 500 ? "Server error" : error.message, detail: error.message }, env, status);
+      if (status >= 500) console.error(error);
+      return json({ error: status === 500 ? "Server error" : error.message }, env, status);
     }
   },
   async scheduled(_event, env, _ctx) {
-    await sendDueResultEmails(env);
+    await runScheduledMaintenance(env);
   }
 };
+
+async function healthCheck(env) {
+  const checkedAt = isoNow();
+  try {
+    const database = await env.DB.prepare("SELECT 1 AS ready").first();
+    if (Number(database?.ready) !== 1) throw new Error("Database readiness query returned an invalid result.");
+    return json({
+      ok: true,
+      service: "crossline-mocks-api",
+      database: "ready",
+      version: String(env.BUILD_VERSION || "development"),
+      checkedAt
+    }, env);
+  } catch (error) {
+    console.error("Health check failed", error);
+    return json({
+      ok: false,
+      service: "crossline-mocks-api",
+      database: "unavailable",
+      version: String(env.BUILD_VERSION || "development"),
+      checkedAt
+    }, env, 503);
+  }
+}
+
+async function internalMaintenance(request, env) {
+  const supplied = request.headers.get("x-crossline-maintenance-secret") || "";
+  if (!env.MAINTENANCE_SECRET || !(await timingSafeEqual(supplied, env.MAINTENANCE_SECRET))) {
+    return json({ error: "Not found" }, env, 404);
+  }
+  return json(await runScheduledMaintenance(env), env);
+}
+
+async function runScheduledMaintenance(env) {
+  await finalizeExpiredExamSessions(env);
+  await sendDueResultEmails(env);
+  await processAccountDeletions(env);
+  await cleanupExpiredSecurityRecords(env);
+  const assets = await migrateQuestionAssetBatch(env);
+  return { ok: true, assets, completedAt: isoNow() };
+}
 
 async function register(request, env) {
   const body = await readJson(request);
@@ -209,22 +237,39 @@ async function register(request, env) {
   const lastName = normalizePersonName(body.lastName || body.last_name);
   const avatarUrl = normalizeAvatarUrl(body.avatarUrl || body.avatar_url);
   const password = String(body.password || "");
-  if (!email || !username || password.length < 6) return json({ error: "Use a username, a valid email, and at least 6 password characters." }, env, 400);
+  if (!validEmail(email) || !username || !validPassword(password)) return json({ error: passwordRequirementsMessage() }, env, 400);
+
+  const existing = await env.DB.prepare("SELECT id, verified_at FROM users WHERE email = ?").bind(email).first();
+  if (existing) {
+    return json({
+      error: existing.verified_at
+        ? "An account already exists for this email. Sign in or reset your password."
+        : "This email is already awaiting verification. Request a new code from the sign-in screen."
+    }, env, 409);
+  }
 
   const now = isoNow();
   const userId = crypto.randomUUID();
-  const passwordHash = await hashSecret(password, env.PASSWORD_PEPPER || "");
+  const passwordHash = await hashPassword(password, env);
   await env.DB.prepare(
-    "INSERT INTO users (id, email, username, first_name, last_name, avatar_url, password_hash, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?) ON CONFLICT(email) DO UPDATE SET username = excluded.username, first_name = excluded.first_name, last_name = excluded.last_name, avatar_url = excluded.avatar_url, password_hash = excluded.password_hash, verified_at = NULL"
+    "INSERT INTO users (id, email, username, first_name, last_name, avatar_url, password_hash, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)"
   ).bind(userId, email, username, firstName || null, lastName || null, avatarUrl || null, passwordHash, now).run();
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const codeHash = await hashSecret(code, env.PASSWORD_PEPPER || "");
+  const code = randomNumericCode();
+  const codeHash = await hashSecret(code, passwordPepper(env));
   await env.DB.prepare(
-    "INSERT INTO email_verifications (email, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, created_at = excluded.created_at"
+    "INSERT INTO email_verifications (email, code_hash, expires_at, failed_attempts, created_at) VALUES (?, ?, ?, 0, ?)"
   ).bind(email, codeHash, new Date(Date.now() + VERIFY_TTL_SECONDS * 1000).toISOString(), now).run();
 
-  await sendVerificationEmail(env, email, code);
+  try {
+    await sendVerificationEmail(env, email, code);
+  } catch (error) {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM email_verifications WHERE email = ?").bind(email),
+      env.DB.prepare("DELETE FROM users WHERE id = ? AND verified_at IS NULL").bind(userId)
+    ]);
+    throw error;
+  }
   return json({ ok: true, message: "Verification code sent." }, env);
 }
 
@@ -232,9 +277,13 @@ async function verifyEmail(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const code = String(body.code || "");
-  const row = await env.DB.prepare("SELECT code_hash, expires_at FROM email_verifications WHERE email = ?").bind(email).first();
+  const row = await env.DB.prepare("SELECT code_hash, expires_at, failed_attempts FROM email_verifications WHERE email = ?").bind(email).first();
   if (!row || new Date(row.expires_at).getTime() < Date.now()) return json({ error: "Verification code expired." }, env, 400);
-  if (row.code_hash !== await hashSecret(code, env.PASSWORD_PEPPER || "")) return json({ error: "Incorrect verification code." }, env, 400);
+  if (Number(row.failed_attempts || 0) >= MAX_CODE_ATTEMPTS) return json({ error: "Too many incorrect codes. Request a new verification code." }, env, 429);
+  if (!(await timingSafeEqual(row.code_hash, await hashSecret(code, passwordPepper(env))))) {
+    await env.DB.prepare("UPDATE email_verifications SET failed_attempts = failed_attempts + 1 WHERE email = ?").bind(email).run();
+    return json({ error: "Incorrect verification code." }, env, 400);
+  }
 
   await env.DB.prepare("UPDATE users SET verified_at = ? WHERE email = ?").bind(isoNow(), email).run();
   await env.DB.prepare("DELETE FROM email_verifications WHERE email = ?").bind(email).run();
@@ -243,12 +292,51 @@ async function verifyEmail(request, env) {
   return json({ user: publicUser(user, env), token: await createSession(env, user.id, "student") }, env);
 }
 
+async function requestEmailVerification(request, env) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  if (!validEmail(email)) return json({ error: "Enter a valid email address." }, env, 400);
+  if (!env.RESEND_API_KEY && env.EMAIL_DELIVERY_MODE !== "log") {
+    return json({ error: "Verification email is temporarily unavailable." }, env, 503);
+  }
+
+  const user = await env.DB.prepare("SELECT id, verified_at FROM users WHERE email = ?").bind(email).first();
+  if (user && !user.verified_at) {
+    const previous = await env.DB.prepare(
+      "SELECT code_hash, expires_at, failed_attempts, created_at FROM email_verifications WHERE email = ?"
+    ).bind(email).first();
+    const code = randomNumericCode();
+    const codeHash = await hashSecret(code, passwordPepper(env));
+    const now = isoNow();
+    await env.DB.prepare(
+      "INSERT INTO email_verifications (email, code_hash, expires_at, failed_attempts, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, failed_attempts = 0, created_at = excluded.created_at"
+    ).bind(email, codeHash, new Date(Date.now() + VERIFY_TTL_SECONDS * 1000).toISOString(), now).run();
+    try {
+      await sendVerificationEmail(env, email, code);
+    } catch (error) {
+      console.error("Verification resend failed", error);
+      if (previous) {
+        await env.DB.prepare(
+          "INSERT INTO email_verifications (email, code_hash, expires_at, failed_attempts, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, failed_attempts = excluded.failed_attempts, created_at = excluded.created_at"
+        ).bind(email, previous.code_hash, previous.expires_at, previous.failed_attempts, previous.created_at).run();
+      } else {
+        await env.DB.prepare("DELETE FROM email_verifications WHERE email = ?").bind(email).run();
+      }
+    }
+  }
+  return json({ ok: true, message: "If this unverified account exists, a new code has been sent." }, env);
+}
+
 async function login(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const row = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin, password_hash, verified_at FROM users WHERE email = ?").bind(email).first();
-  if (!row || !row.verified_at || row.password_hash !== await hashSecret(String(body.password || ""), env.PASSWORD_PEPPER || "")) {
+  const password = String(body.password || "");
+  if (!row || !row.verified_at || !(await verifyPassword(password, row.password_hash, env))) {
     return json({ error: "Check your credentials or finish email verification." }, env, 401);
+  }
+  if (!String(row.password_hash || "").startsWith("pbkdf2-sha256$")) {
+    await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password, env), row.id).run();
   }
   await ensureCreatorAdmin(env, row);
   return json({ user: publicUser(row, env), token: await createSession(env, row.id, "student") }, env);
@@ -257,13 +345,13 @@ async function login(request, env) {
 async function requestPasswordReset(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
-  if (!email) return json({ error: "Enter a valid email address." }, env, 400);
+  if (!validEmail(email)) return json({ error: "Enter a valid email address." }, env, 400);
   const user = await env.DB.prepare("SELECT id, verified_at FROM users WHERE email = ?").bind(email).first();
   if (user?.verified_at) {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    const codeHash = await hashSecret(code, env.PASSWORD_PEPPER || "");
+    const code = randomNumericCode();
+    const codeHash = await hashSecret(code, passwordPepper(env));
     const now = isoNow();
-    await env.DB.prepare("INSERT INTO password_resets (email, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, created_at = excluded.created_at")
+    await env.DB.prepare("INSERT INTO password_resets (email, code_hash, expires_at, failed_attempts, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, failed_attempts = 0, created_at = excluded.created_at")
       .bind(email, codeHash, new Date(Date.now() + VERIFY_TTL_SECONDS * 1000).toISOString(), now).run();
     await sendPasswordResetEmail(env, email, code);
   }
@@ -275,15 +363,17 @@ async function confirmPasswordReset(request, env) {
   const email = normalizeEmail(body.email);
   const code = String(body.code || "").trim();
   const password = String(body.password || "");
-  if (!email || !/^\d{6}$/.test(code) || password.length < 6) return json({ error: "Enter the six-digit code and a password of at least 6 characters." }, env, 400);
-  const reset = await env.DB.prepare("SELECT code_hash, expires_at FROM password_resets WHERE email = ?").bind(email).first();
-  if (!reset || new Date(reset.expires_at).getTime() < Date.now() || reset.code_hash !== await hashSecret(code, env.PASSWORD_PEPPER || "")) {
+  if (!validEmail(email) || !/^\d{6}$/.test(code) || !validPassword(password)) return json({ error: passwordRequirementsMessage("Enter the six-digit code and ") }, env, 400);
+  const reset = await env.DB.prepare("SELECT code_hash, expires_at, failed_attempts FROM password_resets WHERE email = ?").bind(email).first();
+  if (Number(reset?.failed_attempts || 0) >= MAX_CODE_ATTEMPTS) return json({ error: "Too many incorrect codes. Request a new reset code." }, env, 429);
+  if (!reset || new Date(reset.expires_at).getTime() < Date.now() || !(await timingSafeEqual(reset.code_hash, await hashSecret(code, passwordPepper(env))))) {
+    if (reset) await env.DB.prepare("UPDATE password_resets SET failed_attempts = failed_attempts + 1 WHERE email = ?").bind(email).run();
     return json({ error: "The reset code is incorrect or expired." }, env, 400);
   }
   const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND verified_at IS NOT NULL").bind(email).first();
   if (!user) return json({ error: "The reset code is incorrect or expired." }, env, 400);
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashSecret(password, env.PASSWORD_PEPPER || ""), user.id),
+    env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password, env), user.id),
     env.DB.prepare("DELETE FROM password_resets WHERE email = ?").bind(email),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id)
   ]);
@@ -300,6 +390,15 @@ async function authMe(request, env) {
   }
   await ensureCreatorAdmin(env, user);
   return json({ user: publicUser(user, env) }, env);
+}
+
+async function logout(request, env) {
+  const token = bearerToken(request);
+  if (token) {
+    const tokenHash = await hashSessionToken(token, env);
+    await env.DB.prepare("DELETE FROM sessions WHERE token IN (?, ?)").bind(tokenHash, token).run();
+  }
+  return json({ ok: true }, env);
 }
 
 async function updateProfile(request, env) {
@@ -321,6 +420,49 @@ async function updateProfile(request, env) {
   return json({ user: publicUser({ ...current, username, first_name: firstName, last_name: lastName, avatar_url: avatarUrl }, env) }, env);
 }
 
+async function acceptLegalTerms(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const body = await readJson(request);
+  if (String(body.version || "") !== LEGAL_VERSION) return json({ error: "Please review the current privacy terms before starting." }, env, 409);
+  await env.DB.prepare("INSERT INTO legal_acceptances (user_id, version, accepted_at) VALUES (?, ?, ?) ON CONFLICT(user_id, version) DO NOTHING")
+    .bind(auth.userId, LEGAL_VERSION, isoNow()).run();
+  return json({ ok: true, version: LEGAL_VERSION }, env);
+}
+
+async function accountDeletionStatus(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const row = await env.DB.prepare("SELECT requested_at, scheduled_for FROM account_deletion_requests WHERE user_id = ?").bind(auth.userId).first();
+  return json({ request: row ? { requestedAt: row.requested_at, scheduledFor: row.scheduled_for } : null }, env);
+}
+
+async function requestAccountDeletion(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const body = await readJson(request);
+  if (String(body.confirmation || "") !== "DELETE") return json({ error: "Type DELETE to confirm account deletion." }, env, 400);
+  const user = await env.DB.prepare("SELECT email, is_admin FROM users WHERE id = ?").bind(auth.userId).first();
+  if (!user) return json({ error: "Account not found." }, env, 404);
+  if (normalizeEmail(user.email) === creatorAdminEmail(env)) return json({ error: "The creator account requires a manual ownership transfer before deletion." }, env, 409);
+  if (Number(user.is_admin)) return json({ error: "Remove administrator access before requesting account deletion." }, env, 409);
+  const requestedAt = isoNow();
+  const scheduledFor = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO account_deletion_requests (user_id, requested_at, scheduled_for) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET requested_at = excluded.requested_at, scheduled_for = excluded.scheduled_for")
+    .bind(auth.userId, requestedAt, scheduledFor).run();
+  let emailSent = true;
+  try { await sendAccountDeletionEmail(env, user.email, { scheduledFor }); }
+  catch (error) { emailSent = false; console.error("Account deletion notice failed", error); }
+  return json({ ok: true, emailSent, request: { requestedAt, scheduledFor } }, env);
+}
+
+async function cancelAccountDeletion(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  const user = await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(auth.userId).first();
+  await env.DB.prepare("DELETE FROM account_deletion_requests WHERE user_id = ?").bind(auth.userId).run();
+  let emailSent = true;
+  try { if (user?.email) await sendAccountDeletionEmail(env, user.email, { cancelled: true }); }
+  catch (error) { emailSent = false; console.error("Account deletion cancellation notice failed", error); }
+  return json({ ok: true, emailSent }, env);
+}
+
 async function startOAuth(request, env, url) {
   const provider = url.pathname.split("/")[3];
   const config = oauthProviderConfig(provider, env);
@@ -328,18 +470,20 @@ async function startOAuth(request, env, url) {
     return oauthErrorPage("Social sign-in is not configured yet. Ask Crossline to add the provider credentials.", env, 503);
   }
 
-  const state = await createOAuthState({
-    provider,
-    desktop: url.searchParams.get("desktop") === "1",
-    expiresAt: Date.now() + 10 * 60 * 1000
-  }, env.OAUTH_STATE_SECRET);
+  const state = randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~", 48);
+  const verifier = randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~", 64);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO oauth_flows (state_hash, provider, code_verifier, desktop, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(await hashSecret(state, env.OAUTH_STATE_SECRET), provider, verifier, url.searchParams.get("desktop") === "1" ? 1 : 0, expiresAt, isoNow()).run();
   const redirectUri = `${url.origin}/auth/oauth/${provider}/callback`;
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: config.scope,
-    state
+    state,
+    code_challenge: await sha256Base64Url(verifier),
+    code_challenge_method: "S256"
   });
   if (provider === "google") params.set("access_type", "offline");
   return Response.redirect(`${config.authorizeUrl}?${params.toString()}`, 302);
@@ -349,8 +493,12 @@ async function completeOAuth(request, env, url) {
   const provider = url.pathname.split("/")[3];
   const providerError = url.searchParams.get("error");
   if (providerError) return oauthErrorPage(`Social sign-in was cancelled: ${providerError}.`, env, 400);
-  const state = await verifyOAuthState(url.searchParams.get("state") || "", env.OAUTH_STATE_SECRET || "");
-  if (!state || state.provider !== provider || state.expiresAt < Date.now()) return oauthErrorPage("Social sign-in expired. Please try again.", env, 400);
+  const stateValue = url.searchParams.get("state") || "";
+  const stateHash = stateValue && env.OAUTH_STATE_SECRET ? await hashSecret(stateValue, env.OAUTH_STATE_SECRET) : "";
+  const state = stateHash ? await env.DB.prepare("SELECT provider, code_verifier, desktop, expires_at FROM oauth_flows WHERE state_hash = ?").bind(stateHash).first() : null;
+  if (!state || state.provider !== provider || new Date(state.expires_at).getTime() < Date.now()) return oauthErrorPage("Social sign-in expired. Please try again.", env, 400);
+  const consumed = await env.DB.prepare("DELETE FROM oauth_flows WHERE state_hash = ?").bind(stateHash).run();
+  if (Number(consumed.meta?.changes || 0) !== 1) return oauthErrorPage("Social sign-in has already been used. Please try again.", env, 400);
 
   const config = oauthProviderConfig(provider, env);
   const code = url.searchParams.get("code") || "";
@@ -359,34 +507,44 @@ async function completeOAuth(request, env, url) {
   const tokenResponse = await fetch(config.tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, code, redirect_uri: redirectUri, grant_type: "authorization_code" })
+    body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, code, redirect_uri: redirectUri, grant_type: "authorization_code", code_verifier: state.code_verifier })
   });
   const tokenPayload = await tokenResponse.json().catch(() => ({}));
   if (!tokenResponse.ok || !tokenPayload.access_token) return oauthErrorPage("Social sign-in token exchange failed.", env, 502);
 
   const profile = await fetchOAuthProfile(provider, tokenPayload.access_token);
-  if (!profile?.subject || !profile.email) return oauthErrorPage("The provider did not return a verified email address.", env, 400);
+  if (!profile?.subject || !validEmail(profile.email)) return oauthErrorPage("The provider did not return a verified email address.", env, 400);
   const user = await upsertOAuthUser(env, provider, profile);
-  const token = await createSession(env, user.id, "student");
-  if (state.desktop) {
-    const params = new URLSearchParams({ token, user: JSON.stringify(publicUser(user, env)) });
-    return Response.redirect(`${url.origin}/auth/oauth/complete?${params.toString()}`, 302);
-  }
-  return oauthBrowserCompletePage(token, publicUser(user, env), env);
+  const exchangeCode = randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~", 64);
+  await env.DB.prepare("INSERT INTO oauth_exchange_codes (code_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+    .bind(await hashSecret(exchangeCode, env.OAUTH_STATE_SECRET), user.id, new Date(Date.now() + 2 * 60 * 1000).toISOString(), isoNow()).run();
+  const params = new URLSearchParams({ code: exchangeCode, desktop: state.desktop ? "1" : "0" });
+  return Response.redirect(`${url.origin}/auth/oauth/complete?${params.toString()}`, 302);
 }
 
-function oauthCompletePage(env) {
-  return new Response("<!doctype html><title>Crossline sign-in</title><p>You can close this window and return to Crossline.</p>", {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
-  });
-}
-
-function oauthBrowserCompletePage(token, user, env) {
+function oauthCompletePage(env, url) {
   const appOrigin = JSON.stringify(env.APP_ORIGIN || "");
-  const payload = JSON.stringify({ type: "crossline-oauth-complete", token, user });
-  return new Response(`<!doctype html><title>Crossline sign-in complete</title><body><p>Sign-in complete. You can close this window.</p><script>const payload=${payload};const appOrigin=${appOrigin};window.opener?.postMessage(payload, appOrigin);</script></body>`, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+  const code = JSON.stringify(String(url.searchParams.get("code") || ""));
+  const nonce = randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 24);
+  return new Response(`<!doctype html><meta name="referrer" content="no-referrer"><title>Crossline sign-in complete</title><body><p id="status">Finishing sign-in...</p><script nonce="${nonce}">const code=${code};const appOrigin=${appOrigin};fetch('/auth/oauth/exchange',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})}).then(async response=>{const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Sign-in failed.');window.opener?.postMessage({type:'crossline-oauth-complete',...payload},appOrigin);document.getElementById('status').textContent='Sign-in complete. You can close this window.'}).catch(error=>{document.getElementById('status').textContent=error.message})</script></body>`, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'none'; frame-ancestors 'none'; base-uri 'none'` }
   });
+}
+
+async function exchangeOAuthCode(request, env) {
+  const body = await readJson(request);
+  const code = String(body.code || "");
+  if (!code || !env.OAUTH_STATE_SECRET) return json({ error: "The sign-in code is invalid or expired." }, env, 400);
+  const codeHash = await hashSecret(code, env.OAUTH_STATE_SECRET);
+  const exchange = await env.DB.prepare("SELECT user_id, expires_at, used_at FROM oauth_exchange_codes WHERE code_hash = ?").bind(codeHash).first();
+  if (!exchange || exchange.used_at || new Date(exchange.expires_at).getTime() < Date.now()) return json({ error: "The sign-in code is invalid or expired." }, env, 400);
+  const usedAt = isoNow();
+  const consumed = await env.DB.prepare("UPDATE oauth_exchange_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
+    .bind(usedAt, codeHash, usedAt).run();
+  if (Number(consumed.meta?.changes || 0) !== 1) return json({ error: "The sign-in code has already been used." }, env, 400);
+  const user = await env.DB.prepare("SELECT id, email, username, first_name, last_name, avatar_url, is_admin FROM users WHERE id = ?").bind(exchange.user_id).first();
+  if (!user) return json({ error: "The account is no longer available." }, env, 404);
+  return json({ token: await createSession(env, user.id, "student"), user: publicUser(user, env) }, env);
 }
 
 function oauthErrorPage(message, env, status = 400) {
@@ -419,7 +577,7 @@ async function fetchOAuthProfile(provider, accessToken) {
   if (provider === "google") {
     const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { authorization: `Bearer ${accessToken}` } });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body.sub || !body.email) return null;
+    if (!response.ok || !body.sub || !body.email || body.email_verified !== true) return null;
     return {
       subject: String(body.sub),
       email: normalizeEmail(body.email),
@@ -450,7 +608,7 @@ async function upsertOAuthUser(env, provider, profile) {
   if (!user) {
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id, email, username, first_name, last_name, avatar_url, password_hash, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(id, profile.email, profile.username, profile.firstName || null, profile.lastName || null, profile.avatarUrl || null, await hashSecret(`oauth:${crypto.randomUUID()}`, env.PASSWORD_PEPPER || ""), now, now).run();
+      .bind(id, profile.email, profile.username, profile.firstName || null, profile.lastName || null, profile.avatarUrl || null, await hashPassword(`oauth:${crypto.randomUUID()}:${crypto.randomUUID()}`, env), now, now).run();
     user = { id, email: profile.email, username: profile.username, first_name: profile.firstName, last_name: profile.lastName, avatar_url: profile.avatarUrl, is_admin: profile.email === creatorAdminEmail(env) ? 1 : 0 };
   } else {
     await env.DB.prepare("UPDATE users SET first_name = COALESCE(NULLIF(?, ''), first_name), last_name = COALESCE(NULLIF(?, ''), last_name), avatar_url = COALESCE(NULLIF(?, ''), avatar_url) WHERE id = ?")
@@ -487,11 +645,13 @@ async function adminMfaEnable(request, env) {
   const secret = await decryptStoredTotp(admin, env);
   if (!secret || !(await verifyTotp(secret, body.code))) return json({ error: "The authenticator code is incorrect or expired." }, env, 401);
   const now = isoNow();
+  const recoveryCodes = Array.from({ length: 10 }, () => `${randomCharacters("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 5)}-${randomCharacters("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 5)}`);
+  const recoveryHashes = await Promise.all(recoveryCodes.map((code) => hashSecret(code, env.ADMIN_MFA_ENCRYPTION_KEY)));
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET totp_enabled_at = ? WHERE id = ?").bind(now, admin.id),
+    env.DB.prepare("UPDATE users SET totp_enabled_at = ?, mfa_recovery_hashes_json = ? WHERE id = ?").bind(now, JSON.stringify(recoveryHashes), admin.id),
     env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'mfa_enabled', ?, ?)").bind(crypto.randomUUID(), admin.id, admin.email, now)
   ]);
-  return json({ ok: true, enabled: true }, env);
+  return json({ ok: true, enabled: true, recoveryCodes }, env);
 }
 
 async function createAdminSession(request, env) {
@@ -499,10 +659,12 @@ async function createAdminSession(request, env) {
   const body = await readJson(request);
   if (!admin.totp_enabled_at) return json({ error: "Set up two-factor authentication before opening the admin panel.", setupRequired: true }, env, 403);
   const secret = await decryptStoredTotp(admin, env);
-  if (!secret || !(await verifyTotp(secret, body.code))) return json({ error: "The authenticator code is incorrect or expired." }, env, 401);
+  const totpValid = secret && await verifyTotp(secret, body.code);
+  const recoveryValid = totpValid ? false : await consumeRecoveryCode(env, admin, body.code);
+  if (!totpValid && !recoveryValid) return json({ error: "The authenticator or recovery code is incorrect or expired." }, env, 401);
   const now = isoNow();
-  await env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_session_created', ?, ?)")
-    .bind(crypto.randomUUID(), admin.id, admin.email, now).run();
+  await env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(crypto.randomUUID(), admin.id, recoveryValid ? "admin_session_recovery_code" : "admin_session_created", admin.email, now).run();
   return json({ token: await createSession(env, admin.id, "admin", 2 * 60 * 60), admin: { email: admin.email } }, env);
 }
 
@@ -521,10 +683,24 @@ async function adminListAccess(request, env) {
   return json({ admins: rows.results.map((row) => ({ email: row.email, username: row.username, mfaEnabled: Boolean(row.totp_enabled_at), createdAt: row.created_at })) }, env);
 }
 
+async function adminAuditLog(request, env) {
+  await requireAuth(request, env, "admin");
+  const rows = await env.DB.prepare(
+    `SELECT l.id, l.action, l.target_email, l.created_at, u.email AS actor_email
+       FROM admin_audit_log l
+       JOIN users u ON u.id = l.actor_user_id
+      ORDER BY l.created_at DESC
+      LIMIT 100`
+  ).all();
+  return json({ events: rows.results.map((row) => ({ id: row.id, action: row.action, targetEmail: row.target_email, actorEmail: row.actor_email, createdAt: row.created_at })) }, env);
+}
+
 async function adminGrantAccess(request, env) {
   const auth = await requireAuth(request, env, "admin");
   const body = await readJson(request);
+  if (!(await verifyAdminStepUp(env, auth.userId, body.code))) return json({ error: "Enter a current authenticator code to grant administrator access." }, env, 401);
   const email = normalizeEmail(body.email);
+  if (!validEmail(email)) return json({ error: "Enter a valid email address." }, env, 400);
   const target = await env.DB.prepare("SELECT id, email FROM users WHERE email = ? AND verified_at IS NOT NULL").bind(email).first();
   if (!target) return json({ error: "That email must first have a verified Crossline student account." }, env, 404);
   const now = isoNow();
@@ -537,13 +713,15 @@ async function adminGrantAccess(request, env) {
 
 async function adminRevokeAccess(request, env, url) {
   const auth = await requireAuth(request, env, "admin");
+  const body = await readJson(request);
+  if (!(await verifyAdminStepUp(env, auth.userId, body.code))) return json({ error: "Enter a current authenticator code to remove administrator access." }, env, 401);
   const email = normalizeEmail(decodeURIComponent(url.pathname.split("/")[3] || ""));
   if (!email || email === creatorAdminEmail(env)) return json({ error: "The creator administrator cannot be removed." }, env, 400);
   const target = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND is_admin = 1").bind(email).first();
   if (!target) return json({ error: "Administrator not found." }, env, 404);
   const now = isoNow();
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET is_admin = 0, totp_secret_encrypted = NULL, totp_enabled_at = NULL WHERE id = ?").bind(target.id),
+    env.DB.prepare("UPDATE users SET is_admin = 0, totp_secret_encrypted = NULL, totp_enabled_at = NULL, mfa_recovery_hashes_json = NULL WHERE id = ?").bind(target.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND role = 'admin'").bind(target.id),
     env.DB.prepare("INSERT INTO admin_audit_log (id, actor_user_id, action, target_email, created_at) VALUES (?, ?, 'admin_revoked', ?, ?)").bind(crypto.randomUUID(), auth.userId, email, now)
   ]);
@@ -606,7 +784,7 @@ async function adminGrantStudentPlan(request, env) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const plan = accessPlanById(body.planId);
-  if (!email || !plan) return json({ error: "Choose a valid student email and access package." }, env, 400);
+  if (!validEmail(email) || !plan) return json({ error: "Choose a valid student email and access package." }, env, 400);
   const target = await env.DB.prepare("SELECT id, email FROM users WHERE email = ? AND verified_at IS NOT NULL").bind(email).first();
   if (!target) return json({ error: "That email must first have a verified Crossline student account." }, env, 404);
   const now = isoNow();
@@ -646,11 +824,11 @@ async function adminRevokeStudentPlan(request, env, url) {
 
 async function listExams(request, env) {
   const auth = await requireAuth(request, env, "student");
-  const exams = await fetchExams(env, true);
+  const exams = await fetchExams(env, true, false);
   const planSummary = await studentPlanSummary(env, auth.userId);
   const [unlockRows, attemptRows] = await Promise.all([
     env.DB.prepare("SELECT exam_id FROM student_mock_unlocks WHERE user_id = ?").bind(auth.userId).all(),
-    env.DB.prepare("SELECT exam_id, COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND submitted_at IS NOT NULL GROUP BY exam_id").bind(auth.userId).all()
+    env.DB.prepare("SELECT exam_id, COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND started_at IS NOT NULL GROUP BY exam_id").bind(auth.userId).all()
   ]);
   const unlockedMocks = new Set(unlockRows.results.map((row) => row.exam_id));
   const attemptsByExam = new Map(attemptRows.results.map((row) => [row.exam_id, Number(row.attempts_used || 0)]));
@@ -689,7 +867,7 @@ async function listExams(request, env) {
 async function listResults(request, env) {
   const auth = await requireAuth(request, env, "student");
   const rows = await env.DB.prepare(
-    `SELECT s.id, s.exam_id, s.submitted_at, s.result_email_after, s.result_emailed_at, s.result_released_at, s.score_earned, s.score_total, s.answers_json,
+    `SELECT s.id, s.exam_id, s.submitted_at, s.result_email_after, s.result_emailed_at, s.result_released_at, s.score_earned, s.score_total, s.answers_json, s.exam_snapshot_json,
             e.title AS exam_title
        FROM exam_sessions s
        JOIN exams e ON e.id = s.exam_id
@@ -775,15 +953,16 @@ async function studentLeaderboard(request, env) {
 
 async function averageLeaderboard(env, currentUserId, subject) {
   const condition = subject
-    ? "AND EXISTS (SELECT 1 FROM questions q WHERE q.exam_id = s.exam_id AND LOWER(q.subject) = LOWER(?))"
+    ? "AND LOWER(COALESCE(json_extract(s.exam_snapshot_json, '$.subject'), e.subject, '')) = LOWER(?)"
     : "";
   const statement = env.DB.prepare(
     `WITH recent_attempt AS (
-       SELECT s.user_id, s.exam_id, s.answers_json, s.score_earned, s.score_total, s.submitted_at,
+       SELECT s.user_id, s.exam_id, s.answers_json, s.exam_snapshot_json, s.score_earned, s.score_total, s.submitted_at,
               u.username, u.first_name, u.last_name,
               ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.submitted_at DESC) AS attempt_number
          FROM exam_sessions s
          JOIN users u ON u.id = s.user_id
+         JOIN exams e ON e.id = s.exam_id
         WHERE s.submitted_at IS NOT NULL
           AND s.score_total IS NOT NULL
           AND s.score_total > 0
@@ -792,19 +971,6 @@ async function averageLeaderboard(env, currentUserId, subject) {
      SELECT * FROM recent_attempt WHERE attempt_number <= 5`
   );
   const attempts = subject ? await statement.bind(subject).all() : await statement.all();
-  const examIds = [...new Set(attempts.results.map((row) => row.exam_id))];
-  const subjectQuestions = new Map();
-  if (subject && examIds.length) {
-    const placeholders = examIds.map(() => "?").join(",");
-    const questionRows = await env.DB.prepare(`SELECT id, exam_id, correct_index, marks FROM questions WHERE exam_id IN (${placeholders}) AND LOWER(subject) = LOWER(?)`)
-      .bind(...examIds, subject).all();
-    questionRows.results.forEach((question) => {
-      const list = subjectQuestions.get(question.exam_id) || [];
-      list.push(question);
-      subjectQuestions.set(question.exam_id, list);
-    });
-  }
-
   const users = new Map();
   attempts.results.forEach((row) => {
     let earned = Number(row.score_earned || 0);
@@ -813,10 +979,10 @@ async function averageLeaderboard(env, currentUserId, subject) {
       earned = 0;
       total = 0;
       const answers = parseJson(row.answers_json, {});
-      (subjectQuestions.get(row.exam_id) || []).forEach((question) => {
+      sessionSnapshotQuestions(row).filter((question) => !question.subject || question.subject.toLowerCase() === subject.toLowerCase()).forEach((question) => {
         const marks = normalizeMarks(question.marks);
         total += marks;
-        if (answerIsCorrect(answers, question.id, question.correct_index)) earned += marks;
+        if (answerIsCorrect(answers, question.id, question.correctIndex)) earned += marks;
       });
     }
     if (!total) return;
@@ -852,7 +1018,7 @@ async function resultDetail(request, env, url) {
   const auth = await requireAuth(request, env, "student");
   const sessionId = decodeURIComponent(url.pathname.split("/")[2]);
   const session = await env.DB.prepare(
-    `SELECT s.id, s.exam_id, s.answers_json, s.submitted_at, s.result_email_after, s.result_emailed_at, s.result_released_at,
+    `SELECT s.id, s.exam_id, s.answers_json, s.exam_snapshot_json, s.submitted_at, s.result_email_after, s.result_emailed_at, s.result_released_at,
             e.title AS exam_title
        FROM exam_sessions s
        JOIN exams e ON e.id = s.exam_id
@@ -1296,23 +1462,19 @@ async function adminCreateExam(request, env) {
   const category = normalizeExamCategory(body.category);
   if (!title || !description || !Number.isFinite(duration) || duration < 1 || duration > 480) return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
-  const freeSample = normalizeFreeSample(body, false);
   const pricing = normalizeExamPricing(body.free === undefined && body.access === undefined && body.price === undefined && body.priceCents === undefined && body.price_cents === undefined ? { priceCents: 0 } : body);
   if (!pricing) return json({ error: "Enter a placeholder price from $0 to $10,000." }, env, 400);
   const id = slugify(title) + "-" + Date.now();
   const now = isoNow();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE exams SET is_free_sample = 0 WHERE ? = 1").bind(freeSample ? 1 : 0),
-    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, is_free_sample, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)")
-      .bind(id, title, description, duration, subject, category, freeSample ? 1 : 0, pricing.priceCents, pricing.currency, now, now)
-  ]);
+  await env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, is_free_sample, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)")
+    .bind(id, title, description, duration, subject, category, pricing.priceCents, pricing.currency, now, now).run();
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id) }, env, 201);
 }
 
 async function adminUpdateExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, is_free_sample, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
+  const existing = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, is_published, archived_at, is_free_sample, price_cents, currency FROM exams WHERE id = ?").bind(examId).first();
   if (!existing) return json({ error: "Exam not found." }, env, 404);
   const body = await readJson(request);
   const title = body.title !== undefined ? String(body.title || "").trim().slice(0, 180) : existing.title;
@@ -1326,9 +1488,10 @@ async function adminUpdateExam(request, env, url) {
     return json({ error: "Title, description, and duration from 1 to 480 minutes are required." }, env, 400);
   }
   if (!subject) return json({ error: `Choose a subject: ${EXAM_SUBJECTS.join(", ")}.` }, env, 400);
+  if (existing.archived_at) return json({ error: "Restore this archived exam before editing it." }, env, 409);
   let priceCents = Number(existing.price_cents || 0);
   let currency = String(existing.currency || "USD");
-  const freeSample = normalizeFreeSample(body, Boolean(existing.is_free_sample));
+  const freeSample = existing.is_published ? normalizeFreeSample(body, Boolean(existing.is_free_sample)) : false;
   if (body.free !== undefined || body.access !== undefined || body.price !== undefined || body.priceCents !== undefined || body.price_cents !== undefined) {
     const pricing = normalizeExamPricing(body);
     if (!pricing) return json({ error: "Enter a placeholder price from $0 to $10,000." }, env, 400);
@@ -1341,7 +1504,7 @@ async function adminUpdateExam(request, env, url) {
   }
   await env.DB.batch([
     env.DB.prepare("UPDATE exams SET is_free_sample = 0 WHERE ? = 1 AND id <> ?").bind(freeSample ? 1 : 0, examId),
-    env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, category = ?, is_free_sample = ?, price_cents = ?, currency = ?, updated_at = ? WHERE id = ?")
+    env.DB.prepare("UPDATE exams SET title = ?, description = ?, duration_minutes = ?, subject = ?, category = ?, is_free_sample = ?, price_cents = ?, currency = ?, version = version + 1, updated_at = ? WHERE id = ?")
       .bind(title, description, duration, subject, category, freeSample ? 1 : 0, priceCents, currency, isoNow(), examId)
   ]);
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === examId) }, env);
@@ -1350,15 +1513,21 @@ async function adminUpdateExam(request, env, url) {
 async function adminCreateQuestion(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
+  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ? AND archived_at IS NULL").bind(examId).first();
+  if (!exam) return json({ error: "Exam not found or archived." }, env, 404);
   const body = await readJson(request, 2 * 1024 * 1024);
-  const question = normalizeQuestionInput(body);
+  let question = normalizeQuestionInput(body);
   if (!question) {
     return json({ error: "Question text, four answers, and an explicit correct answer are required." }, env, 400);
   }
   const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM questions WHERE exam_id = ?").bind(examId).first();
   const id = crypto.randomUUID();
+  question = await persistQuestionImages(env, question, id);
   const now = isoNow();
-  await questionInsertStatement(env, { id, examId, position: Number(count.count) + 1, question, now }).run();
+  await env.DB.batch([
+    questionInsertStatement(env, { id, examId, position: Number(count.count) + 1, question, now }),
+    env.DB.prepare("UPDATE exams SET version = version + 1, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(now, examId)
+  ]);
   return json({ questionId: id }, env, 201);
 }
 
@@ -1369,7 +1538,7 @@ async function adminImportQuestions(request, env, url) {
   const incoming = Array.isArray(body.questions) ? body.questions : [];
   if (!incoming.length || incoming.length > QUESTION_IMPORT_LIMIT) return json({ error: `Import between 1 and ${QUESTION_IMPORT_LIMIT} questions at a time.` }, env, 400);
 
-  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ?").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ? AND archived_at IS NULL").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
   const questions = incoming.map((question, index) => normalizeQuestionInput({ ...question, marks: scheduledQuestionMarks(index, incoming.length, question.marks) }));
   if (questions.some((question) => !question)) {
@@ -1382,7 +1551,11 @@ async function adminImportQuestions(request, env, url) {
   const rows = questions.map((question, index) => ({
     id: crypto.randomUUID(), examId, position: firstPosition + index, question, now
   }));
-  await env.DB.batch(rows.map((row) => questionInsertStatement(env, row)));
+  for (const row of rows) row.question = await persistQuestionImages(env, row.question, row.id);
+  await env.DB.batch([
+    ...rows.map((row) => questionInsertStatement(env, row)),
+    env.DB.prepare("UPDATE exams SET version = version + 1, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(now, examId)
+  ]);
   return json({ imported: rows.length, questionIds: rows.map((row) => row.id) }, env, 201);
 }
 
@@ -1410,10 +1583,15 @@ async function adminAiDeploy(request, env) {
 
   const id = `${slugify(title)}-${Date.now()}`;
   const now = isoNow();
+  const rows = [];
+  for (let index = 0; index < questions.length; index += 1) {
+    const questionId = crypto.randomUUID();
+    rows.push({ id: questionId, examId: id, position: index + 1, question: await persistQuestionImages(env, questions[index], questionId), now });
+  }
   const statements = [
-    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+    env.DB.prepare("INSERT INTO exams (id, title, description, duration_minutes, subject, category, is_published, price_cents, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)")
       .bind(id, title, description, duration, subject, category, 0, "USD", now, now),
-    ...questions.map((question, index) => questionInsertStatement(env, { id: crypto.randomUUID(), examId: id, position: index + 1, question, now }))
+    ...rows.map((row) => questionInsertStatement(env, row))
   ];
   await env.DB.batch(statements);
   return json({ exam: (await fetchExams(env, false)).find((exam) => exam.id === id), deployed: questions.length }, env, 201);
@@ -1456,6 +1634,100 @@ function normalizeQuestionImage(value) {
   if (/^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i.test(image) && image.length <= 1024 * 1024) return image;
   if (image.startsWith("https://") && image.length <= 2048) return image;
   return "";
+}
+
+function decodeQuestionImageDataUrl(value) {
+  const match = String(value || "").match(/^data:(image\/(?:png|jpe?g|webp));base64,([a-z0-9+/=\s]+)$/i);
+  if (!match) return null;
+  try {
+    const binary = atob(match[2].replace(/\s/g, ""));
+    if (!binary.length || binary.length > 800 * 1024) return null;
+    return { contentType: match[1].toLowerCase().replace("image/jpg", "image/jpeg"), bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)) };
+  } catch {
+    return null;
+  }
+}
+
+function questionImageExtension(contentType) {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
+}
+
+async function persistQuestionImage(env, value, questionId, kind) {
+  const source = String(value || "");
+  if (!source.startsWith("data:image/")) return source;
+  const image = decodeQuestionImageDataUrl(source);
+  if (!image) {
+    const error = new Error("Question images must be valid PNG, JPEG, or WebP files no larger than 800 KB.");
+    error.status = 400;
+    throw error;
+  }
+  if (!env.QUESTION_IMAGE_UPLOAD_URL || !env.QUESTION_IMAGE_ORIGIN || !env.MEDIA_UPLOAD_SECRET) {
+    const error = new Error("Question image storage is temporarily unavailable.");
+    error.status = 503;
+    throw error;
+  }
+  const questionKey = /^[a-f0-9-]{36}$/i.test(String(questionId || "")) ? String(questionId) : crypto.randomUUID();
+  const filename = `${kind}-${crypto.randomUUID()}.${questionImageExtension(image.contentType)}`;
+  const uploadUrl = `${String(env.QUESTION_IMAGE_UPLOAD_URL).replace(/\/$/, "")}/${questionKey}/${filename}`;
+  const uploadRequest = new Request(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "content-type": image.contentType,
+      "x-crossline-media-secret": env.MEDIA_UPLOAD_SECRET
+    },
+    body: image.bytes
+  });
+  const response = env.QUESTION_IMAGE_UPLOAD?.fetch
+    ? await env.QUESTION_IMAGE_UPLOAD.fetch(uploadRequest)
+    : await fetch(uploadRequest);
+  if (!response.ok) {
+    console.error(`Question image upload failed with status ${response.status}.`);
+    const error = new Error("Question image storage is temporarily unavailable.");
+    error.status = 502;
+    throw error;
+  }
+  return `${String(env.QUESTION_IMAGE_ORIGIN).replace(/\/$/, "")}/question-images/${questionKey}/${filename}`;
+}
+
+async function persistQuestionImages(env, question, questionId) {
+  return {
+    ...question,
+    image: await persistQuestionImage(env, question.image, questionId, "question"),
+    explanationImage: await persistQuestionImage(env, question.explanationImage, questionId, "explanation")
+  };
+}
+
+async function adminMigrateQuestionAssets(request, env) {
+  await requireAuth(request, env, "admin");
+  return json(await migrateQuestionAssetBatch(env), env);
+}
+
+async function migrateQuestionAssetBatch(env) {
+  if (!env.QUESTION_IMAGE_UPLOAD_URL || !env.QUESTION_IMAGE_ORIGIN || !env.MEDIA_UPLOAD_SECRET) {
+    const error = new Error("Question image storage is unavailable.");
+    error.status = 503;
+    throw error;
+  }
+  const rows = await env.DB.prepare(
+    `SELECT id, image_url, explanation_image_url
+       FROM questions
+      WHERE image_url LIKE 'data:image/%' OR explanation_image_url LIKE 'data:image/%'
+      LIMIT 20`
+  ).all();
+  let migrated = 0;
+  for (const row of rows.results) {
+    const nextImage = await persistQuestionImage(env, row.image_url || "", row.id, "question");
+    const nextExplanation = await persistQuestionImage(env, row.explanation_image_url || "", row.id, "explanation");
+    await env.DB.prepare("UPDATE questions SET image_url = ?, explanation_image_url = ?, updated_at = ? WHERE id = ?")
+      .bind(nextImage || null, nextExplanation || null, isoNow(), row.id).run();
+    migrated += 1;
+  }
+  const remaining = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM questions WHERE image_url LIKE 'data:image/%' OR explanation_image_url LIKE 'data:image/%'"
+  ).first();
+  return { migrated, remaining: Number(remaining?.count || 0), complete: Number(remaining?.count || 0) === 0 };
 }
 
 function normalizeImageFilename(value) {
@@ -1517,26 +1789,53 @@ function questionInsertStatement(env, { id, examId, position, question, now }) {
 async function adminDeleteExam(request, env, url) {
   await requireAuth(request, env, "admin");
   const examId = decodeURIComponent(url.pathname.split("/")[3]);
-  const exam = await env.DB.prepare("SELECT id, is_free_sample FROM exams WHERE id = ?").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, is_free_sample, archived_at FROM exams WHERE id = ?").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
-  if (exam.is_free_sample) return json({ error: "Choose another exam as the free sample before deleting this one." }, env, 400);
-  await env.DB.prepare("DELETE FROM session_events WHERE exam_session_id IN (SELECT id FROM exam_sessions WHERE exam_id = ?)").bind(examId).run();
-  await env.DB.prepare("DELETE FROM exam_sessions WHERE exam_id = ?").bind(examId).run();
-  await env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(examId).run();
-  await env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(examId).run();
-  return json({ ok: true }, env);
+  if (exam.is_free_sample) return json({ error: "Choose another exam as the free sample before archiving this one." }, env, 400);
+  if (!exam.archived_at) await env.DB.prepare("UPDATE exams SET is_published = 0, archived_at = ?, version = version + 1, updated_at = ? WHERE id = ?").bind(isoNow(), isoNow(), examId).run();
+  return json({ ok: true, archived: true }, env);
+}
+
+async function adminSetExamPublished(request, env, url, published) {
+  await requireAuth(request, env, "admin");
+  const examId = decodeURIComponent(url.pathname.split("/")[3]);
+  const exam = await env.DB.prepare("SELECT id, archived_at FROM exams WHERE id = ?").bind(examId).first();
+  if (!exam) return json({ error: "Exam not found." }, env, 404);
+  if (exam.archived_at) return json({ error: "Restore this exam before publishing it." }, env, 409);
+  if (published) {
+    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM questions WHERE exam_id = ?").bind(examId).first();
+    if (Number(count?.count || 0) < 1) return json({ error: "Add at least one reviewed question before publishing." }, env, 400);
+  }
+  const now = isoNow();
+  await env.DB.prepare("UPDATE exams SET is_published = ?, version = version + 1, updated_at = ? WHERE id = ?").bind(published ? 1 : 0, now, examId).run();
+  return json({ ok: true, published }, env);
+}
+
+async function adminRestoreExam(request, env, url) {
+  await requireAuth(request, env, "admin");
+  const examId = decodeURIComponent(url.pathname.split("/")[3]);
+  const now = isoNow();
+  const result = await env.DB.prepare("UPDATE exams SET archived_at = NULL, is_published = 0, version = version + 1, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL").bind(now, examId).run();
+  if (!result.meta?.changes) return json({ error: "Archived exam not found." }, env, 404);
+  return json({ ok: true, restored: true }, env);
 }
 
 async function adminDeleteQuestion(request, env, url) {
   await requireAuth(request, env, "admin");
   const [, , , examId, , questionId] = url.pathname.split("/");
-  await env.DB.prepare("DELETE FROM questions WHERE exam_id = ? AND id = ?").bind(decodeURIComponent(examId), decodeURIComponent(questionId)).run();
+  const decodedExamId = decodeURIComponent(examId);
+  const result = await env.DB.prepare("DELETE FROM questions WHERE exam_id = ? AND id = ? AND EXISTS (SELECT 1 FROM exams WHERE id = ? AND archived_at IS NULL)").bind(decodedExamId, decodeURIComponent(questionId), decodedExamId).run();
+  if (!result.meta?.changes) return json({ error: "Question not found or exam is archived." }, env, 404);
+  await env.DB.prepare("UPDATE exams SET version = version + 1, updated_at = ? WHERE id = ?").bind(isoNow(), decodedExamId).run();
   return json({ ok: true }, env);
 }
 
 async function adminUpdateQuestion(request, env, url) {
   await requireAuth(request, env, "admin");
   const [, , , examId, , questionId] = url.pathname.split("/");
+  const decodedExamId = decodeURIComponent(examId);
+  const exam = await env.DB.prepare("SELECT id FROM exams WHERE id = ? AND archived_at IS NULL").bind(decodedExamId).first();
+  if (!exam) return json({ error: "Exam not found or archived." }, env, 404);
   const body = await readJson(request, 2 * 1024 * 1024);
   const text = String(body.text || "").trim();
   const answers = Array.isArray(body.answers) ? body.answers.map(String) : [];
@@ -1545,8 +1844,9 @@ async function adminUpdateQuestion(request, env, url) {
   if (!text || answers.length !== 4 || !Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) {
     return json({ error: "Question text, four answers, and an explicit correct answer are required." }, env, 400);
   }
-  const normalized = normalizeQuestionInput({ ...body, text, answers, correctIndex });
+  let normalized = normalizeQuestionInput({ ...body, text, answers, correctIndex });
   if (!normalized) return json({ error: "Question text, four answers, and an explicit correct answer are required." }, env, 400);
+  normalized = await persistQuestionImages(env, normalized, decodeURIComponent(questionId));
   const result = await env.DB.prepare(
     `UPDATE questions
         SET type = ?,
@@ -1579,10 +1879,11 @@ async function adminUpdateQuestion(request, env, url) {
     normalized.image || null,
     normalized.diagram ? 1 : 0,
     isoNow(),
-    decodeURIComponent(examId),
+    decodedExamId,
     decodeURIComponent(questionId)
   ).run();
   if (!result.meta?.changes) return json({ error: "Question not found." }, env, 404);
+  await env.DB.prepare("UPDATE exams SET version = version + 1, updated_at = ? WHERE id = ?").bind(isoNow(), decodedExamId).run();
   return json({ ok: true }, env);
 }
 
@@ -1628,9 +1929,7 @@ async function adminSubmissionDetail(request, env, url) {
   ).bind(sessionId).first();
   if (!session) return json({ error: "Submission not found." }, env, 404);
 
-  const questionRows = await env.DB.prepare(
-    "SELECT id, position, type, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position"
-  ).bind(session.exam_id).all();
+  const questionRows = await sessionQuestionRows(env, session);
   const events = await env.DB.prepare(
     "SELECT event_type, payload_json, created_at FROM session_events WHERE exam_session_id = ? ORDER BY created_at"
   ).bind(sessionId).all();
@@ -1638,7 +1937,7 @@ async function adminSubmissionDetail(request, env, url) {
   const flags = parseJson(session.flags_json, []);
   let earnedMarks = 0;
   let totalMarks = 0;
-  const questions = questionRows.results.map((question) => {
+  const questions = questionRows.map((question) => {
     const correctIndex = Number(question.correct_index || 0);
     const marks = normalizeMarks(question.marks);
     const selected = answers[question.id] ?? null;
@@ -1649,7 +1948,7 @@ async function adminSubmissionDetail(request, env, url) {
       id: question.id,
       position: question.position,
       text: question.text,
-      answers: parseJson(question.answers_json, []),
+      answers: question.answers || parseJson(question.answers_json, []),
       selected,
       correctIndex,
       marks,
@@ -1691,11 +1990,14 @@ async function adminSubmissionDetail(request, env, url) {
 
 async function createExamSession(request, env) {
   const auth = await requireAuth(request, env, "student");
+  await finalizeExpiredExamSessions(env, auth.userId);
+  const active = await env.DB.prepare("SELECT id FROM exam_sessions WHERE user_id = ? AND started_at IS NOT NULL AND submitted_at IS NULL LIMIT 1").bind(auth.userId).first();
+  if (active) return json({ error: "Resume or submit your active exam before starting another one.", activeSessionId: active.id }, env, 409);
   const body = await readJson(request);
   const examId = String(body.examId || "");
-  const exam = await env.DB.prepare("SELECT id, is_free_sample, category FROM exams WHERE id = ? AND is_published = 1").bind(examId).first();
+  const exam = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category, version, is_free_sample FROM exams WHERE id = ? AND is_published = 1 AND archived_at IS NULL").bind(examId).first();
   if (!exam) return json({ error: "Exam not found." }, env, 404);
-  const attempts = await env.DB.prepare("SELECT COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND exam_id = ? AND submitted_at IS NOT NULL").bind(auth.userId, examId).first();
+  const attempts = await env.DB.prepare("SELECT COUNT(*) AS attempts_used FROM exam_sessions WHERE user_id = ? AND exam_id = ? AND started_at IS NOT NULL").bind(auth.userId, examId).first();
   if (Number(attempts?.attempts_used || 0) >= MAX_EXAM_ATTEMPTS) {
     return json({ error: `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` }, env, 409);
   }
@@ -1720,13 +2022,17 @@ async function createExamSession(request, env) {
   const id = crypto.randomUUID();
   const code = randomPairingCode();
   const now = isoNow();
-  await env.DB.prepare("INSERT INTO exam_sessions (id, exam_id, user_id, pairing_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(id, examId, auth.userId, code, now, now).run();
-  await pruneOldSessions(env, auth.userId);
+  const snapshot = await fetchExamSnapshot(env, exam);
+  if (!snapshot.questions.length) return json({ error: "This exam has no reviewed questions yet." }, env, 409);
+  const pairingExpiresAt = new Date(Date.now() + PAIRING_TTL_SECONDS * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO exam_sessions (id, exam_id, user_id, pairing_code, pairing_expires_at, exam_snapshot_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, examId, auth.userId, code, pairingExpiresAt, JSON.stringify(snapshot), now, now).run();
   return json({
     sessionId: id,
     pairingCode: code,
-    pairingUrl: `${env.CONNECT_ORIGIN || new URL(request.url).origin}/connect?code=${encodeURIComponent(code)}`
+    pairingUrl: `${env.CONNECT_ORIGIN || new URL(request.url).origin}/connect?code=${encodeURIComponent(code)}`,
+    pairingExpiresAt,
+    exam: publicExamSnapshot(snapshot)
   }, env, 201);
 }
 
@@ -1736,8 +2042,13 @@ async function appendSessionEvent(request, env, url) {
   const body = await readJson(request);
   const session = await env.DB.prepare("SELECT id FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
   if (!session) return json({ error: "Session not found." }, env, 404);
+  const eventType = String(body.type || "");
+  const allowedTypes = new Set(["integrity_event", "room_scan_completed", "exam_started", "practice_exit", "exam_submitted"]);
+  if (!allowedTypes.has(eventType)) return json({ error: "Unsupported session event." }, env, 400);
+  const payloadJson = JSON.stringify(body.payload && typeof body.payload === "object" ? body.payload : {});
+  if (new TextEncoder().encode(payloadJson).length > 4096) return json({ error: "Session event is too large." }, env, 413);
   await env.DB.prepare("INSERT INTO session_events (id, exam_session_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(crypto.randomUUID(), sessionId, String(body.type || "event"), JSON.stringify(body.payload || {}), isoNow()).run();
+    .bind(crypto.randomUUID(), sessionId, eventType, payloadJson, isoNow()).run();
   return json({ ok: true }, env);
 }
 
@@ -1745,7 +2056,7 @@ async function sessionStatus(request, env, url) {
   const auth = await requireAuth(request, env, "student");
   const sessionId = decodeURIComponent(url.pathname.split("/")[2]);
   const row = await env.DB.prepare(
-    "SELECT id, phone_connected_at, started_at, submitted_at, updated_at FROM exam_sessions WHERE id = ? AND user_id = ?"
+    "SELECT id, phone_connected_at, started_at, deadline_at, submitted_at, updated_at FROM exam_sessions WHERE id = ? AND user_id = ?"
   ).bind(sessionId, auth.userId).first();
   if (!row) return json({ error: "Session not found." }, env, 404);
   return json({
@@ -1753,30 +2064,113 @@ async function sessionStatus(request, env, url) {
       id: row.id,
       phoneConnectedAt: row.phone_connected_at,
       startedAt: row.started_at,
+      deadlineAt: row.deadline_at,
       submittedAt: row.submitted_at,
       updatedAt: row.updated_at
     }
   }, env);
 }
 
+async function activeExamSession(request, env) {
+  const auth = await requireAuth(request, env, "student");
+  await finalizeExpiredExamSessions(env, auth.userId);
+  const session = await env.DB.prepare(
+    `SELECT id, exam_id, started_at, deadline_at, answers_json, flags_json, exam_snapshot_json, updated_at
+       FROM exam_sessions
+      WHERE user_id = ? AND started_at IS NOT NULL AND submitted_at IS NULL
+      ORDER BY started_at DESC
+      LIMIT 1`
+  ).bind(auth.userId).first();
+  if (!session) return json({ session: null }, env);
+  await ensureSessionSnapshot(env, session);
+  const snapshot = parseJson(session.exam_snapshot_json, {});
+  return json({
+    session: {
+      id: session.id,
+      examId: session.exam_id,
+      startedAt: session.started_at,
+      deadlineAt: session.deadline_at,
+      updatedAt: session.updated_at
+    },
+    exam: publicExamSnapshot(snapshot),
+    answers: sanitizeSessionAnswers(parseJson(session.answers_json, {}), session.exam_snapshot_json),
+    flags: sanitizeSessionFlags(parseJson(session.flags_json, []), session.exam_snapshot_json)
+  }, env);
+}
+
+async function startExamSession(request, env, url) {
+  const auth = await requireAuth(request, env, "student");
+  await finalizeExpiredExamSessions(env, auth.userId);
+  const sessionId = decodeURIComponent(url.pathname.split("/")[2]);
+  const row = await env.DB.prepare(
+    `SELECT s.id, s.exam_id, s.started_at, s.deadline_at, s.submitted_at, s.exam_snapshot_json, e.duration_minutes
+       FROM exam_sessions s
+       JOIN exams e ON e.id = s.exam_id
+      WHERE s.id = ? AND s.user_id = ?`
+  ).bind(sessionId, auth.userId).first();
+  if (!row) return json({ error: "Session not found." }, env, 404);
+  if (row.submitted_at) return json({ error: "This attempt has already been submitted." }, env, 409);
+  const legal = await env.DB.prepare("SELECT accepted_at FROM legal_acceptances WHERE user_id = ? AND version = ?").bind(auth.userId, LEGAL_VERSION).first();
+  if (!legal) return json({ error: "Accept the current privacy terms before starting the exam.", legalVersion: LEGAL_VERSION }, env, 428);
+  if (!row.started_at) {
+    const snapshot = parseJson(row.exam_snapshot_json, {});
+    const durationMinutes = Math.max(1, Math.min(480, Number(snapshot.duration || row.duration_minutes || 60)));
+    const startedAt = isoNow();
+    const deadlineAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+    const update = await env.DB.prepare(
+      `UPDATE exam_sessions
+          SET started_at = ?, deadline_at = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND started_at IS NULL AND submitted_at IS NULL
+          AND (SELECT COUNT(*) FROM exam_sessions attempts WHERE attempts.user_id = ? AND attempts.exam_id = ? AND attempts.started_at IS NOT NULL) < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM exam_sessions active
+             WHERE active.user_id = ? AND active.started_at IS NOT NULL AND active.submitted_at IS NULL AND active.id != ?
+          )`
+    ).bind(startedAt, deadlineAt, startedAt, sessionId, auth.userId, auth.userId, row.exam_id, MAX_EXAM_ATTEMPTS, auth.userId, sessionId).run();
+    if (!Number(update.meta?.changes || 0)) {
+      const active = await env.DB.prepare("SELECT id FROM exam_sessions WHERE user_id = ? AND started_at IS NOT NULL AND submitted_at IS NULL AND id != ? LIMIT 1").bind(auth.userId, sessionId).first();
+      if (active) return json({ error: "Resume or submit your active exam before starting another one.", activeSessionId: active.id }, env, 409);
+      return json({ error: `You have started all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` }, env, 409);
+    }
+  }
+  const started = await env.DB.prepare("SELECT started_at, deadline_at FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
+  return json({ session: { id: sessionId, startedAt: started.started_at, deadlineAt: started.deadline_at } }, env);
+}
+
 async function saveAnswers(request, env, url, ctx) {
   const auth = await requireAuth(request, env, "student");
   const sessionId = decodeURIComponent(url.pathname.split("/")[2]);
   const body = await readJson(request);
-  const session = await env.DB.prepare("SELECT id, exam_id, submitted_at FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
+  const session = await env.DB.prepare("SELECT id, exam_id, started_at, deadline_at, submitted_at, result_email_after, result_released_at, score_earned, score_total, answers_json, exam_snapshot_json FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
   if (!session) return json({ error: "Session not found." }, env, 404);
-  const firstSubmit = Boolean(body.submitted && !session.submitted_at);
+  if (session.submitted_at) {
+    if (!body.submitted) return json({ error: "Submitted attempts cannot be changed." }, env, 409);
+    return json({
+      ok: true,
+      ready: true,
+      alreadySubmitted: true,
+      resultEmailAfter: session.result_email_after,
+      resultReleasedAt: session.result_released_at,
+      score: { earned: roundScore(session.score_earned), total: roundScore(session.score_total) }
+    }, env);
+  }
+  if (!session.started_at || !session.deadline_at) return json({ error: "Start the exam before saving answers." }, env, 409);
   const now = isoNow();
-  const submittedAt = body.submitted ? now : null;
-  const resultEmailAfter = body.submitted ? now : null;
-  const resultReleasedAt = body.submitted ? now : null;
-  const answersJson = JSON.stringify(body.answers || {});
-  const score = body.submitted ? await scoreExamSession(env, { ...session, answers_json: answersJson }) : null;
+  await ensureSessionSnapshot(env, session);
+  const timedOut = new Date(session.deadline_at).getTime() <= Date.now();
+  const shouldSubmit = Boolean(body.submitted || timedOut);
+  const submittedAt = shouldSubmit ? now : null;
+  const resultEmailAfter = shouldSubmit ? now : null;
+  const resultReleasedAt = shouldSubmit ? now : null;
+  const answers = sanitizeSessionAnswers(body.answers, session.exam_snapshot_json);
+  const flags = sanitizeSessionFlags(body.flags, session.exam_snapshot_json);
+  const answersJson = JSON.stringify(answers);
+  const score = shouldSubmit ? await scoreExamSession(env, { ...session, answers_json: answersJson }) : null;
   const update = await env.DB.prepare(
     `UPDATE exam_sessions
         SET answers_json = ?,
             flags_json = ?,
-            submitted_at = COALESCE(submitted_at, ?),
+            submitted_at = ?,
             result_email_after = CASE
               WHEN ? IS NOT NULL THEN COALESCE(result_email_after, ?)
               ELSE result_email_after
@@ -1785,15 +2179,14 @@ async function saveAnswers(request, env, url, ctx) {
             score_earned = CASE WHEN ? IS NOT NULL THEN COALESCE(score_earned, ?) ELSE score_earned END,
             score_total = CASE WHEN ? IS NOT NULL THEN COALESCE(score_total, ?) ELSE score_total END,
             updated_at = ?
-      WHERE id = ? AND user_id = ?
+      WHERE id = ? AND user_id = ? AND submitted_at IS NULL
         AND (
           ? IS NULL
-          OR submitted_at IS NOT NULL
           OR (SELECT COUNT(*) FROM exam_sessions WHERE user_id = ? AND exam_id = ? AND submitted_at IS NOT NULL) < ?
         )`
   ).bind(
     answersJson,
-    JSON.stringify(body.flags || []),
+    JSON.stringify(flags),
     submittedAt,
     submittedAt,
     resultEmailAfter,
@@ -1811,33 +2204,35 @@ async function saveAnswers(request, env, url, ctx) {
     session.exam_id,
     MAX_EXAM_ATTEMPTS
   ).run();
-  if (firstSubmit && Number(update.meta?.changes || 0) < 1) {
-    return json({ error: `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` }, env, 409);
-  }
-  if (body.submitted) {
-    const followUps = [sendDueResultEmails(env).catch((error) => console.error("Immediate result email failed", error))];
-    if (firstSubmit) {
-      followUps.push((async () => {
-        const exam = await env.DB.prepare("SELECT title FROM exams WHERE id = ?").bind(session.exam_id).first();
-        const earned = score ? formatScore(score.earned) : "—";
-        const total = score ? formatScore(score.total) : "—";
-        await notifyUser(env, {
-          userId: auth.userId,
-          kind: "result",
-          title: "Your exam result is ready",
-          body: `${exam?.title || "Your practice exam"} scored ${earned} / ${total}. Open Results to review every question.`
-        });
-      })().catch((error) => console.error("Result notification failed", error)));
+  if (Number(update.meta?.changes || 0) < 1) {
+    const existing = await env.DB.prepare("SELECT submitted_at, result_email_after, result_released_at, score_earned, score_total FROM exam_sessions WHERE id = ? AND user_id = ?").bind(sessionId, auth.userId).first();
+    if (existing?.submitted_at && shouldSubmit) {
+      return json({ ok: true, ready: true, alreadySubmitted: true, resultEmailAfter: existing.result_email_after, resultReleasedAt: existing.result_released_at, score: { earned: roundScore(existing.score_earned), total: roundScore(existing.score_total) } }, env);
     }
+    return json({ error: shouldSubmit ? `You have used all ${MAX_EXAM_ATTEMPTS} attempts for this exam.` : "This attempt can no longer be changed." }, env, 409);
+  }
+  if (shouldSubmit) {
+    const followUps = [sendDueResultEmails(env).catch((error) => console.error("Immediate result email failed", error))];
+    followUps.push((async () => {
+      const snapshot = parseJson(session.exam_snapshot_json, {});
+      const earned = score ? formatScore(score.earned) : "—";
+      const total = score ? formatScore(score.total) : "—";
+      await notifyUser(env, {
+        userId: auth.userId,
+        kind: "result",
+        title: "Your exam result is ready",
+        body: `${snapshot.title || "Your practice exam"} scored ${earned} / ${total}. Open Results to review every question.`
+      });
+    })().catch((error) => console.error("Result notification failed", error)));
     ctx?.waitUntil?.(Promise.all(followUps));
   }
-  return json({ ok: true, resultEmailAfter, resultReleasedAt, ready: Boolean(body.submitted), score }, env);
+  return json({ ok: true, resultEmailAfter, resultReleasedAt, ready: shouldSubmit, timedOut, score }, env);
 }
 
 async function pairPhone(request, env) {
   const body = await readJson(request);
   const code = String(body.code || "").trim().toUpperCase();
-  const row = await env.DB.prepare("SELECT id FROM exam_sessions WHERE pairing_code = ?").bind(code).first();
+  const row = await env.DB.prepare("SELECT id FROM exam_sessions WHERE pairing_code = ? AND pairing_expires_at > ? AND submitted_at IS NULL").bind(code, isoNow()).first();
   if (!row) return json({ error: "Pairing code not found." }, env, 404);
   await env.DB.prepare("UPDATE exam_sessions SET phone_connected_at = ?, updated_at = ? WHERE id = ?").bind(isoNow(), isoNow(), row.id).run();
   await env.DB.prepare("INSERT INTO session_events (id, exam_session_id, event_type, payload_json, created_at) VALUES (?, ?, 'phone_connected', '{}', ?)")
@@ -1847,10 +2242,11 @@ async function pairPhone(request, env) {
 
 function phoneConnectPage(url, env) {
   const code = escapeHtml(String(url.searchParams.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12));
-  return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crossline Phone Camera</title><style>body{font-family:Arial,sans-serif;background:#f4efe9;color:#332d2b;margin:0;padding:24px}.card{max-width:560px;margin:auto;background:#fffdfa;border:1px solid #e1d8d4;border-radius:12px;padding:22px}button{background:#b6202a;color:white;border:0;border-radius:6px;padding:12px 16px}button:disabled{opacity:.55}video{width:100%;aspect-ratio:16/9;border-radius:10px;background:#1d1716;margin:12px 0;object-fit:cover}.muted{color:#756b67}.ok{color:#237a4a}.bad{color:#b6202a}.orientation{margin:12px 0;padding:12px;border-radius:8px;background:#fff2d9;color:#6f4a00;font-weight:700}.orientation.ok{background:#e4f7ec;color:#237a4a}</style><div class="card"><h1>Connect phone camera</h1><p>Pairing code: <strong>${code}</strong></p><p class="muted">Use the front camera and keep your phone in landscape mode. Crossline will request permission to keep the screen awake while connected.</p><div id="orientation" class="orientation">Rotate your phone to landscape mode to continue.</div><video id="preview" autoplay muted playsinline></video><button id="pair" disabled>Check and start phone camera</button><p id="status"></p></div><script>let stream,wakeLock;const code='${code}';const button=document.getElementById('pair');const status=document.getElementById('status');const orientationBox=document.getElementById('orientation');function isLandscape(){return window.innerWidth>window.innerHeight||screen.orientation?.type?.startsWith('landscape')}function setStatus(text,kind=''){status.className=kind;status.textContent=text}async function keepAwake(){if(!('wakeLock'in navigator))return false;try{wakeLock=await navigator.wakeLock.request('screen');return true}catch{return false}}document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream)void keepAwake()});function updateOrientation(){const landscape=isLandscape();button.disabled=!landscape;if(landscape){orientationBox.className='orientation ok';orientationBox.textContent='Landscape mode detected. You can continue.'}else{orientationBox.className='orientation';orientationBox.textContent='Rotate your phone to landscape mode to continue.'}}window.addEventListener('resize',updateOrientation);screen.orientation?.addEventListener?.('change',updateOrientation);updateOrientation();button.onclick=async()=>{if(!isLandscape()){updateOrientation();setStatus('Please rotate your phone to landscape mode first.','bad');return}button.disabled=true;setStatus('Opening front camera and keeping the display awake...');try{await keepAwake();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540},aspectRatio:{ideal:1.7777778}},audio:false});document.getElementById('preview').srcObject=stream;setStatus('Pairing with exam computer...');const paired=await fetch('/pair-phone',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})});const data=await paired.json().catch(()=>({}));if(!paired.ok)throw new Error(data.error||'Pairing failed.');setStatus('Phone camera connected. The display will stay awake while this page remains visible. Keep it open in landscape mode and complete the room scan.','ok')}catch(error){if(stream)stream.getTracks().forEach(track=>track.stop());if(wakeLock)await wakeLock.release().catch(()=>{});button.disabled=!isLandscape();setStatus(error.message,'bad')}}</script>`, { headers: {
+  const nonce = randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 24);
+  return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crossline Phone Camera</title><style>body{font-family:Arial,sans-serif;background:#f4efe9;color:#332d2b;margin:0;padding:24px}.card{max-width:560px;margin:auto;background:#fffdfa;border:1px solid #e1d8d4;border-radius:12px;padding:22px}button{background:#b6202a;color:white;border:0;border-radius:6px;padding:12px 16px}button:disabled{opacity:.55}video{width:100%;aspect-ratio:16/9;border-radius:10px;background:#1d1716;margin:12px 0;object-fit:cover}.muted{color:#756b67}.ok{color:#237a4a}.bad{color:#b6202a}.orientation{margin:12px 0;padding:12px;border-radius:8px;background:#fff2d9;color:#6f4a00;font-weight:700}.orientation.ok{background:#e4f7ec;color:#237a4a}</style><div class="card"><h1>Connect phone camera</h1><p>Pairing code: <strong>${code}</strong></p><p class="muted">Use the front camera and keep your phone in landscape mode. Crossline will request permission to keep the screen awake while connected.</p><div id="orientation" class="orientation">Rotate your phone to landscape mode to continue.</div><video id="preview" autoplay muted playsinline></video><button id="pair" disabled>Check and start phone camera</button><p id="status"></p></div><script nonce="${nonce}">let stream,wakeLock;const code='${code}';const button=document.getElementById('pair');const status=document.getElementById('status');const orientationBox=document.getElementById('orientation');function isLandscape(){return window.innerWidth>window.innerHeight||screen.orientation?.type?.startsWith('landscape')}function setStatus(text,kind=''){status.className=kind;status.textContent=text}async function keepAwake(){if(!('wakeLock'in navigator))return false;try{wakeLock=await navigator.wakeLock.request('screen');return true}catch{return false}}document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream)void keepAwake()});function updateOrientation(){const landscape=isLandscape();button.disabled=!landscape;if(landscape){orientationBox.className='orientation ok';orientationBox.textContent='Landscape mode detected. You can continue.'}else{orientationBox.className='orientation';orientationBox.textContent='Rotate your phone to landscape mode to continue.'}}window.addEventListener('resize',updateOrientation);screen.orientation?.addEventListener?.('change',updateOrientation);updateOrientation();button.onclick=async()=>{if(!isLandscape()){updateOrientation();setStatus('Please rotate your phone to landscape mode first.','bad');return}button.disabled=true;setStatus('Opening front camera and keeping the display awake...');try{await keepAwake();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540},aspectRatio:{ideal:1.7777778}},audio:false});document.getElementById('preview').srcObject=stream;setStatus('Pairing with exam computer...');const paired=await fetch('/pair-phone',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code})});const data=await paired.json().catch(()=>({}));if(!paired.ok)throw new Error(data.error||'Pairing failed.');setStatus('Phone camera connected. The display will stay awake while this page remains visible. Keep it open in landscape mode and complete the room scan.','ok')}catch(error){if(stream)stream.getTracks().forEach(track=>track.stop());if(wakeLock)await wakeLock.release().catch(()=>{});button.disabled=!isLandscape();setStatus(error.message,'bad')}}</script>`, { headers: {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
-    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "content-security-policy": `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`,
     "permissions-policy": "camera=(self), microphone=(), geolocation=()",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
@@ -1858,11 +2254,120 @@ function phoneConnectPage(url, env) {
   } });
 }
 
-async function fetchExams(env, publishedOnly) {
-  const examRows = await env.DB.prepare(`SELECT id, title, description, duration_minutes, subject, category, is_free_sample, price_cents, currency FROM exams ${publishedOnly ? "WHERE is_published = 1" : ""} ORDER BY created_at DESC`).all();
+async function fetchExamSnapshot(env, exam) {
+  const rows = await env.DB.prepare(
+    "SELECT id, position, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position"
+  ).bind(exam.id).all();
+  return {
+    id: exam.id,
+    title: exam.title,
+    description: exam.description,
+    duration: Number(exam.duration_minutes || exam.duration || 60),
+    subject: normalizeExamSubject(exam.subject) || "",
+    category: normalizeExamCategory(exam.category),
+    version: Number(exam.version || 1),
+    questions: rows.results.map((question) => ({
+      id: question.id,
+      position: Number(question.position || 0),
+      type: question.type,
+      subject: question.subject || "",
+      chapter: question.chapter || "",
+      topic: question.topic || "",
+      instruction: question.instruction,
+      text: question.text,
+      answers: parseJson(question.answers_json, []),
+      correctIndex: Number(question.correct_index || 0),
+      marks: normalizeMarks(question.marks),
+      explanation: question.explanation_text || "",
+      explanationImage: question.explanation_image_url || "",
+      image: question.image_url || "",
+      diagram: Boolean(question.diagram)
+    }))
+  };
+}
+
+function publicExamSnapshot(snapshot) {
+  return {
+    id: snapshot.id,
+    title: snapshot.title,
+    description: snapshot.description,
+    duration: snapshot.duration,
+    subject: snapshot.subject,
+    category: snapshot.category,
+    questions: (snapshot.questions || []).map((question) => ({
+      id: question.id,
+      position: question.position,
+      type: question.type,
+      subject: question.subject,
+      chapter: question.chapter,
+      topic: question.topic,
+      instruction: question.instruction,
+      text: question.text,
+      answers: question.answers,
+      marks: question.marks,
+      image: question.image,
+      diagram: question.diagram
+    }))
+  };
+}
+
+async function ensureSessionSnapshot(env, session) {
+  const existing = parseJson(session.exam_snapshot_json, null);
+  if (existing?.questions?.length) return existing;
+  const exam = await env.DB.prepare("SELECT id, title, description, duration_minutes, subject, category FROM exams WHERE id = ?").bind(session.exam_id).first();
+  if (!exam) return { questions: [] };
+  const snapshot = await fetchExamSnapshot(env, exam);
+  session.exam_snapshot_json = JSON.stringify(snapshot);
+  await env.DB.prepare("UPDATE exam_sessions SET exam_snapshot_json = ? WHERE id = ? AND exam_snapshot_json IS NULL").bind(session.exam_snapshot_json, session.id).run();
+  return snapshot;
+}
+
+function sessionSnapshotQuestions(session) {
+  return parseJson(session.exam_snapshot_json, {})?.questions || [];
+}
+
+async function sessionQuestionRows(env, session) {
+  const snapshot = await ensureSessionSnapshot(env, session);
+  if (snapshot.questions?.length) {
+    return snapshot.questions.map((question) => ({
+      ...question,
+      correct_index: question.correctIndex,
+      answers_json: JSON.stringify(question.answers || []),
+      explanation_text: question.explanation || "",
+      explanation_image_url: question.explanationImage || "",
+      image_url: question.image || ""
+    }));
+  }
+  const rows = await env.DB.prepare(
+    "SELECT id, position, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position"
+  ).bind(session.exam_id).all();
+  return rows.results;
+}
+
+function sanitizeSessionAnswers(value, snapshotJson) {
+  const allowed = new Map(sessionSnapshotQuestions({ exam_snapshot_json: snapshotJson }).map((question) => [String(question.id), (question.answers || []).length]));
+  const incoming = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const answers = {};
+  for (const [id, answer] of Object.entries(incoming)) {
+    const count = allowed.get(String(id));
+    const selected = Number(answer);
+    if (count && Number.isInteger(selected) && selected >= 0 && selected < count) answers[id] = selected;
+  }
+  return answers;
+}
+
+function sanitizeSessionFlags(value, snapshotJson) {
+  const allowed = new Set(sessionSnapshotQuestions({ exam_snapshot_json: snapshotJson }).map((question) => String(question.id)));
+  return [...new Set((Array.isArray(value) ? value : []).map(String).filter((id) => allowed.has(id)))];
+}
+
+async function fetchExams(env, publishedOnly, includeQuestions = true) {
+  const examRows = await env.DB.prepare(`SELECT e.id, e.title, e.description, e.duration_minutes, e.subject, e.category, e.is_published, e.version, e.archived_at, e.is_free_sample, e.price_cents, e.currency, COUNT(q.id) AS question_count FROM exams e LEFT JOIN questions q ON q.exam_id = e.id ${publishedOnly ? "WHERE e.is_published = 1 AND e.archived_at IS NULL" : ""} GROUP BY e.id ORDER BY e.created_at DESC`).all();
   const exams = [];
   for (const exam of examRows.results) {
-    const questions = await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all();
+    const questions = includeQuestions
+      ? await env.DB.prepare("SELECT id, type, subject, chapter, topic, instruction, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url, diagram FROM questions WHERE exam_id = ? ORDER BY position").bind(exam.id).all()
+      : { results: [] };
     const priceCents = Math.max(0, Math.round(Number(exam.price_cents || 0)));
     exams.push({
       id: exam.id,
@@ -1871,6 +2376,10 @@ async function fetchExams(env, publishedOnly) {
       duration: exam.duration_minutes,
       subject: normalizeExamSubject(exam.subject) || "",
       category: normalizeExamCategory(exam.category),
+      published: Boolean(exam.is_published),
+      version: Number(exam.version || 1),
+      archivedAt: exam.archived_at || null,
+      questionCount: Number(exam.question_count || 0),
       freeSample: Boolean(exam.is_free_sample),
       priceCents,
       currency: String(exam.currency || "USD"),
@@ -1896,32 +2405,36 @@ async function fetchExams(env, publishedOnly) {
   return exams;
 }
 
-async function pruneOldSessions(env, userId) {
-  const old = await env.DB.prepare(
-    "SELECT id FROM exam_sessions WHERE user_id = ? AND id NOT IN (SELECT id FROM exam_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?)"
-  ).bind(userId, userId, MAX_STORED_EXAM_SESSIONS_PER_USER).all();
-  for (const row of old.results) {
-    await env.DB.prepare("DELETE FROM exam_sessions WHERE id = ?").bind(row.id).run();
-  }
-}
-
 async function createSession(env, userId, role, ttlSeconds = TOKEN_TTL_SECONDS) {
   const token = crypto.randomUUID() + "." + crypto.randomUUID();
   await env.DB.prepare("INSERT INTO sessions (token, user_id, role, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(token, userId, role, new Date(Date.now() + ttlSeconds * 1000).toISOString(), isoNow()).run();
+    .bind(await hashSessionToken(token, env), userId, role, new Date(Date.now() + ttlSeconds * 1000).toISOString(), isoNow()).run();
   return token;
 }
 
 async function requireAuth(request, env, role) {
-  const auth = request.headers.get("authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const row = token ? await env.DB.prepare("SELECT user_id, role, expires_at FROM sessions WHERE token = ?").bind(token).first() : null;
+  const token = bearerToken(request);
+  const tokenHash = token ? await hashSessionToken(token, env) : "";
+  let row = token ? await env.DB.prepare("SELECT user_id, role, expires_at FROM sessions WHERE token = ?").bind(tokenHash).first() : null;
+  if (!row && token) {
+    row = await env.DB.prepare("SELECT user_id, role, expires_at FROM sessions WHERE token = ?").bind(token).first();
+    if (row) await env.DB.prepare("UPDATE sessions SET token = ? WHERE token = ?").bind(tokenHash, token).run();
+  }
   if (!row || new Date(row.expires_at).getTime() < Date.now() || row.role !== role) {
     const error = new Error("Unauthorized");
     error.status = 401;
     throw error;
   }
   return { userId: row.user_id, role: row.role };
+}
+
+function bearerToken(request) {
+  const auth = request.headers.get("authorization") || "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+}
+
+async function hashSessionToken(token, env) {
+  return hashSecret(token, String(env.SESSION_TOKEN_SECRET || passwordPepper(env)));
 }
 
 function creatorAdminEmail(env) {
@@ -1940,7 +2453,7 @@ async function ensureCreatorAdmin(env, user) {
 
 async function requireAdminAccount(request, env, role = "student") {
   const auth = await requireAuth(request, env, role);
-  const user = await env.DB.prepare("SELECT id, email, is_admin, totp_secret_encrypted, totp_enabled_at FROM users WHERE id = ?").bind(auth.userId).first();
+  const user = await env.DB.prepare("SELECT id, email, is_admin, totp_secret_encrypted, totp_enabled_at, mfa_recovery_hashes_json FROM users WHERE id = ?").bind(auth.userId).first();
   if (!user || !isAdminAccount(user, env)) {
     const error = new Error("Administrator access is not enabled for this account.");
     error.status = 403;
@@ -2007,6 +2520,30 @@ async function decryptStoredTotp(admin, env) {
   }
 }
 
+async function consumeRecoveryCode(env, admin, candidate) {
+  const normalized = String(candidate || "").trim().toUpperCase();
+  if (!/^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(normalized) || !env.ADMIN_MFA_ENCRYPTION_KEY) return false;
+  const currentJson = String(admin.mfa_recovery_hashes_json || "[]");
+  const hashes = parseJson(currentJson, []);
+  const candidateHash = await hashSecret(normalized, env.ADMIN_MFA_ENCRYPTION_KEY);
+  let matchedIndex = -1;
+  for (let index = 0; index < hashes.length; index += 1) {
+    if (await timingSafeEqual(hashes[index], candidateHash)) matchedIndex = index;
+  }
+  if (matchedIndex < 0) return false;
+  hashes.splice(matchedIndex, 1);
+  const result = await env.DB.prepare("UPDATE users SET mfa_recovery_hashes_json = ? WHERE id = ? AND mfa_recovery_hashes_json = ?")
+    .bind(JSON.stringify(hashes), admin.id, currentJson).run();
+  return Number(result.meta?.changes || 0) === 1;
+}
+
+async function verifyAdminStepUp(env, userId, code) {
+  const admin = await env.DB.prepare("SELECT totp_secret_encrypted, totp_enabled_at FROM users WHERE id = ? AND is_admin = 1").bind(userId).first();
+  if (!admin?.totp_enabled_at) return false;
+  const secret = await decryptStoredTotp(admin, env);
+  return Boolean(secret && await verifyTotp(secret, code));
+}
+
 function bytesToBase64Url(bytes) {
   let binary = "";
   bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
@@ -2021,7 +2558,7 @@ function base64UrlToBytes(value) {
 
 async function sendDueResultEmails(env) {
   const rows = await env.DB.prepare(
-    `SELECT s.id, s.user_id, s.exam_id, s.answers_json, s.flags_json, s.submitted_at, s.result_email_after,
+    `SELECT s.id, s.user_id, s.exam_id, s.answers_json, s.flags_json, s.exam_snapshot_json, s.submitted_at, s.result_email_after, s.result_email_attempts,
             u.email AS student_email, u.username AS student_username, u.first_name AS student_first_name,
             u.last_name AS student_last_name, e.title AS exam_title, e.subject AS exam_subject
        FROM exam_sessions s
@@ -2030,16 +2567,61 @@ async function sendDueResultEmails(env) {
       WHERE s.submitted_at IS NOT NULL
         AND s.result_email_after IS NOT NULL
         AND s.result_emailed_at IS NULL
+        AND s.result_email_failed_at IS NULL
         AND s.result_email_after <= ?
       ORDER BY s.result_email_after ASC
       LIMIT 25`
   ).bind(isoNow()).all();
 
   for (const session of rows.results) {
-    const result = await buildResult(env, session);
-    await sendResultEmail(env, session.student_email, result);
-    await env.DB.prepare("UPDATE exam_sessions SET result_emailed_at = ?, updated_at = ? WHERE id = ?")
-      .bind(isoNow(), isoNow(), session.id).run();
+    try {
+      const result = await buildResult(env, session);
+      await sendResultEmail(env, session.student_email, result);
+      await env.DB.prepare("UPDATE exam_sessions SET result_emailed_at = ?, result_email_last_error = NULL, updated_at = ? WHERE id = ?")
+        .bind(isoNow(), isoNow(), session.id).run();
+    } catch (error) {
+      const attempts = Number(session.result_email_attempts || 0) + 1;
+      const retrySeconds = Math.min(6 * 60 * 60, 60 * (2 ** Math.min(attempts - 1, 8)));
+      const failedAt = attempts >= 8 ? isoNow() : null;
+      await env.DB.prepare("UPDATE exam_sessions SET result_email_attempts = ?, result_email_last_error = ?, result_email_after = ?, result_email_failed_at = ?, updated_at = ? WHERE id = ?")
+        .bind(attempts, String(error?.message || "Email delivery failed").slice(0, 500), new Date(Date.now() + retrySeconds * 1000).toISOString(), failedAt, isoNow(), session.id).run();
+      console.error(`Result email ${session.id} failed on attempt ${attempts}`, error);
+    }
+  }
+}
+
+async function finalizeExpiredExamSessions(env, userId = "") {
+  const userClause = userId ? " AND user_id = ?" : "";
+  const expired = await env.DB.prepare(
+    `SELECT id, user_id, exam_id, answers_json, flags_json, exam_snapshot_json
+       FROM exam_sessions
+      WHERE started_at IS NOT NULL AND deadline_at <= ? AND submitted_at IS NULL${userClause}
+      ORDER BY deadline_at
+      LIMIT 50`
+  ).bind(...(userId ? [isoNow(), userId] : [isoNow()])).all();
+  for (const session of expired.results) {
+    await ensureSessionSnapshot(env, session);
+    const answers = sanitizeSessionAnswers(parseJson(session.answers_json, {}), session.exam_snapshot_json);
+    const flags = sanitizeSessionFlags(parseJson(session.flags_json, []), session.exam_snapshot_json);
+    const score = await scoreExamSession(env, { ...session, answers_json: JSON.stringify(answers) });
+    const now = isoNow();
+    const update = await env.DB.prepare(
+      `UPDATE exam_sessions
+          SET answers_json = ?, flags_json = ?, submitted_at = ?, result_email_after = ?, result_released_at = ?,
+              score_earned = ?, score_total = ?, updated_at = ?
+        WHERE id = ? AND submitted_at IS NULL
+          AND (SELECT COUNT(*) FROM exam_sessions attempts WHERE attempts.user_id = ? AND attempts.exam_id = ? AND attempts.submitted_at IS NOT NULL) < ?`
+    ).bind(JSON.stringify(answers), JSON.stringify(flags), now, now, now, score.earned, score.total, now, session.id, session.user_id, session.exam_id, MAX_EXAM_ATTEMPTS).run();
+    if (Number(update.meta?.changes || 0)) {
+      await notifyUser(env, {
+        userId: session.user_id,
+        title: "Time expired",
+        body: `Your exam was submitted automatically. Score: ${formatScore(score.earned)} / ${formatScore(score.total)}.`,
+        kind: "result"
+      });
+    } else {
+      await env.DB.prepare("DELETE FROM exam_sessions WHERE id = ? AND submitted_at IS NULL").bind(session.id).run();
+    }
   }
 }
 
@@ -2048,6 +2630,42 @@ function queueResultEmailSweep(env, ctx) {
   if (now - lastResultEmailSweepAt < 60 * 1000) return;
   lastResultEmailSweepAt = now;
   ctx?.waitUntil?.(sendDueResultEmails(env).catch((error) => console.error("Result email sweep failed", error)));
+}
+
+async function processAccountDeletions(env) {
+  const due = await env.DB.prepare(
+    `SELECT d.user_id, u.email
+       FROM account_deletion_requests d
+       JOIN users u ON u.id = d.user_id
+      WHERE d.scheduled_for <= ?
+      ORDER BY d.scheduled_for
+      LIMIT 25`
+  ).bind(isoNow()).all();
+  for (const row of due.results) {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(row.user_id),
+      env.DB.prepare("DELETE FROM email_verifications WHERE email = ?").bind(row.email),
+      env.DB.prepare("DELETE FROM password_resets WHERE email = ?").bind(row.email),
+      env.DB.prepare("UPDATE notifications SET created_by = NULL WHERE created_by = ?").bind(row.user_id),
+      env.DB.prepare("DELETE FROM notifications WHERE target_user_id = ?").bind(row.user_id),
+      env.DB.prepare("DELETE FROM exam_sessions WHERE user_id = ?").bind(row.user_id),
+      env.DB.prepare("DELETE FROM users WHERE id = ? AND is_admin = 0").bind(row.user_id)
+    ]);
+  }
+}
+
+async function cleanupExpiredSecurityRecords(env) {
+  const now = isoNow();
+  const oldWindow = new Date(Date.now() - 10 * RATE_LIMIT_WINDOW_MS).toISOString();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now),
+    env.DB.prepare("DELETE FROM email_verifications WHERE expires_at <= ?").bind(now),
+    env.DB.prepare("DELETE FROM password_resets WHERE expires_at <= ?").bind(now),
+    env.DB.prepare("DELETE FROM oauth_flows WHERE expires_at <= ?").bind(now),
+    env.DB.prepare("DELETE FROM oauth_exchange_codes WHERE expires_at <= ? OR used_at IS NOT NULL").bind(now),
+    env.DB.prepare("DELETE FROM api_rate_limits WHERE window_start < ?").bind(oldWindow),
+    env.DB.prepare("DELETE FROM exam_sessions WHERE started_at IS NULL AND submitted_at IS NULL AND pairing_expires_at <= ?").bind(now)
+  ]);
 }
 
 async function buildResult(env, session) {
@@ -2116,13 +2734,11 @@ function resultSubject(subject, examTitle) {
 }
 
 async function scoreExamSession(env, session) {
-  const questionRows = await env.DB.prepare(
-    "SELECT id, position, correct_index, marks FROM questions WHERE exam_id = ? ORDER BY position"
-  ).bind(session.exam_id).all();
+  const questionRows = await sessionQuestionRows(env, session);
   const answers = parseJson(session.answers_json, {});
   let earned = 0;
   let total = 0;
-  for (const question of questionRows.results) {
+  for (const question of questionRows) {
     const marks = normalizeMarks(question.marks);
     total += marks;
     if (answerIsCorrect(answers, question.id, question.correct_index)) earned += marks;
@@ -2134,14 +2750,12 @@ async function scoreExamSession(env, session) {
 }
 
 async function buildResultDetail(env, session) {
-  const questionRows = await env.DB.prepare(
-    "SELECT id, position, subject, chapter, topic, text, answers_json, correct_index, marks, explanation_text, explanation_image_url, image_url FROM questions WHERE exam_id = ? ORDER BY position"
-  ).bind(session.exam_id).all();
+  const questionRows = await sessionQuestionRows(env, session);
   const answers = parseJson(session.answers_json, {});
   let earned = 0;
   let total = 0;
-  const questions = questionRows.results.map((question) => {
-    const answersList = parseJson(question.answers_json, []);
+  const questions = questionRows.map((question) => {
+    const answersList = question.answers || parseJson(question.answers_json, []);
     const selected = answers[question.id] ?? null;
     const correctIndex = Number(question.correct_index || 0);
     const marks = normalizeMarks(question.marks);
@@ -2189,8 +2803,11 @@ async function sendResultEmail(env, email, result) {
   const emailContent = buildResultEmail({ ...result, appUrl: env.APP_ORIGIN });
 
   if (!env.RESEND_API_KEY) {
-    console.log(`Result email for ${email}: ${emailContent.subject}`);
-    return;
+    if (env.EMAIL_DELIVERY_MODE === "log") {
+      console.log(`Result email for ${email}: ${emailContent.subject}`);
+      return;
+    }
+    throw new Error("Email delivery is not configured.");
   }
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -2214,8 +2831,13 @@ async function sendResultEmail(env, email, result) {
 async function sendVerificationEmail(env, email, code) {
   const emailContent = buildVerificationEmail({ code, appUrl: env.APP_ORIGIN });
   if (!env.RESEND_API_KEY) {
-    console.log(`Verification code for ${email}: ${code}`);
-    return;
+    if (env.EMAIL_DELIVERY_MODE === "log") {
+      console.log(`Verification code for ${email}: ${code}`);
+      return;
+    }
+    const error = new Error("Verification email is temporarily unavailable.");
+    error.status = 503;
+    throw error;
   }
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2240,8 +2862,13 @@ async function sendVerificationEmail(env, email, code) {
 async function sendPasswordResetEmail(env, email, code) {
   const emailContent = buildPasswordResetEmail({ code, appUrl: env.APP_ORIGIN });
   if (!env.RESEND_API_KEY) {
-    console.log(`Password reset code generated for ${email}.`);
-    return;
+    if (env.EMAIL_DELIVERY_MODE === "log") {
+      console.log(`Password reset code generated for ${email}.`);
+      return;
+    }
+    const error = new Error("Password reset email is temporarily unavailable.");
+    error.status = 503;
+    throw error;
   }
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2260,6 +2887,33 @@ async function sendPasswordResetEmail(env, email, code) {
     const error = new Error("Password reset email could not be sent. Please try again later.");
     error.status = 502;
     throw error;
+  }
+}
+
+async function sendAccountDeletionEmail(env, email, details) {
+  const emailContent = buildAccountDeletionEmail({ ...details, appUrl: env.APP_ORIGIN });
+  if (!env.RESEND_API_KEY) {
+    if (env.EMAIL_DELIVERY_MODE === "log") {
+      console.log(`Account deletion notice for ${email}: ${emailContent.subject}`);
+      return;
+    }
+    throw new Error("Account security email is not configured.");
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: env.VERIFY_FROM || "Crossline Education <verify@crosslinecscatest.com>",
+      to: email,
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html
+    })
+  });
+  if (!response.ok) {
+    const responseBody = await response.text();
+    console.error(`Resend account deletion email failed: ${response.status} ${responseBody}`);
+    throw new Error("Account security email could not be sent.");
   }
 }
 
@@ -2284,13 +2938,25 @@ async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
   }
 }
 
-function checkRateLimit(request, env, url) {
+async function checkRateLimit(request, env, url) {
   if (String(env.DISABLE_RATE_LIMIT || "").toLowerCase() === "true") return null;
   const limits = routeRateLimit(url.pathname, request.method);
   if (!limits) return null;
 
   const now = Date.now();
   const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  if (["credential", "password-reset", "oauth-exchange", "phone-pair"].includes(limits.group) && env.DB) {
+    const windowStart = new Date(Math.floor(now / RATE_LIMIT_WINDOW_MS) * RATE_LIMIT_WINDOW_MS).toISOString();
+    const row = await env.DB.prepare(
+      `INSERT INTO api_rate_limits (key, window_start, count) VALUES (?, ?, 1)
+       ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1
+       RETURNING count`
+    ).bind(`${ip}:${limits.group}`, windowStart).first();
+    if (Number(row?.count || 0) === 1) await env.DB.prepare("DELETE FROM api_rate_limits WHERE window_start < ?").bind(new Date(now - 10 * RATE_LIMIT_WINDOW_MS).toISOString()).run();
+    if (Number(row?.count || 0) <= limits.max) return null;
+    const retryAfter = Math.max(1, Math.ceil((Date.parse(windowStart) + RATE_LIMIT_WINDOW_MS - now) / 1000));
+    return json({ error: "Too many requests. Please wait a moment and try again.", retryAfter }, env, 429, { "retry-after": String(retryAfter) });
+  }
   const key = `${ip}:${limits.group}`;
   let bucket = rateLimitBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
@@ -2312,12 +2978,14 @@ function checkRateLimit(request, env, url) {
 
 function routeRateLimit(pathname, method) {
   if (pathname === "/health") return { group: "health", max: 600 };
-  if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/verify" || pathname === "/admin/session" || pathname === "/admin/mfa/enable") return { group: "credential", max: 12 };
+  if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/verify" || pathname === "/auth/verification/request" || pathname === "/admin/session" || pathname === "/admin/mfa/enable") return { group: "credential", max: 12 };
+  if (pathname.startsWith("/auth/password-reset/")) return { group: "password-reset", max: 8 };
+  if (pathname === "/auth/oauth/exchange") return { group: "oauth-exchange", max: 20 };
   if (pathname.startsWith("/auth/")) return { group: "auth", max: 900 };
   if (pathname === "/support/bug-reports" && method === "POST") return { group: "bug-report", max: 15 };
   if (pathname.startsWith("/admin/")) return { group: "admin", max: 240 };
   if (pathname.match(/^\/sessions\/[^/]+\/status$/) && method === "GET") return { group: "session-status", max: 6000 };
-  if (pathname === "/pair-phone") return { group: "phone-pair", max: 300 };
+  if (pathname === "/pair-phone") return { group: "phone-pair", max: 30 };
   if (pathname.startsWith("/sessions")) return { group: "exam-session", max: 5000 };
   if (method !== "GET") return { group: "write", max: 300 };
   return { group: "read", max: 600 };
@@ -2325,6 +2993,13 @@ function routeRateLimit(pathname, method) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function validEmail(email) {
+  const value = String(email || "");
+  if (!value || value.length > 254) return false;
+  const [local, domain, ...rest] = value.split("@");
+  return !rest.length && Boolean(local) && local.length <= 64 && Boolean(domain) && domain.includes(".") && !/\s/.test(value);
 }
 
 function normalizeUsername(username) {
@@ -2426,9 +3101,81 @@ function base64UrlDecode(value) {
 }
 
 async function hashSecret(value, pepper) {
+  return hmac(String(value), pepper);
+}
+
+function passwordPepper(env) {
+  const pepper = String(env.PASSWORD_PEPPER || "");
+  if (pepper.length < 32) {
+    const error = new Error("Authentication is temporarily unavailable.");
+    error.status = 503;
+    throw error;
+  }
+  return pepper;
+}
+
+function validPassword(password) {
+  const value = String(password || "");
+  return value.length >= PASSWORD_MIN_LENGTH && value.length <= 256;
+}
+
+function passwordRequirementsMessage(prefix = "Use a username, a valid email, and ") {
+  return `${prefix}a password of at least ${PASSWORD_MIN_LENGTH} characters.`;
+}
+
+async function hashPassword(password, env) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(`${String(password)}\u0000${passwordPepper(env)}`),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations: PASSWORD_KDF_ITERATIONS },
+    keyMaterial,
+    256
+  );
+  return `pbkdf2-sha256$${PASSWORD_KDF_ITERATIONS}$${bytesToBase64Url(salt)}$${bytesToBase64Url(new Uint8Array(bits))}`;
+}
+
+async function verifyPassword(password, storedHash, env) {
+  const stored = String(storedHash || "");
+  if (!stored.startsWith("pbkdf2-sha256$")) {
+    return timingSafeEqual(stored, await legacyHashSecret(password, passwordPepper(env)));
+  }
+  const [, iterationsText, saltText, expectedText] = stored.split("$");
+  const iterations = Number(iterationsText);
+  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000 || !saltText || !expectedText) return false;
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(`${String(password)}\u0000${passwordPepper(env)}`),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: base64UrlToBytes(saltText), iterations },
+    keyMaterial,
+    256
+  );
+  return timingSafeEqual(expectedText, bytesToBase64Url(new Uint8Array(bits)));
+}
+
+async function legacyHashSecret(value, pepper) {
   const bytes = new TextEncoder().encode(`${pepper}:${value}`);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function timingSafeEqual(left, right) {
+  const a = new TextEncoder().encode(String(left || ""));
+  const b = new TextEncoder().encode(String(right || ""));
+  let mismatch = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) mismatch |= (a[index] || 0) ^ (b[index] || 0);
+  return mismatch === 0;
 }
 
 async function hmac(value, secret) {
@@ -2437,8 +3184,31 @@ async function hmac(value, secret) {
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function sha256Base64Url(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value)));
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
 function randomPairingCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+  return randomCharacters("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
+}
+
+function randomNumericCode() {
+  return randomCharacters("0123456789", 6);
+}
+
+function randomCharacters(alphabet, length) {
+  let output = "";
+  const limit = 256 - (256 % alphabet.length);
+  while (output.length < length) {
+    const bytes = crypto.getRandomValues(new Uint8Array(Math.max(16, length - output.length)));
+    for (const byte of bytes) {
+      if (byte >= limit) continue;
+      output += alphabet[byte % alphabet.length];
+      if (output.length === length) break;
+    }
+  }
+  return output;
 }
 
 function normalizeMarks(value) {
@@ -2483,10 +3253,11 @@ function cors(response, env) {
   headers.set("access-control-allow-origin", env?.APP_ORIGIN || "*");
   headers.set("access-control-allow-methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
   headers.set("access-control-allow-headers", "authorization,content-type");
-  headers.set("cache-control", "no-store");
+  if (!headers.has("cache-control")) headers.set("cache-control", "no-store");
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");
   headers.set("x-frame-options", "DENY");
+  headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
   headers.set("permissions-policy", "camera=(self), microphone=(self), geolocation=()");
   headers.set("vary", "Origin");
   if (!response) return new Response(null, { status: 204, headers });

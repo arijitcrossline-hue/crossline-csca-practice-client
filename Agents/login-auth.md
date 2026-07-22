@@ -1,6 +1,6 @@
 # Login and Authentication
 
-Student and administrator authentication share the D1 `sessions` table but have different credential checks, token roles, and localStorage keys.
+Student and administrator authentication share the D1 `sessions` table but have different credential checks, token roles, and client-side secure-storage slots.
 
 ## Student Registration
 
@@ -8,21 +8,21 @@ The website and Windows client can both register an account.
 
 1. UI collects first name, last name, username, optional profile picture, email, and password.
 2. `CrosslineApi.register()` calls `POST /auth/register`.
-3. Worker normalizes fields, hashes the password, and upserts the account as unverified.
+3. Worker normalizes fields, hashes the password with PBKDF2-SHA-256, and inserts a new unverified account.
 4. A random six-digit code is hashed and stored for 15 minutes.
 5. Resend emails the plaintext code to the student.
 6. UI collects the code and calls `POST /auth/verify`.
 7. Worker compares hashes, marks the account verified, deletes the code, creates a student session, and returns the user/token.
 
-Registering an email that already exists resets its password/profile and returns it to unverified state. Treat this as current behavior when considering account-takeover hardening.
+Registering an existing email returns `409` and never changes that account. A pending user can call `POST /auth/verification/request`; the route returns the same generic response for pending, verified, and unknown addresses to reduce account discovery.
 
 ## Password Login and Restore
 
-`POST /auth/login` requires a verified account and matching password hash. The token is stored in `crossline-api-token`.
+`POST /auth/login` requires a verified account and matching password hash. Electron stores persistent tokens through the operating system's protected credential storage; non-persistent desktop sessions stay in memory. Browser-only auth uses local or session storage only long enough to complete the website flow.
 
 At Electron startup, `restoreStudentSession()` calls `GET /auth/me`. A valid session restores the profile and dashboard; failure clears the token and shows login.
 
-Student logout removes only the local token. There is currently no server logout/revocation endpoint, so that token remains valid until expiry unless a password reset revokes it.
+Student logout calls `POST /auth/logout`, revokes the current server session, and clears the local token. Password resets revoke every session for that user.
 
 ## Password Reset
 
@@ -35,7 +35,7 @@ The generic request response reduces email-address discovery.
 
 ## Password and Code Hashing
 
-`hashSecret()` uses SHA-256 over a value combined with `PASSWORD_PEPPER`. Verification and reset codes use the same helper. This is stronger than plaintext storage but weaker for passwords than a slow password hash such as Argon2id. A future auth migration should use a dedicated identity provider or a slow password KDF.
+Passwords use PBKDF2-SHA-256 with a unique random salt, 310,000 iterations, and `PASSWORD_PEPPER`. Successful login upgrades legacy hashes automatically. Verification codes, reset codes, session tokens, OAuth state, and OAuth exchange codes are stored as keyed hashes rather than plaintext.
 
 ## Google OAuth
 
@@ -45,16 +45,17 @@ Desktop sequence:
 
 1. Renderer calls `examRuntime.startOAuth("google")`.
 2. Electron opens a sandboxed modal child window at `/auth/oauth/google/start?desktop=1`.
-3. Worker creates a signed, ten-minute OAuth state containing provider and desktop mode.
+3. Worker stores a hashed, single-use, ten-minute OAuth state and PKCE verifier in D1.
 4. Google redirects to `/auth/oauth/google/callback`.
-5. Worker verifies state, exchanges the code, loads the verified Google profile, and upserts `users` plus `oauth_accounts`.
-6. Worker creates a student token and redirects to `/auth/oauth/complete` with encoded token/user data.
-7. Electron intercepts only that allowlisted API URL, sends `oauth-complete` to the renderer, and closes the child window.
-8. Renderer stores the student token and opens the dashboard.
+5. Worker consumes the state, completes the PKCE exchange, requires a verified provider email, and links or creates the user plus `oauth_accounts` row.
+6. Worker redirects with a short-lived, one-time exchange code, never a session token in the URL.
+7. Electron accepts only the allowlisted completion URL and gives the code to the renderer.
+8. Renderer calls `POST /auth/oauth/exchange`, stores the returned student token, and opens the dashboard.
 
 Required secrets:
 
 - `OAUTH_STATE_SECRET`
+- `SESSION_TOKEN_SECRET`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 
@@ -74,9 +75,9 @@ Admin and student authorization are not interchangeable. Every protected handler
 
 ## Token Model
 
-- opaque token: two random UUIDs joined by a dot
-- stored server-side in D1
-- TTL: 30 days
+- opaque, high-entropy token returned once to the client
+- only a keyed token hash is stored server-side in D1
+- student TTL: 30 days
 - sent as `Authorization: Bearer ...`
 - role checked on every protected request
 - privileged tokens expire after two hours
@@ -85,4 +86,4 @@ Do not log tokens or include them in documentation/screenshots.
 
 ## Local Demo Mode
 
-When no API base URL is configured, `src/app.js` uses localStorage demo accounts and a fixed verification code. This is test behavior, not the production auth system.
+Automated tests can inject a local demo account and fixed verification code. Packaged and hosted builds do not define those fixtures and use the production API.

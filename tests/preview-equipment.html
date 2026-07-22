@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="../src/" />
+    <title>Crossline equipment check preview</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.examRuntime = {
+        getInfo: async () => ({ platform: "preview", version: "preview", practiceKiosk: false, contentProtection: true }),
+        enterKiosk: async () => true,
+        leaveKiosk: async () => true,
+        exitApp: async () => true,
+        onIntegrityEvent: () => () => {},
+        onOAuthComplete: () => () => {},
+        onUpdateProgress: () => () => {},
+        openExternal: async () => true
+      };
+    </script>
+    <script src="app.js"></script>
+    <script>
+      currentUser = { email: "student@example.com", username: "Student" };
+      currentExam = { id: "preview", title: "Physics Mock" };
+      showEquipmentCheck();
+      document.getElementById("device-scan-status").textContent = "Ready to scan for Windows devices.";
+      document.getElementById("camera-device").innerHTML = "<option>Windows system default camera</option>";
+      document.getElementById("microphone-device").innerHTML = "<option>Windows system default microphone</option>";
+    </script>
+  </body>
+</html>

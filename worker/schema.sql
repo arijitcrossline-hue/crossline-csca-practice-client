@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   is_admin INTEGER NOT NULL DEFAULT 0,
   totp_secret_encrypted TEXT,
   totp_enabled_at TEXT,
+  mfa_recovery_hashes_json TEXT,
   is_premium INTEGER NOT NULL DEFAULT 0,
   password_hash TEXT NOT NULL,
   verified_at TEXT,
@@ -26,10 +27,29 @@ CREATE TABLE IF NOT EXISTS oauth_accounts (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS oauth_flows (
+  state_hash TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  code_verifier TEXT NOT NULL,
+  desktop INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_exchange_codes (
+  code_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS email_verifications (
   email TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -37,6 +57,7 @@ CREATE TABLE IF NOT EXISTS password_resets (
   email TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -57,6 +78,8 @@ CREATE TABLE IF NOT EXISTS exams (
   subject TEXT,
   category TEXT NOT NULL DEFAULT 'original',
   is_published INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1,
+  archived_at TEXT,
   is_free_sample INTEGER NOT NULL DEFAULT 0,
   price_cents INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'USD',
@@ -91,16 +114,22 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
   exam_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   pairing_code TEXT NOT NULL UNIQUE,
+  pairing_expires_at TEXT,
   phone_connected_at TEXT,
   started_at TEXT,
+  deadline_at TEXT,
   submitted_at TEXT,
   result_email_after TEXT,
+  result_email_attempts INTEGER NOT NULL DEFAULT 0,
+  result_email_last_error TEXT,
+  result_email_failed_at TEXT,
   result_emailed_at TEXT,
   result_released_at TEXT,
   score_earned REAL,
   score_total REAL,
   answers_json TEXT NOT NULL DEFAULT '{}',
   flags_json TEXT NOT NULL DEFAULT '[]',
+  exam_snapshot_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (exam_id) REFERENCES exams(id),
@@ -147,6 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_exam_sessions_user_exam_submitted ON exam_session
 CREATE UNIQUE INDEX IF NOT EXISTS idx_exams_single_free_sample ON exams(is_free_sample) WHERE is_free_sample = 1;
 CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exams_publication ON exams(is_published, archived_at, created_at);
 
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id TEXT PRIMARY KEY,
@@ -198,3 +228,29 @@ CREATE TABLE IF NOT EXISTS bug_reports (
 
 CREATE INDEX IF NOT EXISTS idx_bug_reports_status_created ON bug_reports(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bug_reports_user_created ON bug_reports(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS api_rate_limits (
+  key TEXT NOT NULL,
+  window_start TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (key, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_rate_limits_window ON api_rate_limits(window_start);
+
+CREATE TABLE IF NOT EXISTS legal_acceptances (
+  user_id TEXT NOT NULL,
+  version TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, version),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS account_deletion_requests (
+  user_id TEXT PRIMARY KEY,
+  requested_at TEXT NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_deletion_due ON account_deletion_requests(scheduled_for);

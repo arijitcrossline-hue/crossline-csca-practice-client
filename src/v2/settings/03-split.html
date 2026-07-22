@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings — Crossline CSCA</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* DEMO 3 v2: Split pane, premium polish.
+   Fixes: richer sub-nav with account card, grouped rows with icons + depth,
+   integrated photo avatar, breadcrumbs, tighter visual flow. */
+
+.s-body { display: grid; grid-template-columns: 270px 1fr; min-height: calc(100vh - 73px); }
+
+/* ===== Sub-nav: cream column, grouped sections, account card at bottom ===== */
+.s-subnav { border-right: 1px solid var(--border-soft); background: var(--cream); display: flex; flex-direction: column; padding: 0; }
+.s-subnav-scroll { flex: 1; padding: 24px 16px; overflow-y: auto; }
+.s-subnav h3 { font-size: .64rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); padding: 0 12px; margin-bottom: 8px; }
+.s-subnav h3:not(:first-child) { margin-top: 22px; }
+.sn-item {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  border: 0; border-radius: 9px; padding: 11px 12px;
+  background: transparent; color: var(--ink-2); font-weight: 600; font-size: .88rem; text-align: left;
+  transition: all .12s; margin-bottom: 2px; position: relative;
+}
+.sn-item svg { width: 17px; height: 17px; opacity: .55; flex-shrink: 0; transition: opacity .12s; }
+.sn-item:hover { background: var(--cream-2); }
+.sn-item:hover svg { opacity: .85; }
+.sn-item.active { background: var(--red); color: #fff; box-shadow: 0 4px 12px rgba(215,25,32,.22); }
+.sn-item.active svg { opacity: 1; }
+.sn-item .badge { margin-left: auto; font-size: .66rem; font-weight: 700; background: var(--red-soft); color: var(--red); padding: 2px 8px; border-radius: 999px; }
+.sn-item.active .badge { background: rgba(255,255,255,.22); color: #fff; }
+
+/* account mini-card pinned at bottom */
+.s-acct-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px; border-top: 1px solid var(--border-soft); background: var(--cream-2);
+}
+.s-acct-card .av { width: 38px; height: 38px; border-radius: 50%; background: var(--red); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: .82rem; flex-shrink: 0; }
+.s-acct-card .meta { flex: 1; min-width: 0; line-height: 1.25; }
+.s-acct-card .meta b { font-size: .84rem; display: block; }
+.s-acct-card .meta small { font-size: .72rem; color: var(--muted); }
+.s-acct-card .plan { font-size: .66rem; font-weight: 700; color: var(--red); text-transform: uppercase; letter-spacing: .08em; }
+
+/* ===== Detail area ===== */
+.s-detail { padding: 32px clamp(28px, 4vw, 56px); max-width: 720px; }
+.s-detail-head { margin-bottom: 28px; }
+.s-detail-head .crumb { font-size: .76rem; color: var(--muted); margin-bottom: 8px; }
+.s-detail-head .crumb a { color: var(--red); font-weight: 600; }
+.s-detail-head h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em; }
+.s-detail-head p { font-size: .92rem; color: var(--muted); margin-top: 4px; }
+
+.s-section { display: none; }
+.s-section.active { display: block; animation: fade .28s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ===== Premium grouped list ===== */
+.list-card {
+  border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+  background: #fff; box-shadow: 0 6px 18px rgba(98,57,26,.05);
+  margin-bottom: 22px;
+}
+.list-card-title { font-size: .78rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; padding: 0 4px 10px; }
+.lr {
+  display: flex; align-items: center; gap: 16px; padding: 15px 18px;
+  border-bottom: 1px solid var(--border-soft); transition: background .12s;
+}
+.lr:last-child { border-bottom: 0; }
+.lr:hover { background: rgba(215,25,32,.015); }
+.lr-icon { width: 36px; height: 36px; border-radius: 9px; background: var(--cream-2); color: var(--ink-2); display: grid; place-items: center; flex-shrink: 0; transition: all .15s; }
+.lr-icon svg { width: 18px; height: 18px; }
+.lr:hover .lr-icon { background: var(--red-soft); color: var(--red); }
+.lr-body { flex: 1; min-width: 0; }
+.lr-body b { font-size: .92rem; font-weight: 600; display: block; }
+.lr-body small { font-size: .78rem; color: var(--muted); }
+.lr-ctrl { display: flex; align-items: center; gap: 8px; }
+.lr-ctrl input {
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 12px;
+  width: 180px; text-align: right; background: #fff; color: var(--ink);
+  font-weight: 500; transition: border-color .15s, box-shadow .15s;
+}
+.lr-ctrl input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(215,25,32,.10); outline: none; }
+.lr-ctrl select {
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 12px; background: #fff;
+  color: var(--ink); font-weight: 500; cursor: pointer;
+}
+.chev-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 13px;
+  background: #fff; color: var(--ink-2); font-weight: 600; font-size: .84rem;
+  transition: all .12s;
+}
+.chev-btn:hover { border-color: var(--red); color: var(--red); }
+.chev-btn svg { width: 14px; height: 14px; }
+
+/* avatar photo row */
+.photo-row { display: flex; align-items: center; gap: 16px; }
+.photo-row .photo {
+  width: 56px; height: 56px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--red), var(--red-deep)); color: #fff;
+  display: grid; place-items: center; font-weight: 800; font-size: 1.3rem;
+  box-shadow: 0 4px 12px rgba(215,25,32,.2); border: 2px solid #fff; position: relative;
+}
+.photo-row .photo-edit {
+  display: inline-flex; align-items: center; gap: 7px; border: 1.5px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; background: #fff; color: var(--ink-2);
+  font-weight: 600; font-size: .84rem; cursor: pointer; transition: all .12s;
+}
+.photo-row .photo-edit:hover { border-color: var(--red); color: var(--red); }
+.photo-row .photo-edit svg { width: 15px; height: 15px; }
+.photo-row .photo-remove { font-size: .8rem; color: var(--muted); text-decoration: underline; }
+
+/* status pill */
+.pill { font-size: .74rem; font-weight: 700; padding: 4px 11px; border-radius: 999px; }
+.pill-ok { color: var(--green); background: #eaf8ed; border: 1px solid #c6e6cb; }
+.pill-warn { color: #8a6212; background: #fff5e0; border: 1px solid #f0c869; }
+
+/* toggle */
+.toggle { width: 44px; height: 26px; border-radius: 999px; background: var(--red); position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0; }
+.toggle::after { content:''; position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.toggle.off { background: #c8bcb6; }
+.toggle.off::after { left: 3px; }
+
+/* save bar */
+.save-bar { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+.save-bar .hint { font-size: .8rem; color: var(--muted); }
+
+/* bug form */
+.bug-card { border: 1px solid var(--border); border-radius: 14px; background: #fff; padding: 24px; box-shadow: 0 6px 18px rgba(98,57,26,.05); }
+.bug-grid { display: grid; gap: 16px; }
+.bug-grid .field textarea { border-radius: 10px; border: 1.5px solid var(--border); padding: 12px; resize: vertical; }
+.bug-grid .field input, .bug-grid .field select { border-radius: 10px; border: 1.5px solid var(--border); padding: 11px 14px; }
+</style>
+</head><body>
+<div class="demo-ribbon">DEMO 3 v2 · Split Pane <a href="index.html">← all demos</a></div>
+<main class="dash-shell">
+  <aside class="dash-sidebar">
+    <div class="dash-logo"><img src="../../assets/crossline-icon.png" alt="" /><span><b>Crossline</b><small>Education</small></span></div>
+    <nav class="dash-nav">
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Dashboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg><span>Exams</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg><span>Results</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg><span>Weakness</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/></svg><span>Leaderboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg><span>Pricing</span></section></button>
+      <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.36.36.59.85.6 1.36V11a2 2 0 0 1 0 4h-.09c-.5 0-.99.23-1.36.6z"/></svg><span>Settings</span></button>
+    </nav>
+    <div class="dash-user"><span class="avatar">AS</span><div class="meta"><b>Arijit S.</b><small>CSCA Candidate</small></div></div>
+  </aside>
+
+  <section class="dash-main">
+    <header class="dash-topbar"><div><h1>Settings</h1><p>Profile, updates, and support.</p></div></header>
+
+    <div class="s-body">
+      <!-- Sub-nav -->
+      <aside class="s-subnav">
+        <div class="s-subnav-scroll">
+          <h3>Account</h3>
+          <button class="sn-item active" data-sec="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>Profile</button>
+          <button class="sn-item" data-sec="updates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.8 1 6.5 2.6L21 8"/><path d="M21 3v5h-5"/></svg>Updates <span class="badge">v0.1.53</span></button>
+          <h3>Help &amp; security</h3>
+          <button class="sn-item" data-sec="support"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Report a bug</button>
+          <button class="sn-item" data-sec="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/></svg>Admin &amp; 2FA</button>
+        </div>
+        <div class="s-acct-card">
+          <span class="av">AS</span>
+          <div class="meta"><b>Arijit Bhowmik</b><small>arijit@crossline.com</small></div>
+          <span class="plan">Plan</span>
+        </div>
+      </aside>
+
+      <!-- Detail -->
+      <div class="s-detail">
+        <!-- Profile -->
+        <div class="s-section active" data-section="profile">
+          <div class="s-detail-head">
+            <div class="crumb"><a href="#">Settings</a> / Profile</div>
+            <h2>Profile</h2>
+            <p>Your name and username appear on the dashboard, results, and leaderboard.</p>
+          </div>
+
+          <div class="list-card">
+            <div style="padding:20px 18px 16px">
+              <div class="photo-row">
+                <div class="photo">AS</div>
+                <div style="flex:1">
+                  <b style="font-size:.94rem;display:block">Profile photo</b>
+                  <small style="font-size:.78rem;color:var(--muted)">JPG or PNG. Shown on your dashboard and leaderboard entry.</small>
+                </div>
+                <button class="photo-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></svg>Change</button>
+              </div>
+            </div>
+            <div style="border-top:1px solid var(--border-soft)">
+              <div class="lr">
+                <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
+                <div class="lr-body"><b>First name</b><small>Used on results and emails</small></div>
+                <div class="lr-ctrl"><input value="Arijit" /></div>
+              </div>
+              <div class="lr">
+                <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>
+                <div class="lr-body"><b>Last name</b><small>Used on result emails</small></div>
+                <div class="lr-ctrl"><input value="Bhowmik" /></div>
+              </div>
+              <div class="lr">
+                <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg></span>
+                <div class="lr-body"><b>Username</b><small>Shown publicly on the leaderboard</small></div>
+                <div class="lr-ctrl"><input value="Arijit" /></div>
+              </div>
+              <div class="lr">
+                <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+                <div class="lr-body"><b>Email address</b><small>Used to sign in — contact admin to change</small></div>
+                <div class="lr-ctrl"><span style="font-size:.86rem;color:var(--muted)">arijit@crossline.com</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="save-bar">
+            <button class="btn btn-primary">Save profile</button>
+            <span class="hint">Changes apply to your dashboard, results, and leaderboard entry.</span>
+          </div>
+        </div>
+
+        <!-- Updates -->
+        <div class="s-section" data-section="updates">
+          <div class="s-detail-head">
+            <div class="crumb"><a href="#">Settings</a> / Updates</div>
+            <h2>Windows app updates</h2>
+            <p>Updates are verified against a signed manifest before installation. Reset an interrupted download here.</p>
+          </div>
+
+          <div class="list-card">
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></span>
+              <div class="lr-body"><b>Current version</b><small>Last checked just now</small></div>
+              <span class="pill pill-ok">v0.1.53 · Up to date</span>
+            </div>
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.8 1 6.5 2.6L21 8"/><path d="M21 3v5h-5"/></svg></span>
+              <div class="lr-body"><b>Check for updates</b><small>Verify against the latest GitHub release</small></div>
+              <button class="chev-btn">Check now <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+            </div>
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83"/></svg></span>
+              <div class="lr-body"><b>Auto-update</b><small>Download and install on quit when verified</small></div>
+              <span class="toggle"></span>
+            </div>
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></span>
+              <div class="lr-body"><b>Reset download</b><small>Clear a stuck or interrupted download</small></div>
+              <button class="chev-btn">Reset</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Support -->
+        <div class="s-section" data-section="support">
+          <div class="s-detail-head">
+            <div class="crumb"><a href="#">Settings</a> / Report a bug</div>
+            <h2>Report a bug</h2>
+            <p>Tell us what happened and how to reproduce it. We read every report.</p>
+          </div>
+          <div class="bug-card">
+            <div class="bug-grid">
+              <div class="field-row">
+                <div class="field"><label>Category</label><select><option>App</option><option>Exam content</option><option>Camera or setup</option><option>Account</option><option>Other</option></select></div>
+                <div class="field"><label>Short title</label><input placeholder="What went wrong?" /></div>
+              </div>
+              <div class="field"><label>Details</label><textarea rows="5" placeholder="What did you do, what happened, and what did you expect?"></textarea></div>
+              <div class="save-bar"><button class="btn btn-primary">Send report</button><span class="hint">Usually a reply within 1 business day.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin -->
+        <div class="s-section" data-section="admin">
+          <div class="s-detail-head">
+            <div class="crumb"><a href="#">Settings</a> / Admin &amp; 2FA</div>
+            <h2>Administrator security</h2>
+            <p>Privileged access uses your student account plus a six-digit authenticator code.</p>
+          </div>
+          <div class="list-card">
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <div class="lr-body"><b>2FA status</b><small>Authenticator app enrolled</small></div>
+              <span class="pill pill-ok">Enabled</span>
+            </div>
+            <div class="lr">
+              <span class="lr-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+              <div class="lr-body"><b>Admin panel</b><small>Requires your password + 6-digit code</small></div>
+              <button class="chev-btn">Open panel <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+document.querySelectorAll('.sn-item').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.sn-item').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.s-section').forEach(s => s.classList.toggle('active', s.dataset.section === b.dataset.sec));
+}));
+document.querySelectorAll('.toggle').forEach(t => t.addEventListener('click', () => t.classList.toggle('off')));
+</script>
+</body></html>

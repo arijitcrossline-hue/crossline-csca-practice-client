@@ -5,14 +5,32 @@ routes = [
   { pattern = "api.crosslinecscatest.com", custom_domain = true }
 ]
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true
+
 [vars]
 APP_ORIGIN = "https://exam.crosslinecscatest.com"
 CONNECT_ORIGIN = "https://api.crosslinecscatest.com"
 VERIFY_FROM = "Crossline Education <verify@crosslinecscatest.com>"
 CREATOR_ADMIN_EMAIL = "arijitsumit123@gmail.com"
+BUILD_VERSION = "0.1.60"
 GLM_API_URL = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
 GLM_MODEL = "glm-5.2"
 OPENCODE_RELAY_URL = "https://media.crosslinecscatest.com/admin-ai"
+QUESTION_IMAGE_UPLOAD_URL = "https://media.crosslinecscatest.com/internal/question-images"
+QUESTION_IMAGE_ORIGIN = "https://media.crosslinecscatest.com"
 
 [[d1_databases]]
 binding = "DB"

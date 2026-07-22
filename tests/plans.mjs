@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACCESS_PLANS } from "../worker/src/index.js";
+import { ACCESS_PLANS } from "../worker/src/access-plans.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const renderer = fs.readFileSync(path.join(root, "src", "app.js"), "utf8");

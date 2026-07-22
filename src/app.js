@@ -1,7 +1,9 @@
 const app = document.getElementById("app");
 const letterLabels = ["A", "B", "C", "D"];
 const streams = [];
-const DEMO_CODE = "246810";
+const DEMO_CODE = String(window.CROSSLINE_DEMO_CODE || "");
+const DEMO_USER = window.CROSSLINE_DEMO_USER || null;
+const LEGAL_VERSION = "2026-07-22";
 const WINDOWS_CLIENT_URL = "https://media.crosslinecscatest.com/downloads/Crossline-CSCA-Practice-Setup.exe";
 const PRIVACY_POLICY_URL = "https://exam.crosslinecscatest.com/privacy";
 const TERMS_OF_SERVICE_URL = "https://exam.crosslinecscatest.com/terms";
@@ -344,13 +346,15 @@ function landingPricingCardsHtml({ appContext = false, currentPlan = null, plans
 let selectedExamSubject = load("csca-exam-subject", "");
 
 let exams = load("csca-exams", defaultExams);
-let users = load("csca-users", [{ email: "student@example.com", username: "Demo Student", password: "demo123", verified: true }]);
+let users = load("csca-users", DEMO_USER ? [DEMO_USER] : []);
 let currentUser = null;
 let currentExam = null;
 let questions = [];
 let currentIndex = 0;
 let questionScale = 1;
 let elapsedSeconds = 0;
+let examDeadlineAt = 0;
+let examSubmitting = false;
 let clockTimer = null;
 let preflight = { camera: false, microphone: false, network: false, face: false, phone: false, roomScan: false };
 let microphoneTest = { stream: null, audioContext: null, analyser: null, animationFrame: null, usingTimeout: false, recording: false };
@@ -360,6 +364,7 @@ let editorExamId = null;
 let editorImage = "";
 let editorExplanationImage = "";
 let activeSessionId = null;
+let activeAttempt = null;
 let integrityEvents = [];
 let deviceChangeListenerAttached = false;
 let phonePairingTimer = null;
@@ -447,8 +452,37 @@ function markdownHtml(value = "") {
   const parsed = window.marked.parse(String(value || ""), { breaks: true, gfm: true });
   return sanitizeHtmlFragment(parsed);
 }
+let mathJaxLoader = null;
+function pageContainsMath() {
+  const text = app?.textContent || "";
+  return /(?:\\\(|\\\[|\$\$|\\(?:frac|sqrt|vec|sin|cos|tan|log|sum|int|begin)\b)/.test(text);
+}
+function loadMathJax() {
+  if (window.MathJax?.typesetPromise) return Promise.resolve(window.MathJax);
+  if (mathJaxLoader) return mathJaxLoader;
+  window.MathJax = {
+    tex: {
+      inlineMath: [["\\(", "\\)"], ["$", "$"]],
+      displayMath: [["\\[", "\\]"], ["$$", "$$"]]
+    },
+    svg: { fontCache: "global" }
+  };
+  mathJaxLoader = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/mathjax/tex-svg.js";
+    script.async = true;
+    script.onload = () => resolve(window.MathJax);
+    script.onerror = () => reject(new Error("Math rendering could not be loaded."));
+    document.head.appendChild(script);
+  }).catch((error) => {
+    mathJaxLoader = null;
+    throw error;
+  });
+  return mathJaxLoader;
+}
 function renderMath() {
-  window.MathJax?.typesetPromise?.().catch((error) => console.warn(error));
+  if (!pageContainsMath()) return;
+  void loadMathJax().then(() => window.MathJax?.typesetPromise?.([app])).catch((error) => console.warn(error));
 }
 function autoUpdateEnabled() {
   return localStorage.getItem("csca-auto-update") === "true";
@@ -759,8 +793,10 @@ function resetStudentDataCache() {
 }
 function clearStudentSession() {
   void disableAdminScreenCapture();
+  void window.CrosslineApi?.logout?.().catch(() => {});
   currentUser = null;
   activeSessionId = null;
+  activeAttempt = null;
   activeStudentView = "";
   studentViewRevision += 1;
   resetStudentDataCache();
@@ -806,7 +842,7 @@ function showClientLoading(message = "Preparing your dashboard") {
 }
 async function restoreStudentSession() {
   if (apiEnabled()) {
-    const token = window.CrosslineApi?.getStudentToken?.();
+    const token = await window.CrosslineApi?.getStudentTokenAsync?.();
     if (!token) return false;
     try {
       const payload = await window.CrosslineApi.me();
@@ -832,11 +868,16 @@ function registerOAuthListener() {
   window.examRuntime.onOAuthComplete((payload = {}) => completeSocialLogin(payload));
 }
 async function completeSocialLogin(payload = {}) {
+  if (payload.error) {
+    showAuth("login", payload.error);
+    return false;
+  }
   if (!payload.token || !payload.user) {
     showAuth("login", "Social sign-in could not be completed.");
     return false;
   }
-  window.CrosslineApi?.setStudentToken?.(payload.token, true);
+  const remember = isDesktopClient() && document.getElementById("login-remember")?.checked !== false;
+  window.CrosslineApi?.setStudentToken?.(payload.token, remember);
   currentUser = payload.user;
   if (!isDesktopClient()) {
     window.CrosslineApi?.clearStudentToken?.();
@@ -1075,6 +1116,10 @@ function normalizeApiExam(exam) {
     limitReached: Boolean(exam.limitReached),
     accessLabel: exam.accessLabel || "",
     accessReason: exam.accessReason || "",
+    questionCount: Math.max(0, Number(exam.questionCount ?? exam.question_count ?? exam.questions?.length ?? 0)),
+    published: exam.published !== undefined ? Boolean(exam.published) : Boolean(exam.is_published ?? true),
+    archivedAt: exam.archivedAt || exam.archived_at || null,
+    version: Math.max(1, Number(exam.version || 1)),
     questions: (exam.questions || []).map((question, index) => ({
       type: question.type || "Single choice",
       subject: question.subject || "",
@@ -1188,11 +1233,66 @@ async function recordSessionEvent(type, payload = {}) {
   if (!apiEnabled() || !activeSessionId) return;
   try { await window.CrosslineApi.event(activeSessionId, type, payload); } catch (error) { console.warn(error); }
 }
+function activeAttemptId() {
+  return String(activeAttempt?.session?.id || "");
+}
+async function hydrateActiveAttempt() {
+  if (!apiEnabled()) return activeAttempt;
+  try {
+    const payload = await window.CrosslineApi.activeSession();
+    activeAttempt = payload?.session && payload?.exam?.questions?.length ? payload : null;
+    return activeAttempt;
+  } catch (error) {
+    console.warn("Active exam could not be refreshed.", error);
+    return activeAttempt;
+  }
+}
+function syncActiveAttemptFromQuestions() {
+  if (!activeAttempt || activeAttemptId() !== String(activeSessionId || "")) return;
+  activeAttempt.answers = Object.fromEntries(questions.map((question) => [question.backendId || question.id, question.answer]));
+  activeAttempt.flags = questions.filter((question) => question.flagged).map((question) => question.backendId || question.id);
+  activeAttempt.session = { ...activeAttempt.session, updatedAt: new Date().toISOString() };
+}
+async function resumeActiveExam() {
+  let attempt = activeAttempt;
+  if (!attempt) attempt = await hydrateActiveAttempt();
+  if (!attempt?.session?.id || !attempt?.exam?.questions?.length) return showStudentDashboard("Your active exam has already ended.");
+  const deadline = new Date(attempt.session.deadlineAt).getTime();
+  if (!Number.isFinite(deadline) || deadline <= Date.now()) {
+    await hydrateActiveAttempt();
+    return showStudentDashboard("Time is up. Your saved answers were submitted automatically.");
+  }
+  currentExam = normalizeApiExam(attempt.exam);
+  activeSessionId = attempt.session.id;
+  examDeadlineAt = deadline;
+  const savedAnswers = attempt.answers && typeof attempt.answers === "object" ? attempt.answers : {};
+  const savedFlags = new Set(Array.isArray(attempt.flags) ? attempt.flags.map(String) : []);
+  questions = currentExam.questions.map((question, index) => {
+    const key = String(question.backendId || question.id);
+    const saved = savedAnswers[key];
+    const answer = Number.isInteger(saved) && saved >= 0 && saved < question.answers.length ? saved : null;
+    return { ...question, id: index + 1, answer, flagged: savedFlags.has(key) };
+  });
+  currentIndex = Math.max(0, questions.findIndex((question) => question.answer === null));
+  if (currentIndex < 0) currentIndex = 0;
+  elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(attempt.session.startedAt).getTime()) / 1000) || 0);
+  questionScale = 1;
+  examSubmitting = false;
+  stopMedia();
+  ensureKiosk();
+  renderExamShell();
+  renderQuestion();
+  clearInterval(clockTimer);
+  updateClock();
+  clockTimer = setInterval(updateClock, 1000);
+}
 async function saveSessionAnswers(submitted = false) {
   if (!apiEnabled() || !activeSessionId) return;
+  syncActiveAttemptFromQuestions();
   const answers = Object.fromEntries(questions.map((question) => [question.backendId || question.id, question.answer]));
   const flags = questions.filter((question) => question.flagged).map((question) => question.backendId || question.id);
-  try { return await window.CrosslineApi.saveAnswers(activeSessionId, answers, flags, submitted); } catch (error) { console.warn(error); return null; }
+  if (submitted) return window.CrosslineApi.saveAnswers(activeSessionId, answers, flags, true);
+  try { return await window.CrosslineApi.saveAnswers(activeSessionId, answers, flags, false); } catch (error) { console.warn(error); return null; }
 }
 function uiIcon(name, className = "landing-icon") {
   return `<span class="${className} icon-${name}" aria-hidden="true"></span>`;
@@ -1225,10 +1325,9 @@ function showDownloadLanding() {
 
     <section class="cx-hero" id="top">
       <div class="cx-hero-center">
-        <a class="cx-announce" href="${OFFICIAL_WEBSITE_URL}" target="_blank" rel="noopener noreferrer">
-          <span class="cx-announce-badge">
-            <svg class="cx-announce-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
-            Announcement
+        <a class="cx-announce" href="${OFFICIAL_WEBSITE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Announcement: Visit the official Crossline website">
+          <span class="cx-announce-badge" aria-hidden="true">
+            <svg class="cx-announce-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
           </span>
           <span class="cx-announce-text">Visit the official Crossline website</span>
           <svg class="cx-announce-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
@@ -1252,7 +1351,7 @@ function showDownloadLanding() {
             <img class="cx-shot" src="assets/landing/product/dashboard.png?v=2" alt="Crossline student dashboard with score cards, start-exam banner, and weakness summary" width="1280" height="800" />
           </div>
           <figure class="cx-hero-float">
-            <img src="assets/landing/hero-exam-desk.png?v=2" alt="Student taking a Crossline CSCA physics mock on a laptop with working shown on a desk whiteboard" width="1024" height="768" />
+            <img src="assets/landing/hero-exam-desk.webp?v=3" alt="Student taking a Crossline CSCA physics mock on a laptop with working shown on a desk whiteboard" width="1024" height="768" />
           </figure>
         </div>
       </div>
@@ -1274,7 +1373,7 @@ function showDownloadLanding() {
               <span class="cx-feature-icon">${uiIcon("square-check-big")}</span>
               <span class="cx-feature-copy">
                 <strong>1. Set up like exam day</strong>
-                <span>Webcam, mic, network check, phone camera, and room scan.</span>
+                <span>Webcam, mic, network, phone camera, and guided room walkthrough.</span>
               </span>
             </button>
             <button type="button" class="cx-feature-step" role="tab" aria-selected="false" data-feature-step="1">
@@ -1297,7 +1396,7 @@ function showDownloadLanding() {
           <div class="cx-feature-stage">
             <div class="cx-feature-panel is-active" data-feature-panel="0">
               <figure class="cx-photo-card" data-cx-lens>
-                <img src="assets/landing/hero-dual-camera.png" alt="Student at a desk with laptop exam client and phone room camera on a tripod" width="1024" height="768" />
+                <img src="assets/landing/hero-dual-camera.webp?v=2" alt="Student at a desk with laptop exam client and phone room camera on a tripod" width="1195" height="896" />
                 <figcaption><span class="cx-cam-live">LIVE setup</span><span>Primary webcam · secondary phone on tripod</span></figcaption>
               </figure>
             </div>
@@ -1331,11 +1430,11 @@ function showDownloadLanding() {
             <li>${uiIcon("square-check-big")} Select and preview your Windows webcam</li>
             <li>${uiIcon("square-check-big")} Test your microphone and headset</li>
             <li>${uiIcon("square-check-big")} Confirm network readiness against the live API</li>
-            <li>${uiIcon("square-check-big")} Continue to facial recognition, phone pairing, and room scan</li>
+            <li>${uiIcon("square-check-big")} Continue to face framing, phone pairing, and the room walkthrough</li>
           </ul>
         </div>
         <div class="cx-window cx-exam-window" data-cx-lens>
-          <img class="cx-shot" src="assets/landing/product/equipment-check.png?v=3" alt="Crossline equipment check screen for camera, microphone, and network" width="1280" height="800" />
+          <img class="cx-shot" src="assets/landing/product/equipment-check.webp?v=4" alt="Crossline equipment check screen for camera, microphone, and network" width="1280" height="720" />
         </div>
       </div>
     </section>
@@ -1410,10 +1509,11 @@ const legalPageContent = {
     sections: [
       ["Information we collect", "We store the account details you provide, including your email address, username, first and last name, and optional profile picture. We also store exam answers, scores, result history, and topic-level performance so the dashboard can show progress and weaknesses."],
       ["Google and Facebook sign-in", "If you choose social sign-in, the provider sends us your account identifier, verified email address, name, and profile picture. We use this only to create or connect your Crossline account."],
-      ["Camera and microphone checks", "The Windows client requests webcam and microphone access only for the pre-exam equipment simulation. The secondary phone camera is used for the connection, landscape, and room-scan simulation. Crossline does not record, upload, or store video or audio from these checks."],
-      ["How information is used", "We use account and exam information to authenticate students, run mock exams, calculate results, deliver result emails, show performance analytics, and operate the administration tools. We do not sell personal information."],
-      ["Storage and security", "Account and exam data is stored in the Crossline service and protected with access controls and encrypted network connections. We retain it while the account is active or while it is reasonably needed to provide the service and meet legal obligations."],
-      ["Your choices", "You can change your name and profile picture in the app. You can request account and associated-data deletion by following the data deletion instructions linked below."],
+      ["Camera, microphone, and device checks", "The Windows client requests webcam and microphone access only for pre-exam equipment practice. The phone page checks camera access, pairing, landscape orientation, and screen wake lock. Crossline does not identify faces, analyse rooms, upload camera video or microphone audio, or continue using either camera after setup. The service may store setup status and security-event metadata, but not recordings."],
+      ["How information is used", "We use account and exam information to authenticate students, run mock exams, enforce attempt limits, calculate results, deliver account and result emails, show performance analytics, respond to bug reports, and operate administrator tools. We do not sell personal information or use Google profile data for advertising."],
+      ["Service providers and disclosure", "Crossline uses Cloudflare for application hosting and its database, a Tencent Cloud virtual server for question-image storage and operational jobs, Resend for transactional email, and Google or Facebook only when you choose their sign-in option. These providers process information needed to deliver their services. Authorized Crossline administrators can access limited account, exam, support, and audit information for operations and security. We do not disclose Google user data for unrelated purposes."],
+      ["Storage and security", "Account and exam data is stored in the Crossline service and protected with access controls, encrypted network connections, hashed credentials and session tokens, and administrator two-factor authentication. We retain data while the account is active, during the 30-day deletion waiting period, or as reasonably needed for security and legal obligations."],
+      ["Your choices", "You can change your name and profile picture in Settings. From Privacy & data, you can schedule deletion of your account and associated exam data, cancel during the 30-day waiting period, or contact support for help."],
       ["Contact", "Questions about privacy can be sent to verify@crosslinecscatest.com."]
     ]
   },
@@ -1426,7 +1526,7 @@ const legalPageContent = {
       ["Acceptable use", "Do not disrupt the service, bypass access controls, upload harmful material, scrape private information, or use the software to violate the rights of another person. Exam content may be used only for personal study unless Crossline gives written permission."],
       ["Results and availability", "Scores and analytics are educational guidance. We work to keep the service available and accurate, but temporary interruptions, corrections, and updates may occur."],
       ["Account suspension", "Crossline may restrict access when an account is used fraudulently, abusively, or in a way that threatens other students or the service."],
-      ["Changes", "These terms may be updated as the service changes. Continued use after an update means you accept the revised terms."],
+      ["Changes", "These terms may be updated as the service changes. When a material in-app exam notice changes, Crossline will ask you to review and accept the current version before starting another mock."],
       ["Contact", "Questions about these terms can be sent to verify@crosslinecscatest.com."]
     ]
   },
@@ -1434,11 +1534,11 @@ const legalPageContent = {
     title: "Data Deletion Instructions",
     summary: "How to delete a Crossline account and the information linked to it.",
     sections: [
-      ["Request deletion", "Email verify@crosslinecscatest.com from the email address registered to your Crossline account. Use the subject “Data Deletion Request” and include your username."],
-      ["Verification", "We may reply to confirm that the request came from the account owner. Do not send your password, social-login token, or any identity document unless Crossline support explains why it is legally required."],
-      ["What is deleted", "After verification, we delete or anonymize the account profile, linked Google or Facebook sign-in connection, exam attempts, answers, results, and notification history, except information that must be retained for security, fraud prevention, or legal obligations."],
-      ["Timing", "We aim to complete verified deletion requests within 30 days and will confirm when the process is complete."],
-      ["Remove Facebook access", "You can also remove Crossline from Facebook's Apps and Websites settings. Removing Facebook access stops future Facebook sign-in but does not by itself delete data already held by Crossline, so send the deletion request as described above."]
+      ["Request deletion", "In the Windows app, open Settings, choose Privacy & data, and type DELETE in the account-deletion section. You can also email verify@crosslinecscatest.com from the address registered to your account if you cannot access the app."],
+      ["Waiting period", "A verified in-app request schedules deletion for 30 days later. The same Settings section shows the scheduled date and lets you cancel before that date."],
+      ["What is deleted", "The automated workflow deletes the account profile, linked Google or Facebook sign-in connection, active sessions, exam attempts, answers, results, targeted notifications, and deletion request. Information that must be retained for security or legal obligations may instead be restricted or anonymized."],
+      ["Administrator accounts", "An administrator must remove administrator access before requesting deletion. The protected creator account requires a manual ownership transfer so the service is not left without an owner."],
+      ["Remove social access", "You can separately remove Crossline from your Google or Facebook connected-app settings. That prevents future social sign-in but does not itself delete data held by Crossline; use the in-app deletion workflow as well."]
     ]
   }
 };
@@ -1455,7 +1555,7 @@ function showLegalPage(pageKey) {
       <p class="legal-eyebrow">Crossline CSCA Practice</p>
       <h1>${escapeHtml(page.title)}</h1>
       <p class="legal-summary">${escapeHtml(page.summary)}</p>
-      <p class="legal-effective">Effective July 11, 2026</p>
+      <p class="legal-effective">Effective July 23, 2026</p>
       ${page.sections.map(([heading, body]) => `<section><h2>${escapeHtml(heading)}</h2><p>${escapeHtml(body)}</p></section>`).join("")}
       <footer><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/data-deletion">Data Deletion</a></footer>
     </article>
@@ -1864,14 +1964,14 @@ function showWebsiteRegister(message = "") {
             <label for="website-register-password">Create password</label>
             <div class="auth-v2-input-wrap with-icon">
               <span class="auth-v2-icon" aria-hidden="true">${authIcon("lock")}</span>
-              <input id="website-register-password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required />
+              <input id="website-register-password" type="password" minlength="12" autocomplete="new-password" placeholder="At least 12 characters" required />
               <button id="toggle-website-register-password" type="button">Show</button>
             </div>
             <div class="auth-v2-pw-strength" id="website-pw-strength" hidden>
               <div class="auth-v2-pw-bars" id="website-pw-bars"><span></span><span></span><span></span><span></span></div>
               <span class="auth-v2-pw-label" id="website-pw-label">Weak</span>
             </div>
-            <span class="auth-v2-hint">Must be at least 6 characters.</span>
+            <span class="auth-v2-hint">Must be at least 12 characters.</span>
           </div>
           <p class="form-message">${escapeHtml(message)}</p>
           <button class="auth-v2-submit" type="submit">Create account ${authIcon("arrow")}</button>
@@ -1917,8 +2017,8 @@ function showWebsiteRegister(message = "") {
     }
     strength.hidden = false;
     let score = 0;
-    if (value.length >= 6) score += 1;
-    if (value.length >= 10) score += 1;
+    if (value.length >= 12) score += 1;
+    if (value.length >= 16) score += 1;
     if (/[A-Z]/.test(value) && /[a-z]/.test(value)) score += 1;
     if (/\d/.test(value) || /[^A-Za-z0-9]/.test(value)) score += 1;
     bars.className = `auth-v2-pw-bars s${score}`;
@@ -1982,6 +2082,7 @@ function showWebsiteVerification(message = "") {
           <div class="auth-v2-field"><label for="website-verify-code">Verification code</label><input id="website-verify-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required /></div>
           <p class="form-message">${escapeHtml(message)}</p>
           <button class="auth-v2-submit" type="submit">Verify email <span aria-hidden="true">→</span></button>
+          ${apiEnabled() ? '<button id="website-resend-verification" class="auth-v2-forgot" type="button">Send another code</button>' : ""}
         </form>
       </div>
     </section>
@@ -1996,6 +2097,14 @@ function showWebsiteVerification(message = "") {
   </main>`;
   document.querySelectorAll("[data-auth-home]").forEach((el) => el.addEventListener("click", showDownloadLanding));
   bind("back-register", "click", () => showWebsiteRegister());
+  bind("website-resend-verification", "click", async () => {
+    try {
+      await window.CrosslineApi.requestVerification(pendingRegistration.email);
+      showWebsiteVerification("If this unverified account exists, a new code has been sent.");
+    } catch (error) {
+      showWebsiteVerification(error.message);
+    }
+  });
   bind("website-verify-form", "submit", async (event) => {
     event.preventDefault();
     const code = document.getElementById("website-verify-code").value;
@@ -2119,8 +2228,8 @@ function showAuth(tab = "login", message = "") {
   message = typeof message === "string" ? message : "";
   if (tab === "register") return showWebsiteRegister(message);
 
-  const emailValue = apiEnabled() ? "" : "student@example.com";
-  const passwordValue = apiEnabled() ? "" : "demo123";
+  const emailValue = apiEnabled() ? "" : String(DEMO_USER?.email || "");
+  const passwordValue = apiEnabled() ? "" : String(DEMO_USER?.password || "");
   app.innerHTML = `
   <main class="auth-v2">
     <section class="auth-v2-form">
@@ -2154,13 +2263,14 @@ function showAuth(tab = "login", message = "") {
             </div>
           </div>
           <div class="auth-v2-row">
-            <label class="auth-v2-remember"><input type="checkbox" checked /> Keep me signed in</label>
+            <label class="auth-v2-remember"><input id="login-remember" type="checkbox" checked /> Keep me signed in</label>
             <button id="forgot-password" class="auth-v2-forgot" type="button">Forgot password?</button>
           </div>
           <p class="form-message">${escapeHtml(message)}</p>
           <button class="auth-v2-submit" type="submit">Sign in ${authIcon("arrow")}</button>
         </form>
-        ${localModeNote("<div class=\"auth-v2-demo\">Demo account — <code>student@example.com</code> / <code>demo123</code></div>")}
+        ${apiEnabled() ? '<p class="auth-v2-switch">Waiting for verification? <button type="button" id="resend-verification-login">Send a new code</button></p>' : ""}
+        ${localModeNote(DEMO_USER ? `<div class="auth-v2-demo">Local test account — <code>${escapeHtml(DEMO_USER.email)}</code></div>` : "")}
         <p class="auth-v2-switch">New to Crossline? <button type="button" data-create-account>Create an account</button></p>
       </div>
       <p class="auth-v2-legal">By continuing, you agree to our <button id="auth-terms" type="button">Terms</button> and <button id="auth-privacy" type="button">Privacy Policy</button>.</p>
@@ -2186,6 +2296,21 @@ function showAuth(tab = "login", message = "") {
   bind("auth-terms", "click", () => openExternalUrl(TERMS_OF_SERVICE_URL));
   bind("auth-privacy", "click", () => openExternalUrl(PRIVACY_POLICY_URL));
   bind("forgot-password", "click", showPasswordReset);
+  bind("resend-verification-login", "click", async () => {
+    const input = document.getElementById("login-email");
+    const email = input?.value.trim().toLowerCase() || "";
+    if (!email || !input.checkValidity()) {
+      input?.focus();
+      return showAuth("login", "Enter the email address you used to create your account.");
+    }
+    try {
+      await window.CrosslineApi.requestVerification(email);
+      pendingRegistration = { email };
+      showVerification("If this unverified account exists, a new code has been sent.");
+    } catch (error) {
+      showAuth("login", error.message);
+    }
+  });
   bind("toggle-login-password", "click", () => togglePasswordVisibility("login-password", "toggle-login-password"));
   bindDesktopExit({ updates: true });
   bind("login-form", "submit", async (event) => {
@@ -2195,7 +2320,8 @@ function showAuth(tab = "login", message = "") {
     if (apiEnabled()) {
       try {
         const payload = await window.CrosslineApi.login(email, password);
-        window.CrosslineApi.setStudentToken(payload.token);
+        const remember = isDesktopClient() && document.getElementById("login-remember")?.checked !== false;
+        window.CrosslineApi.setStudentToken(payload.token, remember);
         currentUser = payload.user;
         if (!isDesktopClient()) {
           window.CrosslineApi.clearStudentToken?.();
@@ -2223,8 +2349,8 @@ function showPasswordReset(message = "", confirmStep = false) {
     ? `<form id="password-reset-confirm-form" class="auth-v2-fields" novalidate>
         <div class="auth-v2-field"><label>Email address</label><input value="${escapeHtml(pendingPasswordResetEmail)}" disabled /></div>
         <div class="auth-v2-field"><label for="password-reset-code">Six-digit reset code</label><input id="password-reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></div>
-        <div class="auth-v2-field"><label for="password-reset-new">New password</label><div class="auth-v2-input-wrap"><input id="password-reset-new" type="password" autocomplete="new-password" minlength="6" required /><button id="toggle-reset-password" type="button">Show</button></div></div>
-        <div class="auth-v2-field"><label for="password-reset-confirm">Confirm new password</label><input id="password-reset-confirm" type="password" autocomplete="new-password" minlength="6" required /></div>
+        <div class="auth-v2-field"><label for="password-reset-new">New password</label><div class="auth-v2-input-wrap"><input id="password-reset-new" type="password" autocomplete="new-password" minlength="12" required /><button id="toggle-reset-password" type="button">Show</button></div></div>
+        <div class="auth-v2-field"><label for="password-reset-confirm">Confirm new password</label><input id="password-reset-confirm" type="password" autocomplete="new-password" minlength="12" required /></div>
         <p class="form-message">${escapeHtml(message)}</p>
         <button class="auth-v2-submit" type="submit">Reset password <span aria-hidden="true">→</span></button>
         <p class="auth-v2-switch"><button id="reset-request-again" type="button">Use another email</button></p>
@@ -2305,9 +2431,18 @@ function togglePasswordVisibility(inputId, buttonId) {
 }
 
 function showVerification(message = "") {
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-login" class="header-link">Back to login</button>`))}<main class="portal-main narrow"><section class="panel"><div class="page-intro"><h1>Verify your email</h1><p>We sent a six-digit verification code to <strong>${escapeHtml(pendingRegistration.email)}</strong>.</p></div><div class="verification-box">${apiEnabled() ? "<p class=\"form-note\">Check your inbox for the verification code.</p>" : `<p class="form-note">Prototype verification code</p><div class="demo-code">${DEMO_CODE}</div>`}<form id="verify-form"><div class="field"><label>Verification code</label><input id="verify-code" inputmode="numeric" maxlength="6" required /></div><p class="form-message">${escapeHtml(message)}</p><button class="primary-button">Verify email</button></form></div></section></main>`;
+  if (!pendingRegistration?.email) return showAuth("login");
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-login" class="header-link">Back to login</button>`))}<main class="portal-main narrow"><section class="panel"><div class="page-intro"><h1>Verify your email</h1><p>We sent a six-digit verification code to <strong>${escapeHtml(pendingRegistration.email)}</strong>.</p></div><div class="verification-box">${apiEnabled() ? "<p class=\"form-note\">Check your inbox for the verification code.</p>" : `<p class="form-note">Prototype verification code</p><div class="demo-code">${DEMO_CODE}</div>`}<form id="verify-form"><div class="field"><label>Verification code</label><input id="verify-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></div><p class="form-message">${escapeHtml(message)}</p><button class="primary-button">Verify email</button>${apiEnabled() ? '<button id="resend-verification" class="text-button" type="button">Send another code</button>' : ""}</form></div></section></main>`;
   bind("back-login", "click", () => showAuth("login"));
   bindDesktopExit();
+  bind("resend-verification", "click", async () => {
+    try {
+      await window.CrosslineApi.requestVerification(pendingRegistration.email);
+      showVerification("If this unverified account exists, a new code has been sent.");
+    } catch (error) {
+      showVerification(error.message);
+    }
+  });
   bind("verify-form", "submit", async (event) => {
     event.preventDefault();
     const code = document.getElementById("verify-code").value;
@@ -2540,6 +2675,9 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
     : `<img src="assets/dashboard/student-avatar.png" alt="" />`;
   const skippedMatch = dashboardQuestionMatch(details, "skipped");
   const wrongMatch = dashboardQuestionMatch(details, "wrong");
+  const resumableExam = activeAttempt?.exam;
+  const startTitle = resumableExam ? `Resume ${resumableExam.title || "your exam"}` : "Start your next exam";
+  const startLabel = resumableExam ? "Resume Exam" : "Start Exam";
   return `<main class="dash-shell">
     <aside class="dash-sidebar">
       <div class="dash-logo" aria-label="Crossline Education">
@@ -2590,9 +2728,9 @@ function showDashboardAppLayout({ profile, name, results, details, summary, late
       <section class="dash-start-card">
         <div class="dash-start-icon">${uiIcon("square-check-big")}</div>
         <div>
-          <h2>Start your next exam</h2>
+          <h2>${escapeHtml(startTitle)}</h2>
         </div>
-        <button id="start-exam-dashboard" class="dash-start-button">Start Exam ${uiIcon("chevron-right")}</button>
+        <button id="start-exam-dashboard" class="dash-start-button">${startLabel} ${uiIcon("chevron-right")}</button>
         <div class="dash-start-paper" aria-hidden="true"></div>
       </section>
 
@@ -2630,7 +2768,7 @@ function renderStudentDashboardView(message, data, leaderboard) {
   bind("side-leaderboard", "click", showLeaderboard);
   bind("side-pricing", "click", showPricing);
   bind("side-settings", "click", showStudentSettings);
-  bind("start-exam-dashboard", "click", showExamList);
+  bind("start-exam-dashboard", "click", activeAttempt ? resumeActiveExam : showExamList);
   bind("view-results-dashboard", "click", showWeaknessAnalysis);
   bind("dash-results-cta", "click", showStudentResults);
   bind("dashboard-notifications", "click", toggleNotificationPopover);
@@ -2667,10 +2805,15 @@ async function showStudentDashboard(message = "", options = {}) {
   let data = studentResultSnapshot();
   let summary = summarizeResults(data.results || [], data.details || []);
   let leaderboard = leaderboardSnapshot("exam", summary.latest?.examId || "") || emptyBoard;
+  const previousAttemptId = activeAttemptId();
   if (options.loading && !studentDataCache.resultData) {
     showClientLoading("Preparing your dashboard");
     bindDesktopExit({ updates: true });
-    data = await refreshStudentResultData().catch(() => data);
+    const [freshData] = await Promise.all([
+      refreshStudentResultData().catch(() => data),
+      hydrateActiveAttempt()
+    ]);
+    data = freshData;
     summary = summarizeResults(data.results || [], data.details || []);
     leaderboard = await refreshStudentLeaderboard("exam", summary.latest?.examId || "").catch(() => leaderboard) || leaderboard;
     void refreshStudentLeaderboard("average", "").catch(() => null);
@@ -2678,14 +2821,14 @@ async function showStudentDashboard(message = "", options = {}) {
     return;
   }
   renderStudentDashboardView(message, data, leaderboard);
-  void refreshStudentResultData().then(async (freshData) => {
+  void Promise.all([refreshStudentResultData(), hydrateActiveAttempt()]).then(async ([freshData]) => {
     const freshSummary = summarizeResults(freshData.results || [], freshData.details || []);
     const [freshBoard] = await Promise.all([
       refreshStudentLeaderboard("exam", freshSummary.latest?.examId || "").catch(() => leaderboard),
       refreshStudentLeaderboard("average", "").catch(() => null)
     ]);
     const resolvedBoard = freshBoard || leaderboard;
-    if (isCurrentStudentView("dashboard", revision) && (freshData !== data || resolvedBoard !== leaderboard)) {
+    if (isCurrentStudentView("dashboard", revision) && (freshData !== data || resolvedBoard !== leaderboard || activeAttemptId() !== previousAttemptId)) {
       renderStudentDashboardView(message, freshData, resolvedBoard);
     }
   }).catch(() => {});
@@ -2808,9 +2951,11 @@ function renderExamList(message = "") {
     const subjectIcons = { Physics: "atom", Chemistry: "flask-conical", Mathematics: "calculator", "Academic Chinese": "languages" };
     const cards = EXAM_SUBJECTS.map((name) => `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon(subjectIcons[name])}</span><div><h2>${escapeHtml(name)}</h2><p class="subject-exam-count number-font">${counts[name]} exam${counts[name] === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="${escapeHtml(name)}">View ${uiIcon("chevron-right")}</button></article>`).join("");
     const unassignedCard = unassignedCount ? `<article class="dash-page-card subject-choice-card"><span class="subject-choice-icon">${uiIcon("file-text")}</span><div><h2>Unassigned</h2><p class="subject-exam-count number-font">${unassignedCount} exam${unassignedCount === 1 ? "" : "s"}</p></div><button class="dash-outline-button choose-subject" data-subject="__unassigned__">View ${uiIcon("chevron-right")}</button></article>` : "";
-    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="dash-page-grid subject-choice-grid">${cards}${unassignedCard}</section>`;
+    const resumeCard = activeAttempt ? `<section class="dash-page-card active-exam-card"><div><p class="dash-card-kicker">Exam in progress</p><h2>${escapeHtml(activeAttempt.exam?.title || "Active exam")}</h2><p>Your saved answers and remaining time are ready.</p></div><button id="resume-active-exam" class="dash-start-button">Resume Exam ${uiIcon("chevron-right")}</button></section>` : "";
+    const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${resumeCard}<section class="dash-page-grid subject-choice-grid">${cards}${unassignedCard}</section>`;
     app.innerHTML = studentPageShell({ active: "exams", title: "Choose a subject", subtitle: "Select a subject.", content });
     bindStudentShell();
+    bind("resume-active-exam", "click", resumeActiveExam);
     document.querySelectorAll(".choose-subject").forEach((button) => button.addEventListener("click", () => {
       selectedExamSubject = button.dataset.subject;
       save("csca-exam-subject", selectedExamSubject);
@@ -2823,9 +2968,9 @@ function renderExamList(message = "") {
     : exams.filter((exam) => normalizeExamSubjectValue(exam.subject) === subject);
   const subjectLabel = subject === "__unassigned__" ? "Unassigned" : subject;
   const examCardHtml = (exam) => {
-    const canStart = exam.canStart !== false;
-    const lockedLabel = exam.limitReached ? "Attempt limit reached" : "Package required";
-    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This exam is not included in your current access package.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin attempt ${Number(exam.attemptsUsed || 0) + 1} ${uiIcon("chevron-right")}` : lockedLabel}</button></article>`;
+    const canStart = exam.canStart !== false && !activeAttempt;
+    const lockedLabel = activeAttempt ? "Finish active attempt" : exam.limitReached ? "Attempt limit reached" : "Package required";
+    return `<article class="dash-page-card exam-choice-card ${canStart ? "" : "locked"}"><div><div class="exam-title-row"><p class="dash-card-kicker">${escapeHtml(subjectLabel)}</p></div><h2>${mathHtml(exam.title)}</h2><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questionCount || exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${escapeHtml(formatExamAccess(exam))}</span></div>${canStart ? "" : `<p class="form-note">${escapeHtml(exam.accessReason || "This exam is not included in your current access package.")}</p>`}</div><button class="${canStart ? "dash-start-button begin-exam" : "dash-muted-button"}" data-id="${escapeHtml(exam.id)}" ${canStart ? "" : "disabled"}>${canStart ? `Begin attempt ${Number(exam.attemptsUsed || 0) + 1} ${uiIcon("chevron-right")}` : lockedLabel}</button></article>`;
   };
   const categorySections = EXAM_CATEGORIES.map((category) => {
     const list = filtered.filter((exam) => normalizeExamCategoryValue(exam.category) === category.id);
@@ -2835,9 +2980,11 @@ function renderExamList(message = "") {
   const examCards = filtered.length
     ? categorySections
     : `<article class="dash-page-card"><h2>No ${escapeHtml(subjectLabel)} exams yet</h2><p>Ask the Crossline team to publish a ${escapeHtml(subjectLabel)} practice paper, or choose another subject.</p></article>`;
-  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<div class="subject-filter-bar"><div><p class="dash-card-kicker">Selected subject</p><h2>${escapeHtml(subjectLabel)}</h2></div><button id="change-exam-subject" class="dash-outline-button">Change subject</button></div>${examCards}`;
+  const resumeCard = activeAttempt ? `<section class="dash-page-card active-exam-card"><div><p class="dash-card-kicker">Exam in progress</p><h2>${escapeHtml(activeAttempt.exam?.title || "Active exam")}</h2><p>Your saved answers and remaining time are ready.</p></div><button id="resume-active-exam" class="dash-start-button">Resume Exam ${uiIcon("chevron-right")}</button></section>` : "";
+  const content = `${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${resumeCard}<div class="subject-filter-bar"><div><p class="dash-card-kicker">Selected subject</p><h2>${escapeHtml(subjectLabel)}</h2></div><button id="change-exam-subject" class="dash-outline-button">Change subject</button></div>${examCards}`;
   app.innerHTML = studentPageShell({ active: "exams", title: `${subjectLabel} exams`, subtitle: "Official CSCA past papers and Cross-Line original exams are listed separately under this subject.", content });
   bindStudentShell();
+  bind("resume-active-exam", "click", resumeActiveExam);
   bind("change-exam-subject", "click", () => { selectedExamSubject = ""; save("csca-exam-subject", ""); showExamList(); });
   document.querySelectorAll(".begin-exam").forEach((button) => button.addEventListener("click", () => { currentExam = exams.find((exam) => exam.id === button.dataset.id); activeSessionId = null; preflight = { camera: false, microphone: false, network: false, face: false, phone: false, roomScan: false }; showEquipmentCheck(); }));
   renderMath();
@@ -2848,8 +2995,8 @@ function showExamList(message = "") {
   message = typeof message === "string" ? message : "";
   const revision = beginStudentView("exams");
   renderExamList(message);
-  if (apiEnabled() && Date.now() - studentExamsFetchedAt >= STUDENT_CACHE_TTL) {
-    void refreshExamsFromApi(false).then(() => {
+  if (apiEnabled() && (Date.now() - studentExamsFetchedAt >= STUDENT_CACHE_TTL || !activeAttempt)) {
+    void Promise.all([refreshExamsFromApi(false), hydrateActiveAttempt()]).then(() => {
       if (isCurrentStudentView("exams", revision)) renderExamList(message);
     }).catch(() => {});
   }
@@ -3056,7 +3203,7 @@ function showStudentSettings(message = "", section = activeSettingsSection) {
   const profile = getStudentProfile();
   const desktop = isDesktopClient();
   const admin = Boolean(currentUser?.isAdmin);
-  const sections = ["profile", ...(desktop ? ["updates"] : []), "support", ...(admin ? ["admin"] : [])];
+  const sections = ["profile", ...(desktop ? ["updates"] : []), "privacy", "support", ...(admin ? ["admin"] : [])];
   activeSettingsSection = sections.includes(section) ? section : "profile";
   const active = (name) => activeSettingsSection === name;
   const firstName = currentUser?.firstName || currentUser?.first_name || "";
@@ -3067,8 +3214,9 @@ function showStudentSettings(message = "", section = activeSettingsSection) {
   const profileSection = `<section class="settings-section ${active("profile") ? "active" : ""}" data-settings-section="profile" ${active("profile") ? "" : "hidden"}>${sectionHead("Profile", "Profile", "Your name and username appear on the dashboard, results, and leaderboard.")}<form id="student-settings-form" class="settings-profile-form"><div class="settings-list-card"><div class="settings-photo-row"><label class="settings-avatar-picker" for="settings-avatar"><span id="settings-avatar-preview">${studentAvatarMarkup(profile)}</span><input id="settings-avatar" type="file" accept="image/*" /></label><div><b>Profile photo</b><small>JPG or PNG. Shown on your dashboard and leaderboard entry.</small></div><label class="settings-row-action" for="settings-avatar">${uiIcon("upload")}<span>Change</span></label></div><label class="settings-list-row" for="settings-first-name"><span class="settings-row-icon">${uiIcon("user")}</span><span class="settings-row-copy"><b>First name</b><small>Used on results and emails</small></span><input id="settings-first-name" value="${escapeHtml(firstName)}" required /></label><label class="settings-list-row" for="settings-last-name"><span class="settings-row-icon">${uiIcon("user")}</span><span class="settings-row-copy"><b>Last name</b><small>Used on result emails</small></span><input id="settings-last-name" value="${escapeHtml(lastName)}" required /></label><label class="settings-list-row" for="settings-username"><span class="settings-row-icon">${uiIcon("circle-user-round")}</span><span class="settings-row-copy"><b>Username</b><small>Shown publicly on the leaderboard</small></span><input id="settings-username" maxlength="40" value="${escapeHtml(currentUser?.username || "")}" required /></label><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("circle-user-round")}</span><span class="settings-row-copy"><b>Email address</b><small>Used to sign in. Contact an administrator to change it.</small></span><span class="settings-static-value">${escapeHtml(email)}</span></div></div><p class="form-message settings-form-message">${escapeHtml(message)}</p><div class="settings-save-bar"><button class="dash-start-button">Save profile</button><span>Changes apply across your dashboard and results.</span></div></form></section>`;
   const updatesSection = desktop ? `<section class="settings-section ${active("updates") ? "active" : ""}" data-settings-section="updates" ${active("updates") ? "" : "hidden"}>${sectionHead("Updates", "Windows app updates", "Updates are verified before installation. Reset an interrupted download here.")}<div class="settings-list-card"><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("badge-check")}</span><span class="settings-row-copy"><b>Current version</b><small>Installed Crossline Windows client</small></span><span class="settings-status-pill" data-settings-version>Checking...</span></div><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("download")}</span><span class="settings-row-copy"><b>Check for updates</b><small>Compare this app with the latest available version</small></span><button id="settings-check-updates" type="button" class="settings-row-action">Check now ${uiIcon("chevron-right")}</button></div><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("settings")}</span><span class="settings-row-copy"><b>Auto-update</b><small>Download verified updates automatically</small></span><button id="settings-auto-update" type="button" class="settings-toggle ${autoUpdateEnabled() ? "" : "off"}" role="switch" aria-checked="${autoUpdateEnabled() ? "true" : "false"}" aria-label="Auto-update"><i></i></button></div><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("circle-x")}</span><span class="settings-row-copy"><b>Reset download</b><small>Clear a stuck or interrupted update</small></span><button id="settings-reset-update" type="button" class="settings-row-action">Reset</button></div></div></section>` : "";
   const supportSection = `<section class="settings-section ${active("support") ? "active" : ""}" data-settings-section="support" ${active("support") ? "" : "hidden"}>${sectionHead("Report a bug", "Report a bug", "Tell us what happened and how to reproduce it. We read every report.")}<form id="student-bug-report-form" class="settings-bug-form"><div class="settings-bug-grid"><label class="auth-field"><span>Category</span><select id="bug-category"><option value="app">App</option><option value="exam">Exam content</option><option value="camera">Camera or setup</option><option value="account">Account</option><option value="other">Other</option></select></label><label class="auth-field"><span>Short title</span><input id="bug-title" maxlength="120" placeholder="What went wrong?" required /></label></div><label class="auth-field"><span>Details</span><textarea id="bug-details" maxlength="4000" rows="6" placeholder="What did you do, what happened, and what did you expect?" required></textarea></label><div class="settings-save-bar"><button id="submit-bug-report" class="dash-start-button">Send report</button><p id="bug-report-message" class="form-message" aria-live="polite"></p></div></form></section>`;
+  const privacySection = `<section class="settings-section ${active("privacy") ? "active" : ""}" data-settings-section="privacy" ${active("privacy") ? "" : "hidden"}>${sectionHead("Privacy", "Privacy and account data", "Review Crossline policies or schedule permanent account deletion.")}<div class="settings-list-card"><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("file-text")}</span><span class="settings-row-copy"><b>Privacy Policy</b><small>How Crossline handles account and exam data</small></span><button id="settings-open-privacy" type="button" class="settings-row-action">Open ${uiIcon("chevron-right")}</button></div><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("file-text")}</span><span class="settings-row-copy"><b>Terms of Service</b><small>The current terms for using Crossline</small></span><button id="settings-open-terms" type="button" class="settings-row-action">Open ${uiIcon("chevron-right")}</button></div></div><section class="settings-list-card"><form id="account-deletion-form" class="settings-profile-form"><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("circle-x")}</span><span class="settings-row-copy"><b>Delete account</b><small id="account-deletion-status">Checking deletion status...</small></span></div><label class="auth-field"><span>Type DELETE to schedule permanent deletion in 30 days</span><input id="account-deletion-confirmation" autocomplete="off" required /></label><div class="settings-save-bar"><button class="danger-button">Schedule deletion</button><button id="cancel-account-deletion" type="button" class="dash-outline-button" hidden>Cancel scheduled deletion</button><p id="account-deletion-message" class="form-message"></p></div></form></section></section>`;
   const adminSection = admin ? `<section class="settings-section ${active("admin") ? "active" : ""}" data-settings-section="admin" ${active("admin") ? "" : "hidden"}>${sectionHead("Admin & 2FA", "Administrator security", "Privileged access uses your student account plus a six-digit authenticator code.")}<div class="settings-list-card"><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("badge-check")}</span><span class="settings-row-copy"><b>Two-factor authentication</b><small>Required before privileged controls open</small></span><span class="settings-status-pill">Protected</span></div><div class="settings-list-row"><span class="settings-row-icon">${uiIcon("settings")}</span><span class="settings-row-copy"><b>Admin panel</b><small>Manage exams, access, plans, reports, and security</small></span><button id="open-admin-panel" type="button" class="settings-row-action">Open panel ${uiIcon("chevron-right")}</button></div></div></section>` : "";
-  const content = `<div class="settings-split-layout"><aside class="settings-section-nav"><div class="settings-section-nav-scroll"><h3>Account</h3>${settingsNavButton("profile", "circle-user-round", "Profile")}${desktop ? settingsNavButton("updates", "download", "Updates") : ""}<h3>Help &amp; security</h3>${settingsNavButton("support", "circle-x", "Report a bug")}${admin ? settingsNavButton("admin", "badge-check", "Admin & 2FA") : ""}</div></aside><div class="settings-detail">${profileSection}${updatesSection}${supportSection}${adminSection}</div></div>`;
+  const content = `<div class="settings-split-layout"><aside class="settings-section-nav"><div class="settings-section-nav-scroll"><h3>Account</h3>${settingsNavButton("profile", "circle-user-round", "Profile")}${desktop ? settingsNavButton("updates", "download", "Updates") : ""}${settingsNavButton("privacy", "file-text", "Privacy & data")}<h3>Help &amp; security</h3>${settingsNavButton("support", "circle-x", "Report a bug")}${admin ? settingsNavButton("admin", "badge-check", "Admin & 2FA") : ""}</div></aside><div class="settings-detail">${profileSection}${updatesSection}${privacySection}${supportSection}${adminSection}</div></div>`;
   app.innerHTML = studentPageShell({ active: "settings", title: "Settings", subtitle: "Profile, updates, and support.", content });
   bindStudentShell();
   const selectSettingsSection = (name) => {
@@ -3093,6 +3241,29 @@ function showStudentSettings(message = "", section = activeSettingsSection) {
   bind("settings-reset-update", "click", resetUpdateNow);
   bind("settings-auto-update", "click", () => { setAutoUpdateEnabled(!autoUpdateEnabled()); showStudentSettings("", "updates"); });
   bind("open-admin-panel", "click", showAdminAccessGate);
+  bind("settings-open-privacy", "click", () => openExternalUrl(PRIVACY_POLICY_URL));
+  bind("settings-open-terms", "click", () => openExternalUrl(TERMS_OF_SERVICE_URL));
+  bind("account-deletion-form", "submit", async (event) => {
+    event.preventDefault();
+    const status = document.getElementById("account-deletion-message");
+    try {
+      const payload = await window.CrosslineApi.requestDeletion(document.getElementById("account-deletion-confirmation").value.trim());
+      status.textContent = `Deletion scheduled for ${formatDateTime(payload.request.scheduledFor)}. You can cancel before then.`;
+      document.getElementById("cancel-account-deletion").hidden = false;
+    } catch (error) { status.textContent = error.message; }
+  });
+  bind("cancel-account-deletion", "click", async () => {
+    const status = document.getElementById("account-deletion-message");
+    try { await window.CrosslineApi.cancelDeletion(); status.textContent = "Scheduled deletion cancelled."; document.getElementById("cancel-account-deletion").hidden = true; }
+    catch (error) { status.textContent = error.message; }
+  });
+  if (apiEnabled()) void window.CrosslineApi.deletionStatus().then((payload) => {
+    const status = document.getElementById("account-deletion-status");
+    const cancel = document.getElementById("cancel-account-deletion");
+    if (!status) return;
+    status.textContent = payload.request ? `Scheduled for ${formatDateTime(payload.request.scheduledFor)}` : "No deletion is scheduled";
+    if (cancel) cancel.hidden = !payload.request;
+  }).catch(() => {});
   bind("student-settings-form", "submit", async (event) => { event.preventDefault(); const next = { username: document.getElementById("settings-username").value.trim(), firstName: document.getElementById("settings-first-name").value.trim(), lastName: document.getElementById("settings-last-name").value.trim(), ...(photoChanged ? { avatarUrl: nextPhoto } : {}) }; try { if (apiEnabled()) { const payload = await window.CrosslineApi.updateProfile(next); currentUser = payload.user; } else { currentUser = { ...currentUser, ...next }; users = users.map((user) => user.email === currentUser.email ? currentUser : user); save("csca-users", users); } saveStudentProfile({ ...getStudentProfile(), photo: nextPhoto }); showStudentSettings("Profile saved.", "profile"); } catch (error) { showStudentSettings(error.message || "Your profile could not be saved.", "profile"); } });
   if (desktop && window.examRuntime?.getInfo) {
     void Promise.resolve(window.examRuntime.getInfo()).then((info) => {
@@ -3133,7 +3304,7 @@ async function showAdminAccessGate(message = "") {
   try {
     const status = await window.CrosslineApi.adminMfaStatus();
     const content = status.enabled
-      ? `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Two-factor authentication</p><h2>Enter your authenticator code</h2><p>Use the current six-digit code from your authenticator app. Admin sessions expire after two hours.</p><form id="admin-session-form"><label class="auth-field"><span>Authentication code</span><input id="admin-session-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required autofocus /></label><p class="form-message">${escapeHtml(message)}</p><button class="dash-start-button">Verify and continue</button></form></section>`
+      ? `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Two-factor authentication</p><h2>Enter your security code</h2><p>Use the current six-digit code from your authenticator app or one unused recovery code. Admin sessions expire after two hours.</p><form id="admin-session-form"><label class="auth-field"><span>Authenticator or recovery code</span><input id="admin-session-code" autocomplete="one-time-code" maxlength="11" required autofocus /></label><p class="form-message">${escapeHtml(message)}</p><button class="dash-start-button">Verify and continue</button></form></section>`
       : `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">Required security setup</p><h2>Protect the admin panel with 2FA</h2><p>Connect an authenticator app before the first privileged session. The setup key is shown once and stored encrypted by the API.</p><p class="form-message">${escapeHtml(message)}</p><button id="begin-admin-mfa" class="dash-start-button">Set up authenticator</button></section>`;
     app.innerHTML = studentPageShell({ active: "settings", title: "Administrator security", subtitle: "Verify your identity before opening privileged controls.", content });
     bindStudentShell();
@@ -3162,17 +3333,32 @@ async function beginAdminMfaSetup() {
       event.preventDefault();
       const code = document.getElementById("admin-mfa-enable-code").value;
       try {
-        await window.CrosslineApi.enableAdminMfa(code);
-        const payload = await window.CrosslineApi.createAdminSession(code);
-        window.CrosslineApi.setAdminToken(payload.token);
-        await refreshExamsFromApi(true);
-        showAdminDashboard();
+        const enabled = await window.CrosslineApi.enableAdminMfa(code);
+        showAdminRecoveryCodes(enabled.recoveryCodes || [], code);
       } catch (error) {
         const note = document.querySelector("#admin-mfa-enable-form .form-message");
         if (note) note.textContent = error.message;
       }
     });
   } catch (error) { showAdminAccessGate(error.message); }
+}
+
+function showAdminRecoveryCodes(codes, authenticatorCode) {
+  const content = `<section class="dash-page-card admin-access-gate"><p class="dash-card-kicker">One-time recovery</p><h2>Store your recovery codes</h2><p>Each code works once if your authenticator is unavailable. Keep them somewhere private; Crossline cannot show them again.</p><div class="admin-mfa-secret"><span>Recovery codes</span><code>${codes.map(escapeHtml).join("\n")}</code></div><label class="terms-check"><input id="confirm-recovery-saved" type="checkbox" /> <span>I stored these codes securely.</span></label><button id="continue-after-recovery" class="dash-start-button" disabled>Continue to admin panel</button><p class="form-message"></p></section>`;
+  app.innerHTML = studentPageShell({ active: "settings", title: "Administrator security", subtitle: "Save these one-time recovery codes before continuing.", content });
+  bindStudentShell();
+  bind("confirm-recovery-saved", "change", (event) => { document.getElementById("continue-after-recovery").disabled = !event.target.checked; });
+  bind("continue-after-recovery", "click", async () => {
+    try {
+      const payload = await window.CrosslineApi.createAdminSession(authenticatorCode);
+      window.CrosslineApi.setAdminToken(payload.token);
+      await refreshExamsFromApi(true);
+      showAdminDashboard();
+    } catch (error) {
+      const message = document.querySelector(".admin-access-gate .form-message");
+      if (message) message.textContent = error.message;
+    }
+  });
 }
 
 function resultQuestionHtml(question, prefix = "all") {
@@ -3202,7 +3388,7 @@ function resultQuestionHtml(question, prefix = "all") {
 }
 
 function setupStepper(active) {
-  return `<div class="stepper"><span class="step ${active > 1 ? "done" : "active"}">1. Equipment check</span><span class="step ${active > 2 ? "done" : active === 2 ? "active" : ""}">2. Facial recognition</span><span class="step ${active > 3 ? "done" : active === 3 ? "active" : ""}">3. Connect phone camera</span><span class="step ${active > 4 ? "done" : active === 4 ? "active" : ""}">4. Room scan</span><span class="step ${active > 5 ? "done" : active === 5 ? "active" : ""}">5. Privacy terms</span><span class="step ${active === 6 ? "active" : ""}">6. Start exam</span></div>`;
+  return `<div class="stepper"><span class="step ${active > 1 ? "done" : "active"}">1. Equipment check</span><span class="step ${active > 2 ? "done" : active === 2 ? "active" : ""}">2. Face framing</span><span class="step ${active > 3 ? "done" : active === 3 ? "active" : ""}">3. Connect phone camera</span><span class="step ${active > 4 ? "done" : active === 4 ? "active" : ""}">4. Room walkthrough</span><span class="step ${active > 5 ? "done" : active === 5 ? "active" : ""}">5. Privacy terms</span><span class="step ${active === 6 ? "active" : ""}">6. Start exam</span></div>`;
 }
 function updatePreflightButtons() {
   const ready = preflight.camera && preflight.microphone && preflight.network;
@@ -3430,7 +3616,7 @@ async function runNetworkTest() {
 }
 function showEquipmentCheck() {
   ensureKiosk();
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-exams" class="header-link">Back to exams</button>`))}<main class="portal-main narrow">${setupStepper(1)}<section class="panel"><div class="page-intro"><h1>Equipment Check</h1><p>Select the webcam and microphone Windows should use, then test your network before facial recognition.</p></div><div class="device-scan-bar"><div><strong>Device discovery</strong><p id="device-scan-status">Click scan to unlock and refresh the full Windows camera/microphone list.</p></div><button id="scan-devices" class="secondary-button">Scan devices</button></div><video class="preflight-video" id="preflight-camera" muted autoplay playsinline></video><div class="check-grid"><article class="check-card"><h3>◎ Camera</h3><p>Choose the camera that should show your face during the setup checks.</p><label class="device-label" for="camera-device">Camera device</label><select id="camera-device" class="device-select"><option>Loading cameras...</option></select><span id="camera-status" class="check-status">Not checked</span><button id="camera-check" class="secondary-button">Test</button></article><article class="check-card"><h3>◉ Microphone and headset</h3><p>Press Start recording, speak for a few seconds, then stop it to confirm the microphone wave reacts.</p><label class="device-label" for="microphone-device">Microphone device</label><select id="microphone-device" class="device-select"><option>Loading microphones...</option></select><div class="audio-wave" id="microphone-wave" aria-hidden="true">${audioWaveBarsHtml()}</div><span id="microphone-status" class="check-status">Not checked</span><button id="microphone-check" class="secondary-button" data-recording="false">Start recording</button></article><article class="check-card network-card"><h3>◎ Network</h3><p>Confirm the exam client can reach the Crossline exam service.</p><div class="network-box"><span>Network status</span><strong id="network-status">Not checked</strong></div><div class="network-box"><span>Download speed</span><strong id="network-speed">-- KB/s</strong><div class="network-meter"><div id="network-fill"></div></div></div><button id="network-check" class="secondary-button">Test again</button></article></div><p class="form-note">If a device is still missing after scanning, Windows is not exposing it to desktop apps. Check Settings > Privacy & security > Camera/Microphone and close apps that may own the device.</p><div class="button-row"><span class="muted">All three checks must pass before continuing.</span><button id="pairing-next" class="primary-button" disabled>Next</button></div></section></main>`;
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-exams" class="header-link">Back to exams</button>`))}<main class="portal-main narrow">${setupStepper(1)}<section class="panel"><div class="page-intro"><h1>Equipment Check</h1><p>Select the webcam and microphone Windows should use, then test your network before the face-framing check.</p></div><div class="device-scan-bar"><div><strong>Device discovery</strong><p id="device-scan-status">Click scan to unlock and refresh the full Windows camera/microphone list.</p></div><button id="scan-devices" class="secondary-button">Scan devices</button></div><video class="preflight-video" id="preflight-camera" muted autoplay playsinline></video><div class="check-grid"><article class="check-card"><h3>◎ Camera</h3><p>Choose the camera that should show your face during the setup checks.</p><label class="device-label" for="camera-device">Camera device</label><select id="camera-device" class="device-select"><option>Loading cameras...</option></select><span id="camera-status" class="check-status">Not checked</span><button id="camera-check" class="secondary-button">Test</button></article><article class="check-card"><h3>◉ Microphone and headset</h3><p>Press Start recording, speak for a few seconds, then stop it to confirm the microphone wave reacts.</p><label class="device-label" for="microphone-device">Microphone device</label><select id="microphone-device" class="device-select"><option>Loading microphones...</option></select><div class="audio-wave" id="microphone-wave" aria-hidden="true">${audioWaveBarsHtml()}</div><span id="microphone-status" class="check-status">Not checked</span><button id="microphone-check" class="secondary-button" data-recording="false">Start recording</button></article><article class="check-card network-card"><h3>◎ Network</h3><p>Confirm the exam client can reach the Crossline exam service.</p><div class="network-box"><span>Network status</span><strong id="network-status">Not checked</strong></div><div class="network-box"><span>Download speed</span><strong id="network-speed">-- KB/s</strong><div class="network-meter"><div id="network-fill"></div></div></div><button id="network-check" class="secondary-button">Test again</button></article></div><p class="form-note">If a device is still missing after scanning, Windows is not exposing it to desktop apps. Check Settings > Privacy & security > Camera/Microphone and close apps that may own the device.</p><div class="button-row"><span class="muted">All three checks must pass before continuing.</span><button id="pairing-next" class="primary-button" disabled>Next</button></div></section></main>`;
   bind("back-exams", "click", showExamList);
   bindDesktopExit();
   bind("scan-devices", "click", scanAvailableDevices);
@@ -3470,7 +3656,7 @@ function showEquipmentCheck() {
 async function showFacialRecognition() {
   ensureKiosk();
   stopPreflightStream("face");
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-checks" class="header-link">Back to checks</button>`))}<main class="portal-main narrow">${setupStepper(2)}<section class="panel face-panel"><p class="face-status">Status: <span id="face-status">Waiting to start</span></p><div class="page-intro centered"><h1>Facial recognition</h1><p>Look straight at the camera and click Start.</p></div><div class="face-frame"><video id="face-camera" muted autoplay playsinline></video><div class="face-guide"></div></div><div class="face-progress hidden" id="face-progress"><div></div></div><div class="button-row centered-row"><button id="start-face-check" class="primary-button">Start</button></div></section></main>`;
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-checks" class="header-link">Back to checks</button>`))}<main class="portal-main narrow">${setupStepper(2)}<section class="panel face-panel"><p class="face-status">Status: <span id="face-status">Waiting to start</span></p><div class="page-intro centered"><h1>Face framing</h1><p>Center your face inside the guide and click Start.</p></div><div class="face-frame"><video id="face-camera" muted autoplay playsinline></video><div class="face-guide"></div></div><div class="face-progress hidden" id="face-progress"><div></div></div><div class="button-row centered-row"><button id="start-face-check" class="primary-button">Start</button></div></section></main>`;
   bind("back-checks", "click", showEquipmentCheck);
   bindDesktopExit();
   bind("start-face-check", "click", async () => {
@@ -3485,7 +3671,7 @@ async function showFacialRecognition() {
     if (progress?.firstElementChild) progress.firstElementChild.style.width = "68%";
     await new Promise((resolve) => setTimeout(resolve, 900));
     preflight.face = true;
-    if (status) status.textContent = "Face matched";
+    if (status) status.textContent = "Framing confirmed";
     if (progress?.firstElementChild) progress.firstElementChild.style.width = "100%";
     stopPreflightStream("face");
     await new Promise((resolve) => setTimeout(resolve, 450));
@@ -3511,6 +3697,7 @@ async function showPhonePairing() {
     try {
       const session = await window.CrosslineApi.createSession(currentExam.id);
       activeSessionId = session.sessionId;
+      if (session.exam) currentExam = { ...currentExam, ...normalizeApiExam(session.exam) };
       code = session.pairingCode;
       pairingUrl = session.pairingUrl;
       pairingMessage = "Scan this QR code on the secondary device. The desktop app continues automatically after the phone connects.";
@@ -3519,7 +3706,7 @@ async function showPhonePairing() {
     }
   }
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=210x210&data=${encodeURIComponent(pairingUrl)}`;
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-face" class="header-link">Back to facial recognition</button>`))}<main class="portal-main narrow">${setupStepper(3)}<section class="panel"><div class="page-intro"><h1>Connect your phone camera</h1><p>Scan the QR code with your phone. Keep the phone in landscape mode and prepare to scan the room after it connects.</p></div><div class="qr-layout"><div class="qr-box"><img alt="Phone camera pairing QR code" src="${qrUrl}" /></div><div><p class="muted">Pairing code</p><div class="pair-code">${escapeHtml(code)}</div><p class="muted">${pairingMessage}</p><div id="phone-success" class="success-banner hidden">Secondary phone camera connected. Continuing...</div></div></div><div class="button-row"><span class="muted">The setup will continue to the 360-degree room scan after the phone is connected.</span></div></section></main>`;
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-face" class="header-link">Back to face framing</button>`))}<main class="portal-main narrow">${setupStepper(3)}<section class="panel"><div class="page-intro"><h1>Connect your phone camera</h1><p>Scan the QR code with your phone. Keep the phone in landscape mode and prepare for the guided room walkthrough.</p></div><div class="qr-layout"><div class="qr-box"><img alt="Phone camera pairing QR code" src="${qrUrl}" /></div><div><p class="muted">Pairing code</p><div class="pair-code">${escapeHtml(code)}</div><p class="muted">${pairingMessage}</p><div id="phone-success" class="success-banner hidden">Secondary phone camera connected. Continuing...</div></div></div><div class="button-row"><span class="muted">The setup will continue to a guided room walkthrough after the phone connects.</span></div></section></main>`;
   bind("back-face", "click", showFacialRecognition);
   bindDesktopExit();
   if (apiEnabled() && activeSessionId) startPhonePairingPoll();
@@ -3531,7 +3718,7 @@ function markPhoneConnected(message = "Secondary phone camera connected.") {
   preflight.phone = true;
   const success = document.getElementById("phone-success");
   if (success) {
-    success.textContent = `${message} Continuing to room scan...`;
+    success.textContent = `${message} Continuing to the room walkthrough...`;
     success.classList.remove("hidden");
   }
   if (phonePairingTimer) clearInterval(phonePairingTimer);
@@ -3542,7 +3729,7 @@ function markPhoneConnected(message = "Secondary phone camera connected.") {
 function showRoomScan() {
   ensureKiosk();
   preflight.roomScan = false;
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-phone" class="header-link">Back to phone setup</button>`))}<main class="portal-main narrow">${setupStepper(4)}<section class="panel room-scan-panel"><div class="page-intro"><h1>360-degree room scan</h1><p>Using the connected phone camera, slowly rotate your phone once around the room before the exam starts.</p></div><div class="room-scan-card"><div class="room-scan-orbit" aria-hidden="true"><span></span><i></i></div><div><h2>Scan checklist</h2><p>Hold your phone in landscape mode. Show the desk, keyboard, monitor, walls, and the area behind you. Move slowly so the scan feels like the real exam check.</p><ul class="scan-list"><li>Rotate the phone 360 degrees one full time</li><li>Keep the phone steady and in landscape mode</li><li>Return the phone to the side-camera position after the scan</li></ul><div id="room-scan-success" class="success-banner hidden">Room scan completed. Continuing...</div></div></div><div class="button-row"><button id="back-phone-bottom" class="ghost-button">Back</button><button id="room-scan-done" class="primary-button">Ok the scan is done</button></div></section></main>`;
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-phone" class="header-link">Back to phone setup</button>`))}<main class="portal-main narrow">${setupStepper(4)}<section class="panel room-scan-panel"><div class="page-intro"><h1>Guided room walkthrough</h1><p>Practice the movement used for an exam-day room check. This step is guidance only and does not analyse or upload your video.</p></div><div class="room-scan-card"><div class="room-scan-orbit" aria-hidden="true"><span></span><i></i></div><div><h2>Walkthrough checklist</h2><p>Hold your phone in landscape mode. Practice showing the desk, keyboard, monitor, walls, and the area behind you.</p><ul class="scan-list"><li>Rotate the phone once around the room</li><li>Keep the phone steady and in landscape mode</li><li>Return the phone to the side-camera position afterward</li></ul><div id="room-scan-success" class="success-banner hidden">Walkthrough completed. Continuing...</div></div></div><div class="button-row"><button id="back-phone-bottom" class="ghost-button">Back</button><button id="room-scan-done" class="primary-button">Walkthrough done</button></div></section></main>`;
   bind("back-phone", "click", showPhonePairing);
   bind("back-phone-bottom", "click", showPhonePairing);
   bindDesktopExit();
@@ -3574,24 +3761,52 @@ function startPhonePairingPoll() {
   phonePairingTimer = setInterval(poll, 2000);
 }
 
-function showPrivacyTerms() {
-  app.innerHTML = `${header(desktopExitAction(`<button id="back-scan" class="header-link">Back to room scan</button>`))}<main class="portal-main narrow">${setupStepper(5)}<section class="panel"><div class="page-intro"><h1>Practice exam privacy terms</h1><p>Please read and accept this notice before starting your mock exam.</p></div><div class="terms-card"><p>This Crossline CSCA mock exam uses webcam, microphone, network, facial-recognition, secondary-camera, and 360-degree room-scan checks only to simulate the real exam setup.</p><p>The device checks confirm that your equipment can open correctly. After setup is complete, the exam does not continue using your webcam, microphone, or phone camera.</p><p>No webcam recording, microphone recording, screen recording, secondary-camera recording, or room-scan recording is saved by this practice exam.</p><p>Your answers and exam attempt details are saved so your result can be emailed after the review delay.</p></div><label class="terms-check"><input id="accept-terms" type="checkbox" /> <span>I understand and agree to continue with the practice exam.</span></label><div class="button-row"><span class="muted">The timer starts only after you click Start exam.</span><button id="launch-exam" class="primary-button" disabled>Start exam</button></div></section></main>`;
+function showPrivacyTerms(message = "") {
+  app.innerHTML = `${header(desktopExitAction(`<button id="back-scan" class="header-link">Back to room walkthrough</button>`))}<main class="portal-main narrow">${setupStepper(5)}<section class="panel"><div class="page-intro"><h1>Practice exam privacy terms</h1><p>Please read and accept this notice before starting your mock exam.</p></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<div class="terms-card"><p>This Crossline CSCA mock exam opens your webcam and microphone for equipment testing, shows a face-framing guide, and guides you through phone-camera and room-check practice.</p><p>These steps confirm that your equipment can open correctly; they do not identify your face or analyse the room. After setup, the exam stops using your webcam, microphone, and phone camera.</p><p>No webcam recording, microphone recording, screen recording, secondary-camera recording, or room-walkthrough recording is saved by this practice exam.</p><p>Your answers and exam attempt details are saved so your result can be emailed after the review delay.</p></div><label class="terms-check"><input id="accept-terms" type="checkbox" /> <span>I understand and agree to continue with the practice exam.</span></label><div class="button-row"><span class="muted">The timer starts only after you click Start exam.</span><button id="launch-exam" class="primary-button" disabled>Start exam</button></div></section></main>`;
   bind("back-scan", "click", showRoomScan);
   bindDesktopExit();
   bind("accept-terms", "change", (event) => { const launch = document.getElementById("launch-exam"); if (launch) launch.disabled = !event.target.checked; });
   bind("launch-exam", "click", startExam);
 }
 
-function startExam() {
+async function startExam() {
   ensureKiosk();
   if (phonePairingTimer) clearInterval(phonePairingTimer);
   phonePairingTimer = null;
   stopMedia();
-  recordSessionEvent("exam_started", { examId: currentExam.id });
+  const launchButton = document.getElementById("launch-exam");
+  let startedSession = null;
+  if (launchButton) { launchButton.disabled = true; launchButton.textContent = "Starting..."; }
+  try {
+    if (apiEnabled() && activeSessionId) {
+      await window.CrosslineApi.acceptLegal(LEGAL_VERSION);
+      const payload = await window.CrosslineApi.startSession(activeSessionId);
+      startedSession = payload.session;
+      examDeadlineAt = new Date(payload.session.deadlineAt).getTime();
+      studentExamsFetchedAt = 0;
+      if (currentExam) currentExam.attemptsUsed = Math.max(0, Number(currentExam.attemptsUsed || 0)) + 1;
+    } else {
+      examDeadlineAt = Date.now() + Math.max(1, Number(currentExam.duration || 60)) * 60 * 1000;
+    }
+  } catch (error) {
+    if (launchButton) { launchButton.disabled = false; launchButton.textContent = "Start exam"; }
+    return showPrivacyTerms(error.message || "The exam could not be started. Please try again.");
+  }
+  await recordSessionEvent("exam_started", { examId: currentExam.id });
   questions = currentExam.questions.map((question, index) => ({ ...question, id: index + 1, answer: null, flagged: false }));
+  if (!questions.length) return showExamList("This exam has no available questions. Please choose another exam.");
+  if (startedSession) {
+    activeAttempt = {
+      session: { ...startedSession, examId: currentExam.id, updatedAt: new Date().toISOString() },
+      exam: currentExam,
+      answers: {},
+      flags: []
+    };
+  }
   currentIndex = 0; elapsedSeconds = 0; questionScale = 1;
   renderExamShell(); renderQuestion();
-  clearInterval(clockTimer); clockTimer = setInterval(updateClock, 1000);
+  examSubmitting = false;
+  clearInterval(clockTimer); updateClock(); clockTimer = setInterval(updateClock, 1000);
 }
 function renderExamShell() {
   integrityEvents = [];
@@ -3611,29 +3826,48 @@ function renderExamShell() {
     });
     if (!confirmed) return;
     clearInterval(clockTimer);
+    await saveSessionAnswers(false);
     await recordSessionEvent("practice_exit", { elapsedSeconds });
+    syncActiveAttemptFromQuestions();
+    activeSessionId = null;
     stopMedia();
     leaveKiosk();
-    showExamList();
+    showStudentDashboard("Your attempt is saved. Resume it whenever you are ready.");
   });
   bind("submit-button", "click", () => document.getElementById("submit-dialog").showModal());
   bind("cancel-submit", "click", () => document.getElementById("submit-dialog").close());
   bind("confirm-submit", "click", submitExamAndExit);
 }
 async function submitExamAndExit() {
+  if (examSubmitting) return;
+  examSubmitting = true;
   const answered = questions.filter((q) => q.answer !== null).length;
   const flagged = questions.filter((q) => q.flagged).length;
+  const submittedSessionId = activeSessionId;
   clearInterval(clockTimer);
-  await saveSessionAnswers(true);
+  const submitButton = document.getElementById("confirm-submit");
+  const submitCopy = document.getElementById("submit-copy");
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = "Submitting..."; }
+  try {
+    await saveSessionAnswers(true);
+  } catch (error) {
+    examSubmitting = false;
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = "Submit exam"; }
+    if (submitCopy) submitCopy.textContent = `Your answers were not submitted: ${error.message}`;
+    if (examDeadlineAt > Date.now()) clockTimer = setInterval(updateClock, 1000);
+    return;
+  }
   await recordSessionEvent("exam_submitted", { answered, flagged, elapsedSeconds });
   studentDataCache.resultData = null;
   studentDataCache.resultDataFetchedAt = 0;
   studentDataCache.leaderboards.clear();
   studentDataCache.leaderboardFetchedAt.clear();
   const localResultId = !apiEnabled() ? saveLocalExamResult() : "";
+  activeAttempt = null;
+  activeSessionId = null;
   stopMedia();
   leaveKiosk();
-  if (apiEnabled() && activeSessionId) showStudentResultDetail(activeSessionId);
+  if (apiEnabled() && submittedSessionId) showStudentResultDetail(submittedSessionId);
   else if (localResultId) showStudentResultDetail(localResultId);
   else showStudentResults();
 }
@@ -3679,7 +3913,18 @@ function saveLocalExamResult() {
   saveLocalResults([{ result, questions: resultQuestions, ...result }, ...getLocalResults()].slice(0, 30));
   return result.id;
 }
-function updateClock() { elapsedSeconds += 1; document.getElementById("clock").textContent = [Math.floor(elapsedSeconds / 3600), Math.floor((elapsedSeconds % 3600) / 60), elapsedSeconds % 60].map((value) => String(value).padStart(2, "0")).join(":"); }
+function updateClock() {
+  elapsedSeconds += 1;
+  const remaining = Math.max(0, Math.ceil((examDeadlineAt - Date.now()) / 1000));
+  const clock = document.getElementById("clock");
+  if (clock) clock.textContent = [Math.floor(remaining / 3600), Math.floor((remaining % 3600) / 60), remaining % 60].map((value) => String(value).padStart(2, "0")).join(":");
+  if (remaining === 0 && !examSubmitting) {
+    clearInterval(clockTimer);
+    const dialog = document.getElementById("submit-dialog");
+    if (dialog?.open) dialog.close();
+    void submitExamAndExit();
+  }
+}
 function navigate(offset) { currentIndex = Math.max(0, Math.min(questions.length - 1, currentIndex + offset)); renderQuestion(); }
 function renderQuestion() {
   const question = questions[currentIndex]; const answered = questions.filter((item) => item.answer !== null).length;
@@ -3760,13 +4005,15 @@ async function showAdminSecurity(message = "") {
   app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div><section class="admin-card"><p class="form-note">Loading administrator accounts...</p></section>`, "security");
   bindAdminShell();
   try {
-    const [payload, runtimeInfo] = await Promise.all([
+    const [payload, auditPayload, runtimeInfo] = await Promise.all([
       window.CrosslineApi.adminAccess(),
+      window.CrosslineApi.adminAuditLog(),
       window.examRuntime?.getInfo?.().catch(() => null)
     ]);
     const rows = (payload.admins || []).map((admin) => `<li><div><strong>${escapeHtml(admin.username || admin.email)}</strong><small>${escapeHtml(admin.email)}</small></div><span class="admin-mfa-badge ${admin.mfaEnabled ? "enabled" : "pending"}">${admin.mfaEnabled ? "2FA enabled" : "2FA setup pending"}</span>${admin.email === "arijitsumit123@gmail.com" ? `<small>Creator</small>` : `<button class="danger-button revoke-admin" data-email="${escapeHtml(admin.email)}">Remove</button>`}</li>`).join("");
     const captureControl = isDesktopClient() && window.examRuntime?.setScreenCaptureAllowed ? `<section class="admin-card admin-capture-card"><div><p class="admin-kicker">Device privacy</p><h2>Screen capture</h2><p>Temporarily allow this administrator to take screenshots or use screen sharing and recording tools across both admin and student panels. Protection returns automatically after 30 minutes, when it is turned off, when the account signs out, or when the app closes.</p><p id="admin-capture-message" class="form-note"></p></div><label class="admin-capture-switch" for="admin-capture-toggle"><input id="admin-capture-toggle" type="checkbox" ${runtimeInfo?.screenCaptureAllowed ? "checked" : ""} /><span aria-hidden="true"><i></i></span><strong id="admin-capture-label">${runtimeInfo?.screenCaptureAllowed ? "Capture allowed" : "Capture blocked"}</strong></label></section>` : "";
-    const content = `<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${captureControl}<section class="admin-card admin-access-manager"><form id="grant-admin-form"><label class="auth-field"><span>Verified student email</span><input id="grant-admin-email" type="email" placeholder="name@example.com" required /></label><button class="primary-button">Grant admin access</button></form><ul>${rows || `<li><p class="form-note">No administrator accounts found.</p></li>`}</ul></section>`;
+    const auditRows = (auditPayload.events || []).map((event) => `<li><div><strong>${escapeHtml(String(event.action || "").replaceAll("_", " "))}</strong><small>${escapeHtml(event.actorEmail)}${event.targetEmail ? ` · ${escapeHtml(event.targetEmail)}` : ""}</small></div><small>${escapeHtml(formatDateTime(event.createdAt))}</small></li>`).join("");
+    const content = `<div class="admin-toolbar"><div><p class="admin-kicker">Privileged accounts</p><h1>Admin access</h1><p class="muted">Grant access only to verified student accounts. Every administrator must configure their own authenticator.</p></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}${captureControl}<section class="admin-card admin-access-manager"><form id="grant-admin-form"><label class="auth-field"><span>Verified student email</span><input id="grant-admin-email" type="email" placeholder="name@example.com" required /></label><label class="auth-field"><span>Your current authenticator code</span><input id="grant-admin-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required /></label><button class="primary-button">Grant admin access</button></form><ul>${rows || `<li><p class="form-note">No administrator accounts found.</p></li>`}</ul></section><section class="admin-card admin-access-manager"><div><p class="admin-kicker">Security history</p><h2>Recent administrator activity</h2></div><ul>${auditRows || `<li><p class="form-note">No administrator activity recorded yet.</p></li>`}</ul></section>`;
     app.innerHTML = adminShell(content, "security");
     bindAdminShell();
     updateAdminCaptureUi(runtimeInfo || {});
@@ -3777,7 +4024,7 @@ async function showAdminSecurity(message = "") {
       const status = document.getElementById("admin-capture-message");
       if (status) status.textContent = requested ? "Verifying your administrator session..." : "Restoring Windows content protection...";
       try {
-        const next = await window.examRuntime.setScreenCaptureAllowed(requested, window.CrosslineApi.getAdminToken());
+        const next = await window.examRuntime.setScreenCaptureAllowed(requested, await window.CrosslineApi.getAdminTokenAsync());
         updateAdminCaptureUi(next);
       } catch (error) {
         toggle.checked = !requested;
@@ -3790,13 +4037,16 @@ async function showAdminSecurity(message = "") {
       event.preventDefault();
       try {
         const email = document.getElementById("grant-admin-email").value.trim().toLowerCase();
-        await window.CrosslineApi.grantAdminAccess(email);
+        const code = document.getElementById("grant-admin-code").value.trim();
+        await window.CrosslineApi.grantAdminAccess(email, code);
         showAdminSecurity(`Administrator access granted to ${email}.`);
       } catch (error) { showAdminSecurity(error.message); }
     });
     document.querySelectorAll(".revoke-admin").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm(`Remove administrator access from ${button.dataset.email}?`)) return;
-      try { await window.CrosslineApi.revokeAdminAccess(button.dataset.email); showAdminSecurity("Administrator access removed."); }
+      const code = window.prompt("Enter your current six-digit authenticator code to confirm:") || "";
+      if (!code) return;
+      try { await window.CrosslineApi.revokeAdminAccess(button.dataset.email, code); showAdminSecurity("Administrator access removed."); }
       catch (error) { showAdminSecurity(error.message); }
     }));
   } catch (error) { showAdminLogin(error.message); }
@@ -3816,13 +4066,22 @@ function showAdminUpdates(message = "") {
 }
 function showAdminDashboard(message = "") {
   message = typeof message === "string" ? message : "";
-  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Edit paper details, subject, category, pricing, and questions for every published exam.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${exams.map((exam) => `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">${escapeHtml(normalizeExamSubjectValue(exam.subject) || "Unassigned subject")} · ${escapeHtml(examCategoryLabel(exam.category))}</p></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions"><button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Delete exam</button></div></article>`).join("") || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
+  const cards = exams.map((exam) => {
+    const status = exam.archivedAt ? "Archived" : exam.published ? "Published" : "Draft";
+    const actions = exam.archivedAt
+      ? `<button class="secondary-button restore-exam" data-id="${escapeHtml(exam.id)}">Restore draft</button>`
+      : `<button class="secondary-button edit-exam-details" data-id="${escapeHtml(exam.id)}">Edit details</button><button class="secondary-button edit-exam" data-id="${escapeHtml(exam.id)}">Edit questions</button><button class="primary-button toggle-publish-exam" data-id="${escapeHtml(exam.id)}" data-action="${exam.published ? "unpublish" : "publish"}">${exam.published ? "Move to draft" : "Publish"}</button><button class="danger-button delete-exam" data-id="${escapeHtml(exam.id)}">Archive</button>`;
+    return `<article class="admin-card"><div class="exam-title-row"><p class="admin-kicker">${escapeHtml(normalizeExamSubjectValue(exam.subject) || "Unassigned subject")} · ${escapeHtml(examCategoryLabel(exam.category))}</p><span class="settings-status-pill">${status} · v${exam.version}</span></div><h3>${mathHtml(exam.title)}</h3><p>${mathHtml(exam.description)}</p><div class="exam-meta"><span>${exam.questions.length} questions</span><span>${exam.duration} minutes</span><span>${formatScore(exam.questions.reduce((sum, question) => sum + normalizeMarks(question.marks), 0))} marks</span><span>${escapeHtml(formatExamAccess(exam))}</span></div><div class="admin-card-actions">${actions}</div></article>`;
+  }).join("");
+  app.innerHTML = adminShell(`<div class="admin-toolbar"><div><p class="admin-kicker">Exam authoring</p><h1>Exam library</h1><p class="muted">Review drafts, publish student-ready papers, and preserve archived exam history.</p></div><div class="admin-toolbar-actions"><button id="import-questions" class="secondary-button">Import questions</button><button id="new-exam" class="primary-button">Create exam</button></div></div>${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ""}<section class="admin-exam-grid">${cards || `<section class="panel"><p class="form-note">No exams exist yet. Create a paper to begin.</p></section>`}</section>`, "exams");
   bindAdminShell();
   bind("new-exam", "click", showCreateExam);
   bind("import-questions", "click", showQuestionImport);
   document.querySelectorAll(".edit-exam-details").forEach((button) => button.addEventListener("click", () => showEditExamDetails(button.dataset.id)));
   document.querySelectorAll(".edit-exam").forEach((button) => button.addEventListener("click", () => showQuestionEditor(button.dataset.id)));
   document.querySelectorAll(".delete-exam").forEach((button) => button.addEventListener("click", () => deleteExam(button.dataset.id)));
+  document.querySelectorAll(".toggle-publish-exam").forEach((button) => button.addEventListener("click", () => setExamPublication(button.dataset.id, button.dataset.action)));
+  document.querySelectorAll(".restore-exam").forEach((button) => button.addEventListener("click", () => setExamPublication(button.dataset.id, "restore")));
   renderMath();
 }
 
@@ -4564,19 +4823,40 @@ async function showAdminNotifications(message = "") {
 
 async function deleteExam(examId) {
   const exam = exams.find((item) => item.id === examId);
-  if (!exam || !confirm(`Delete "${exam.title}" and all its questions?`)) return;
+  if (!exam) return;
+  const confirmed = await requestConfirmation({
+    id: "archive-exam-confirm",
+    kicker: "Exam library",
+    title: `Archive “${exam.title}”?`,
+    message: "Students will no longer see or start this exam. Questions and all historical attempts will be preserved.",
+    cancelLabel: "Keep exam",
+    confirmLabel: "Archive exam"
+  });
+  if (!confirmed) return;
   if (apiEnabled()) {
     try {
       await window.CrosslineApi.deleteExam(examId);
       await refreshExamsFromApi(true);
-      return showAdminDashboard();
+      return showAdminDashboard("Exam archived. Historical attempts were preserved.");
     } catch (error) {
-      return showAdminDashboard();
+      return showAdminDashboard(error.message || "The exam could not be archived.");
     }
   }
   exams = exams.filter((item) => item.id !== examId);
   save("csca-exams", exams);
   showAdminDashboard();
+}
+
+async function setExamPublication(examId, action) {
+  try {
+    if (action === "publish") await window.CrosslineApi.publishExam(examId);
+    else if (action === "unpublish") await window.CrosslineApi.unpublishExam(examId);
+    else await window.CrosslineApi.restoreExam(examId);
+    await refreshExamsFromApi(true);
+    showAdminDashboard(action === "publish" ? "Exam published to students." : action === "unpublish" ? "Exam moved back to draft." : "Exam restored as a draft.");
+  } catch (error) {
+    showAdminDashboard(error.message || "The exam status could not be changed.");
+  }
 }
 async function showAdminSubmissions(message = "") {
   message = typeof message === "string" ? message : "";
@@ -4733,6 +5013,15 @@ function showQuestionEditor(examId) {
     exam.questions.push(question); save("csca-exams", exams); showQuestionEditor(examId);
   });
   document.querySelectorAll(".delete-question").forEach((button) => button.addEventListener("click", async () => {
+    const confirmed = await requestConfirmation({
+      id: "delete-question-confirm",
+      kicker: "Question editor",
+      title: "Delete this question?",
+      message: "The question will be removed from future attempts. Existing submitted results keep their original snapshot.",
+      cancelLabel: "Keep question",
+      confirmLabel: "Delete question"
+    });
+    if (!confirmed) return;
     if (apiEnabled() && button.dataset.questionId) {
       try {
         await window.CrosslineApi.deleteQuestion(examId, button.dataset.questionId);
@@ -4890,15 +5179,17 @@ if (isDesktopClient()) {
   registerIntegrityEvents();
   registerContentProtectionEvents();
   registerOAuthListener();
-  const hasRememberedSession = apiEnabled()
-    ? Boolean(window.CrosslineApi?.getStudentToken?.())
-    : Boolean(String(load(localSessionKey(), "")).trim());
-  if (hasRememberedSession) {
-    showClientLoading("Opening Crossline CSCA Practice");
-    void restoreStudentSession().then((restored) => { if (!restored) showAuth(); });
-  } else {
-    showAuth();
-  }
+  showClientLoading("Opening Crossline CSCA Practice");
+  void (async () => {
+    await window.CrosslineApi?.hydrateTokens?.();
+    const hasRememberedSession = apiEnabled()
+      ? Boolean(await window.CrosslineApi?.getStudentTokenAsync?.())
+      : Boolean(String(load(localSessionKey(), "")).trim());
+    if (hasRememberedSession) {
+      const restored = await restoreStudentSession();
+      if (!restored) showAuth();
+    } else showAuth();
+  })();
 } else {
   const authComplete = new URLSearchParams(window.location.search).get("auth") === "complete";
   if (authComplete && apiEnabled() && window.CrosslineApi?.getStudentToken?.()) {

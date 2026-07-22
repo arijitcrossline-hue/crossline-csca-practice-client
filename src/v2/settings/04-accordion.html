@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings Demo 4 — Accordion</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* DEMO 4: Accordion. Sections collapse/expand. Only one open at a time. Compact header bar. */
+.s-body { padding: 24px 36px; max-width: 720px; margin: 0 auto; display: grid; gap: 12px; }
+.acc-item { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: 0 6px 16px rgba(98,57,26,.04); }
+.acc-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px; cursor: pointer; user-select: none; transition: background .12s; }
+.acc-head:hover { background: var(--cream-2); }
+.acc-head .acc-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--red-soft); color: var(--red); display: grid; place-items: center; flex-shrink: 0; }
+.acc-head .acc-icon svg { width: 19px; height: 19px; }
+.acc-head .acc-title { flex: 1; }
+.acc-head .acc-title b { font-size: .98rem; font-weight: 700; display: block; }
+.acc-head .acc-title small { font-size: .78rem; color: var(--muted); }
+.acc-head .chev { color: var(--muted); transition: transform .2s; }
+.acc-item.open .chev { transform: rotate(90deg); }
+.acc-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+.acc-item.open .acc-body { max-height: 700px; }
+.acc-body-inner { padding: 0 22px 22px; display: grid; gap: 14px; border-top: 1px solid var(--border-soft); margin-top: 0; padding-top: 20px; }
+.profile-row { display: flex; align-items: center; gap: 16px; }
+.profile-row .avatar-picker { width: 56px; height: 56px; }
+.profile-row h2 { font-size: 1.1rem; }
+.profile-row p { font-size: .82rem; color: var(--muted); }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+</style>
+</head><body>
+<div class="demo-ribbon">DEMO 4 · Accordion <a href="index.html">← all demos</a></div>
+<main class="dash-shell">
+  <aside class="dash-sidebar">
+    <div class="dash-logo"><img src="../../assets/crossline-icon.png" alt="" /><span><b>Crossline</b><small>Education</small></span></div>
+    <nav class="dash-nav">
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Dashboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg><span>Exams</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg><span>Results</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg><span>Weakness</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/></svg><span>Leaderboard</span></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg><span>Pricing</span></button>
+      <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.36.36.59.85.6 1.36V11a2 2 0 0 1 0 4h-.09c-.5 0-.99.23-1.36.6z"/></svg><span>Settings</span></button>
+    </nav>
+    <dash class="dash-user"><span class="avatar">AS</span><div class="meta"><b>Arijit S.</b><small>CSCA Candidate</small></div></dash>
+  </aside>
+
+  <section class="dash-main">
+    <header class="dash-topbar"><div><h1>Settings</h1><p>Profile, updates, and support.</p></div></header>
+    <div class="s-body">
+
+      <div class="acc-item open">
+        <div class="acc-head"><span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg></span><div class="acc-title"><b>Profile</b><small>Name, username, photo</small></div><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></span></div>
+        <div class="acc-body"><div class="acc-body-inner">
+          <div class="profile-row"><label class="avatar-picker"><span class="placeholder">AS</span></label><div><h2>Arijit Bhowmik</h2><p>Update your profile details.</p></div></div>
+          <div class="field-row"><div class="field"><label>First name</label><input value="Arijit" /></div><div class="field"><label>Last name</label><input value="Bhowmik" /></div></div>
+          <div class="field"><label>Username</label><input value="Arijit" /></div>
+          <button class="btn btn-primary">Save profile</button>
+        </div></div>
+      </div>
+
+      <div class="acc-item">
+        <div class="acc-head"><span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.8 1 6.5 2.6L21 8"/><path d="M21 3v5h-5"/></svg></span><div class="acc-title"><b>Updates</b><small>v0.1.53 · up to date</small></div><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></span></div>
+        <div class="acc-body"><div class="acc-body-inner">
+          <p style="font-size:.88rem;color:var(--muted)">Updates verified before install. Reset interrupted downloads.</p>
+          <div class="btn-row"><button class="btn btn-outline">Check for updates</button><button class="btn btn-outline">Auto-update enabled</button><button class="btn btn-outline">Reset download</button></div>
+        </div></div>
+      </div>
+
+      <div class="acc-item">
+        <div class="acc-head"><span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></span><div class="acc-title"><b>Report a bug</b><small>Category, title, details</small></div><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></span></div>
+        <div class="acc-body"><div class="acc-body-inner">
+          <div class="field-row"><div class="field"><label>Category</label><select><option>App</option><option>Exam content</option><option>Camera or setup</option></select></div><div class="field"><label>Short title</label><input placeholder="What went wrong?" /></div></div>
+          <div class="field"><label>Details</label><textarea rows="4" placeholder="What did you do, what happened, what did you expect?"></textarea></div>
+          <button class="btn btn-primary">Send report</button>
+        </div></div>
+      </div>
+
+      <div class="acc-item">
+        <div class="acc-head"><span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/></svg></span><div class="acc-title"><b>Admin</b><small>2FA + admin panel</small></div><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></span></div>
+        <div class="acc-body"><div class="acc-body-inner">
+          <p style="font-size:.88rem;color:var(--muted)">Privileged access uses your account plus a 6-digit authenticator code.</p>
+          <button class="btn btn-outline">Open admin panel</button>
+        </div></div>
+      </div>
+
+    </div>
+  </section>
+</main>
+<script>
+document.querySelectorAll('.acc-head').forEach(h => h.addEventListener('click', () => {
+  const item = h.parentElement;
+  const wasOpen = item.classList.contains('open');
+  document.querySelectorAll('.acc-item').forEach(i => i.classList.remove('open'));
+  if (!wasOpen) item.classList.add('open');
+}));
+</script>
+</body></html>

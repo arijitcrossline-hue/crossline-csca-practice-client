@@ -32,6 +32,25 @@ export function buildPasswordResetEmail({ code, appUrl } = {}) {
   });
 }
 
+export function buildAccountDeletionEmail({ scheduledFor, cancelled = false, appUrl } = {}) {
+  const baseUrl = safeHttpUrl(appUrl) || DEFAULT_APP_URL;
+  const logoUrl = `${baseUrl}/assets/crossline-icon.png`;
+  const date = scheduledFor && !Number.isNaN(new Date(scheduledFor).getTime())
+    ? new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }).format(new Date(scheduledFor))
+    : "30 days from your request";
+  const subject = cancelled ? "Your Crossline account deletion was cancelled" : "Your Crossline account deletion is scheduled";
+  const heading = cancelled ? "Deletion cancelled" : "Deletion scheduled";
+  const copy = cancelled
+    ? "Your Crossline account will remain active. No account data was deleted by the cancelled request."
+    : `Your account and associated exam data are scheduled for deletion on ${date}.`;
+  const action = cancelled
+    ? "You can continue signing in normally."
+    : "You can cancel before that date from Settings > Privacy & data. If you did not make this request, sign in and cancel it immediately, then reset your password.";
+  const text = [heading, "", copy, "", action, "", "Crossline Education"].join("\n");
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f4f1ed;color:#211d1b;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f1ed;"><tr><td align="center" style="padding:28px 12px;"><table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#fffdfa;border:1px solid #d8d0ca;border-radius:8px;overflow:hidden;"><tr><td style="padding:24px 32px;border-bottom:1px solid #eee5df;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td width="48"><img src="${escapeHtml(logoUrl)}" width="42" height="42" alt="Crossline Education" style="display:block;border:0;border-radius:8px;"></td><td style="padding-left:10px;"><strong style="display:block;font-size:17px;">Crossline Education</strong><span style="display:block;margin-top:3px;color:#7c6e68;font-size:11px;">ACCOUNT SECURITY</span></td></tr></table></td></tr><tr><td style="padding:32px;"><p style="margin:0 0 8px;color:#bd2029;font-size:12px;font-weight:bold;text-transform:uppercase;">Privacy &amp; data</p><h1 style="margin:0;font-size:26px;line-height:1.25;">${escapeHtml(heading)}</h1><p style="margin:14px 0 0;color:#695c56;font-size:15px;line-height:1.65;">${escapeHtml(copy)}</p><div style="margin-top:22px;padding:18px;background:#fff3ee;border:1px solid #ead8d0;border-radius:8px;color:#5f514b;font-size:13px;line-height:1.6;">${escapeHtml(action)}</div></td></tr><tr><td style="padding:18px 32px;background:#f8f4f0;color:#857670;font-size:11px;line-height:1.5;">This is an automated security notice from Crossline Education.</td></tr></table></td></tr></table></body></html>`;
+  return { subject, text, html };
+}
+
 function buildCodeEmail({ code, appUrl, subject, preheader, label, eyebrow, heading, copy, codeLabel, note, textAction }) {
   const safeCode = String(code || "").replace(/\D/g, "").slice(0, 6);
   const baseUrl = safeHttpUrl(appUrl) || DEFAULT_APP_URL;
