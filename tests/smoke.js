@@ -319,8 +319,10 @@ async function studentFlow() {
   assert.match(pricingRoot.textContent, /PAST \+ 5/);
   assert.equal(pricingRoot.querySelector('[data-plan-id="past-plus-3"] [data-subject-price]').textContent, "$17");
   assert.doesNotMatch(pricingRoot.textContent, /\$17[–-]\$40/);
-  assert.equal(pricingRoot.querySelectorAll('[data-pricing-plan]').length, 3);
-  assert.ok([...pricingRoot.querySelectorAll('[data-pricing-plan]')].every((button) => button.textContent.trim() === "Get Started"));
+  assert.equal(pricingRoot.querySelector(".cx-price-free .cx-price-cta").textContent.trim(), "Current Plan");
+  assert.equal(pricingRoot.querySelector(".cx-price-free .cx-price-cta").disabled, true);
+  assert.equal(pricingRoot.querySelectorAll('[data-pricing-plan]').length, 2);
+  assert.ok([...pricingRoot.querySelectorAll('[data-pricing-plan]')].every((button) => button.textContent.trim() === "Upgrade"));
   assert.doesNotMatch(pricingRoot.textContent, /administrator|assignment available|assigned to/i);
   click(window, '[data-plan-id="past-plus-3"] [data-subjects="2"]');
   await waitUntil(() => assert.equal(pricingRoot.querySelector('[data-plan-id="past-plus-3"] [data-subject-price]').textContent, "$27"));
@@ -329,7 +331,7 @@ async function studentFlow() {
   assert.match(window.document.querySelector("#pricing-action-message").textContent, /Checkout.*2 subjects.*available soon/);
   assert.equal(window.document.querySelector("[data-payment-method]"), null);
   window.eval('renderPricing({ plans: [], plan: { id: "past-plus-3", name: "Past papers + 3 Crossline mocks", mockLimit: 3 }, usage: {} })');
-  assert.equal(window.document.querySelector('[data-plan-id="past-plus-3"] .cx-price-cta').textContent.trim(), "Current plan");
+  assert.equal(window.document.querySelector('[data-plan-id="past-plus-3"] .cx-price-cta').textContent.trim(), "Current Plan");
   assert.equal(window.document.querySelector('[data-plan-id="past-plus-5"] [data-pricing-plan]').textContent.trim(), "Upgrade");
   assert.doesNotMatch(window.document.querySelector(".pricing-app").textContent, /administrator|assignment available|assigned to/i);
   click(window, "#side-settings");

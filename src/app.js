@@ -223,14 +223,15 @@ function landingPricingCardsHtml({ appContext = false, currentPlan = null, plans
   const check = uiIcon("badge-check");
   const defaultSubjects = 1;
   const planOrder = { free: 0, "past-plus-3": 1, "past-plus-5": 2 };
+  const effectiveCurrentPlan = appContext ? (currentPlan || free) : currentPlan;
 
   const planAction = (plan, landingLabel) => {
     if (!appContext) return { label: landingLabel, attr: "data-create-account", disabled: false };
-    if (currentPlan?.id === plan.id) return { label: "Current plan", attr: "", disabled: true };
-    if (currentPlan && Number(planOrder[plan.id] ?? 0) <= Number(planOrder[currentPlan.id] ?? 0)) {
+    if (effectiveCurrentPlan?.id === plan.id) return { label: "Current Plan", attr: "", disabled: true };
+    if (effectiveCurrentPlan && Number(planOrder[plan.id] ?? 0) <= Number(planOrder[effectiveCurrentPlan.id] ?? 0)) {
       return { label: "Included", attr: "", disabled: true };
     }
-    return { label: currentPlan ? "Upgrade" : "Get Started", attr: `data-pricing-plan="${escapeHtml(plan.id)}"`, disabled: false };
+    return { label: "Upgrade", attr: `data-pricing-plan="${escapeHtml(plan.id)}"`, disabled: false };
   };
 
   const subjectSwitcher = (plan) => {
