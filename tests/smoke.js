@@ -319,6 +319,8 @@ async function studentFlow() {
   click(window, "#side-settings");
   assert.match(window.document.body.textContent, /Profile, updates, and support/);
   assert.ok(window.document.querySelector(".settings-split-layout"));
+  assert.equal(window.document.querySelectorAll(".dash-user-card").length, 1);
+  assert.equal(window.document.querySelector(".settings-account-card"), null);
   assert.ok(window.document.querySelector('[data-settings-target="profile"].active'));
   assert.equal(window.document.querySelector('[data-settings-section="profile"]').hidden, false);
   assert.equal(window.document.querySelector('[data-settings-section="support"]').hidden, true);
